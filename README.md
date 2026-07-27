@@ -31,6 +31,16 @@ their labels fall back to the percent it does send. TP is raw for everyone.
 Party members' MP bar follows their own job, and is dropped until their job is
 known.
 
+Two visibility gates, both off by default. They are **additive**: with neither
+on the panel always shows, and with either on it shows whenever at least one
+enabled gate passes. Turning both on is a union, so being engaged is enough on
+its own even when the battle-target check disagrees.
+
+| Setting | Shows when | Notes |
+|---|---|---|
+| **Show In Combat** | you have a battle target (`<bt>`, via `SeekBattleActor`) | Sticky — the game keeps returning the last battle actor after you disengage, so this tends to stay true once you've fought anything |
+| **Show While Engaged** | your entity status is `Engaged` (1) | Flips back to Idle the moment you disengage |
+
 Every visual property (panel size/rounding/colors, bar heights/colors, border,
 text color) is configurable via `/newui config` and persists across sessions.
 

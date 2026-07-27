@@ -20,10 +20,20 @@ local C   = ffi.C;
 local dev = d3d.get_device();
 
 ----------------------------------------------------------------------------------------------------
+-- Visibility gates. Two independent checks, each with its own setting:
+--
+--   show_in_combat     -- has a battle target (<bt>), via SeekBattleActor.
+--   show_while_engaged -- entity status says Engaged.
+--
+-- They are not the same test. SeekBattleActor keeps returning the last battle actor after you
+-- disengage, so it tends to stay true once you have fought anything; status flips back to Idle
+-- immediately. Because the two disagree, the gates combine as a union, not an intersection --
+-- see config.visible.
+----------------------------------------------------------------------------------------------------
+
 -- Battle target (<bt>). Trimmed from Ashita's targets.lua -- only the SeekBattleActor path is
 -- needed here, and only to know whether it returns anything. Type names are addon-prefixed so
 -- pulling in the full targets.lua later cannot collide with these cdefs.
-----------------------------------------------------------------------------------------------------
 
 ffi.cdef[[
     typedef struct {
@@ -52,6 +62,9 @@ local function inCombat()
     end
     return ffi.cast('NEWUI_SeekBattleActor_f', seek_battle_actor)() ~= nil;
 end
+
+-- Entity status values: 0 Idle, 1 Engaged, 2/3 Dead, 4 Zoning, 33 Resting.
+local STATUS_ENGAGED = 1;
 
 -- Fixed (non-configurable) drawing constant -- not requested as a setting.
 local BAR_ROUNDING = 3;
@@ -270,7 +283,8 @@ local function drawConfigWindow()
     end
 
     if (imgui.Begin('NewUI Config', config_open)) then
-        checkbox('Only Show In Combat', cfg, 'combat_only');
+        checkbox('Show In Combat', cfg, 'show_in_combat');
+        checkbox('Show While Engaged', cfg, 'show_while_engaged');
         checkbox('Show Party Members', cfg, 'show_party');
         slider(imgui.SliderInt, 'Panel Width', cfg.panel, 'width', 40, 300);
         slider(imgui.SliderInt, 'Panel Offset', cfg.panel, 'offset', 0, 20);
@@ -313,16 +327,18 @@ ashita.events.register('d3d_present', 'newui_present', function ()
         return;
     end
 
-    if (config.settings.combat_only and not inCombat()) then
-        return;
-    end
-
     local mm     = AshitaCore:GetMemoryManager();
     local player = mm:GetPlayer();
     local party  = mm:GetParty();
 
     -- Not logged in / zoning: main job reads 0.
     if (player == nil or player:GetMainJob() == 0) then
+        return;
+    end
+
+    -- Gated on your own status, not each member's, so the whole set shows/hides together.
+    local engaged = mm:GetEntity():GetStatus(party:GetMemberTargetIndex(0)) == STATUS_ENGAGED;
+    if (not config.visible(config.settings, inCombat(), engaged)) then
         return;
     end
 

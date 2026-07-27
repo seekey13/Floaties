@@ -13,10 +13,11 @@
 local M = {};
 
 M.defaults = {
-    enabled       = true,
-    combat_only   = false, -- hide the panel unless a battle target is set
-    show_party    = true,  -- draw panels over party members too, not just self
-    height_offset = 0.3,   -- positive = below feet (axis points down)
+    enabled            = true,
+    show_in_combat     = false, -- show when a battle target is set (<bt>)
+    show_while_engaged = false, -- show when entity status is Engaged
+    show_party         = true,  -- draw panels over party members too, not just self
+    height_offset      = 0.3,   -- positive = below feet (axis points down)
 
     panel = {
         width        = 100,
@@ -67,6 +68,26 @@ function M.bars_for(main_job, sub_job)
         return M.bar_order;
     end
     return { 'hp', 'tp' };
+end
+
+--[[
+* Whether the panel should be drawn at all, from the two visibility gates.
+*
+* The gates are additive, not restrictive: with neither on the panel always
+* shows; with either on it shows whenever at least one *enabled* gate is
+* satisfied. So switching both on is a union -- being engaged is enough on its
+* own, even while the battle-target check disagrees (it goes stale, and would
+* otherwise veto a frame you are plainly fighting in).
+*
+* @param {boolean} in_combat - a battle target is set.
+* @param {boolean} engaged - entity status is Engaged.
+* @return {boolean}
+--]]
+function M.visible(cfg, in_combat, engaged)
+    if (not cfg.show_in_combat and not cfg.show_while_engaged) then
+        return true;
+    end
+    return (cfg.show_in_combat and in_combat) or (cfg.show_while_engaged and engaged);
 end
 
 function M.bar_width(cfg)
