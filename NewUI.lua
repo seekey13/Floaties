@@ -336,33 +336,52 @@ local function drawLabel(draw_list, left, top, width, height, value, percent, cf
     local base = imgui.GetFontSize();
     if (sized_text == false) then size = base; end
 
+    -- Bold is the fill drawn a second time a pixel to the right, thickening every vertical stroke.
+    -- ImGui has no weight to ask for: a real bold face is a second font baked into the atlas, and
+    -- the atlas belongs to Ashita, which builds it before any addon loads. `bx` is that second
+    -- stamp's offset, and 0 when bold is off, so it drops out of the metrics below.
+    local bx = cfg.text.bold and 1 or 0;
+
     local label  = percent and ('%d%%'):fmt(value) or ('%d'):fmt(value);
     -- CalcTextSize measures at the UI font, so the metrics need the same ratio the glyphs get.
     local k      = size / base;
     local tw, th = imgui.CalcTextSize(label);
-    tw, th = tw * k, th * k;
+    tw, th = tw * k + bx, th * k;
 
     -- In the sized path this is near enough a no-op -- the size was derived to fit. It is the
     -- whole rule in the unsized one, and it is what catches a 4 digit value in a narrow panel.
     if (th > height - config.label_inset or tw > width) then return; end
 
-    local x = left + (width - tw) / 2;
-    local y = top + (height - th) / 2;
+    -- Whole pixels, for the same reason the size is floored (config.label_size): a glyph whose
+    -- origin lands mid-pixel is filtered differently every frame the panel drifts, which is what
+    -- makes a label shimmer while the camera moves.
+    local x = math.floor(left + (width - tw) / 2);
+    local y = math.floor(top + (height - th) / 2);
+
+    -- Near the floor the label fades instead of cutting out, so a bar hovering either side of it
+    -- as the camera moves does not blink its number on and off.
+    local fade = config.label_fade(cfg, size);
+    if (fade <= 0) then return; end
 
     -- AddText draws a fill and nothing else, so the outline is the same string stamped in the
     -- outline color one pixel out in each direction, underneath. Four offsets, not eight: at a
-    -- single pixel the diagonals are already covered by their two neighbours.
+    -- single pixel the diagonals are already covered by their two neighbours. The right-hand one
+    -- clears the bold stamp too, or bold text would lose its outline down that edge.
     -- ponytail: the offset stays 1px at every text size, and outline alpha 0 is the off switch.
     local outline = cfg.text.outline_color;
     if (outline.a > 0) then
-        local col = packColor(outline);
+        local col = packColor(outline, outline.a * fade);
         addText(draw_list, font, size, x - 1, y, col, label);
-        addText(draw_list, font, size, x + 1, y, col, label);
+        addText(draw_list, font, size, x + 1 + bx, y, col, label);
         addText(draw_list, font, size, x, y - 1, col, label);
         addText(draw_list, font, size, x, y + 1, col, label);
     end
 
-    addText(draw_list, font, size, x, y, packColor(cfg.text.color), label);
+    local fill = packColor(cfg.text.color, cfg.text.color.a * fade);
+    addText(draw_list, font, size, x, y, fill, label);
+    if (cfg.text.bold) then
+        addText(draw_list, font, size, x + bx, y, fill, label);
+    end
 end
 
 -- `size` is the panel kind's own entry in cfg.sizes -- width plus a height per bar. Everything
@@ -630,6 +649,7 @@ local function drawConfigWindow()
         colorEdit('Text Color', cfg.text.color);
         colorEdit('Text Outline Color', cfg.text.outline_color);
         slider(imgui.SliderInt, 'Min Text Size', cfg.text, 'min_size', 1, 20);
+        checkbox('Bold Text', cfg.text, 'bold');
 
         -- Per bar, so a row can keep its height and lose only its number.
         for _, key in ipairs(config.bar_order) do

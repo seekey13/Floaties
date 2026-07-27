@@ -257,6 +257,21 @@ rather than numbers, and the 1px outline underneath is then wider than the
 strokes it is outlining. `6` printed a readable-looking 6px label on a 10px TP
 bar, which is what the floor exists to stop.
 
+Labels **fade** over the first 3px above the floor rather than cutting out at
+it, and both their size and their origin are snapped to whole pixels. Both exist
+to stop the text flickering while the camera moves: view depth wobbles
+constantly, so a bar sitting near the floor would otherwise cross it several
+times a second and pop its label on and off, and a glyph asked for at a
+fractional size or drawn at a fractional origin gets resampled differently every
+frame, which reads as a shimmer.
+
+**Bold Text** (on) stamps the fill a second time one pixel right, thickening
+every vertical stroke. It is not a bold face: ImGui takes a font, not a weight,
+and the font atlas belongs to Ashita, which builds it before any addon loads —
+so a real bold face would mean shipping and baking a second TTF. The extra pixel
+is counted into the width fit check, so bolding a label can push a wide value
+over its bar's width and hide it.
+
 ### Per-bar text
 
 **Show HP / MP / TP Text** switch a bar's number off without touching its

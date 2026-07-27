@@ -87,10 +87,14 @@ M.defaults = {
     -- 9 because ImGui's font is rasterized at 13px and downscaled from there: by 8 the digits
     -- have lost enough pixels to read as texture, and the 1px outline underneath is then wider
     -- than the strokes it is outlining. A 13px bar is the shortest that still prints.
+    --
+    -- `bold` is a second fill stamped a pixel right of the first, not a bold face: ImGui takes a
+    -- font, not a weight, and the atlas is Ashita's, built before any addon loads.
     text = {
         color         = { r = 1, g = 1, b = 1, a = 1 },
         outline_color = { r = 0, g = 0, b = 0, a = 1 },
         min_size      = 9,
+        bold          = true,
     },
 };
 
@@ -194,16 +198,43 @@ M.label_inset = 0;
 * sits in -- at any configured bar height, and at any distance scale, since `bar_height` is the
 * drawn height and already carries the scale.
 *
+* Floored to a whole pixel. ImGui downscales one 13px atlas glyph to whatever size it is asked
+* for, so a size that drifts by fractions every frame -- which is what a distance-scaled panel
+* hands it while the camera moves -- resamples the same digit differently each frame and reads as
+* the text shimmering. Whole pixels hold it still until the size genuinely changes.
+*
 * @param {number} bar_height - drawn height of the bar in pixels.
 * @return {number|nil} font size, or nil when the bar cannot hold a legible one and the label
 *                      should be dropped for that bar.
 --]]
 function M.label_size(cfg, bar_height)
-    local size = bar_height - M.label_inset;
+    local size = math.floor(bar_height - M.label_inset);
     if (size < cfg.text.min_size) then
         return nil;
     end
     return size;
+end
+
+-- Sizes over the floor across which the label fades in, in pixels.
+M.label_fade_range = 3;
+
+--[[
+* Opacity multiplier for a label, so the floor is a fade rather than a cliff.
+*
+* A hard cutoff blinks: view depth wobbles as the camera moves, so a bar sitting near the floor
+* crosses it several times a second and its label pops in and out. Ramping the alpha over the
+* first few pixels above the floor makes that crossing continuous -- the label is already
+* invisible by the time it is dropped, so there is nothing left to pop.
+*
+* @param {number} size - font size from M.label_size.
+* @return {number} 0 .. 1.
+--]]
+function M.label_fade(cfg, size)
+    local over = size - cfg.text.min_size;
+    if (over >= M.label_fade_range) then
+        return 1;
+    end
+    return math.max(over / M.label_fade_range, 0);
 end
 
 function M.panel_height(cfg, size, bars)

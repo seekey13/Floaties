@@ -197,6 +197,30 @@ assert(config.label_size(config.defaults, 16 * 1.5) ~= nil, 'a 16px bar scaled u
 -- has to stay above where ImGui's 13px atlas stops resolving when downscaled.
 assert(config.defaults.text.min_size >= 8, 'a floor under 8px lets the mush regime back in');
 
+-- Whole-pixel sizes: a size that drifts by fractions as the camera moves resamples the same glyph
+-- every frame, which is what shimmering text is.
+for _, h in ipairs({ 16.4, 16.5, 16.9, 21.0001, 39.999 }) do
+    local size = config.label_size(config.defaults, h);
+    assert(size == math.floor(size), 'label size must be whole pixels, got ' .. tostring(size));
+    assert(size <= h, 'flooring must never round a label up past its bar');
+end
+
+-- The floor fades rather than cuts, so a bar wobbling across it cannot blink its label.
+local MIN = config.defaults.text.min_size;
+assert(config.label_fade(config.defaults, MIN) == 0, 'at the floor the label is fully faded out');
+assert(config.label_fade(config.defaults, MIN + config.label_fade_range) == 1, 'a full fade range over the floor is fully opaque');
+assert(config.label_fade(config.defaults, MIN + 100) == 1, 'well over the floor stays opaque, never brighter');
+assert(config.label_fade(config.defaults, MIN - 5) == 0, 'under the floor cannot go negative');
+
+-- Monotone in between, or the fade would not be a fade.
+local prev = -1;
+for size = MIN, MIN + config.label_fade_range do
+    local a = config.label_fade(config.defaults, size);
+    assert(a > prev, 'fade must rise with size, stalled at ' .. size);
+    assert(a >= 0 and a <= 1, 'fade out of range at ' .. size);
+    prev = a;
+end
+
 -- Per-bar label toggles: every drawable bar has one, and they ship on.
 for _, key in ipairs(config.bar_order) do
     assert(config.defaults.bars[key].label == true, key .. ' must ship with its label on');
