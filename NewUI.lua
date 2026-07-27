@@ -194,10 +194,42 @@ local function drawPanel(sx, sy, s, bars)
         end
 
         drawBar(draw_list, bar_left, bar_top, bw, h, cells, bar_cfg.color, cfg, bar_rounding);
-        drawLabel(draw_list, bar_left, bar_top, bw, h, s[key .. '_raw'], cfg);
+        drawLabel(draw_list, bar_left, bar_top, bw, h, stats.label(s, key), cfg);
 
         bar_top = bar_top + h + cfg.gap;
     end
+end
+
+--[[
+* Draws one party slot's panel over that member's head. Silently skips slots
+* that are empty, out of zone (target index 0), or off screen.
+--]]
+local function drawMember(mm, party, i, view, proj, vp)
+    local s = stats.read(party, i);
+    if (s == nil) then
+        return;
+    end
+
+    local index = party:GetMemberTargetIndex(i);
+    if (index == 0) then
+        return;
+    end
+
+    local ent = mm:GetEntity();
+    local px  = ent:GetLocalPositionX(index);
+    local py  = ent:GetLocalPositionY(index);
+    local pz  = ent:GetLocalPositionZ(index) + config.settings.height_offset;
+
+    -- Position struct is stored X, Z, Y - the game's Z is the D3D up-axis.
+    local sx, sy, sz = worldToScreen(px, pz, py, view, proj, vp.Width, vp.Height);
+
+    if (sz < 0 or sz > 1 or sx < 0 or sx > vp.Width or sy < 0 or sy > vp.Height) then
+        return;
+    end
+
+    -- Jobs of party members are only known once they've been seen; an unknown
+    -- job reads 0, which bars_for treats as "no MP pool".
+    drawPanel(sx, sy, s, config.bars_for(party:GetMemberMainJob(i), party:GetMemberSubJob(i)));
 end
 
 local function drawConfigWindow()
@@ -239,6 +271,7 @@ local function drawConfigWindow()
 
     if (imgui.Begin('NewUI Config', config_open)) then
         checkbox('Only Show In Combat', cfg, 'combat_only');
+        checkbox('Show Party Members', cfg, 'show_party');
         slider(imgui.SliderInt, 'Panel Width', cfg.panel, 'width', 40, 300);
         slider(imgui.SliderInt, 'Panel Offset', cfg.panel, 'offset', 0, 20);
         slider(imgui.SliderInt, 'Panel Rounding', cfg.panel, 'rounding', 0, 20);
@@ -289,24 +322,7 @@ ashita.events.register('d3d_present', 'newui_present', function ()
     local party  = mm:GetParty();
 
     -- Not logged in / zoning: main job reads 0.
-    if (player == nil) then
-        return;
-    end
-
-    local main_job = player:GetMainJob();
-    if (main_job == 0) then
-        return;
-    end
-
-    local bars = config.bars_for(main_job, player:GetSubJob());
-
-    local s = stats.read(party);
-    if (s == nil) then
-        return;
-    end
-
-    local index = party:GetMemberTargetIndex(0);
-    if (index == 0) then
+    if (player == nil or player:GetMainJob() == 0) then
         return;
     end
 
@@ -315,19 +331,10 @@ ashita.events.register('d3d_present', 'newui_present', function ()
     local _, view = dev:GetTransform(C.D3DTS_VIEW);
     local _, proj = dev:GetTransform(C.D3DTS_PROJECTION);
 
-    local ent = mm:GetEntity();
-    local px  = ent:GetLocalPositionX(index);
-    local py  = ent:GetLocalPositionY(index);
-    local pz  = ent:GetLocalPositionZ(index) + config.settings.height_offset;
-
-    -- Position struct is stored X, Z, Y - the game's Z is the D3D up-axis.
-    local sx, sy, sz = worldToScreen(px, pz, py, view, proj, vp.Width, vp.Height);
-
-    if (sz < 0 or sz > 1 or sx < 0 or sx > vp.Width or sy < 0 or sy > vp.Height) then
-        return;
+    -- Slot 0 is self; 1..5 are the rest of the party.
+    for i = 0, (config.settings.show_party and 5 or 0) do
+        drawMember(mm, party, i, view, proj, vp);
     end
-
-    drawPanel(sx, sy, s, bars);
 end);
 
 ----------------------------------------------------------------------------------------------------

@@ -15,6 +15,7 @@ local M = {};
 M.defaults = {
     enabled       = true,
     combat_only   = false, -- hide the panel unless a battle target is set
+    show_party    = true,  -- draw panels over party members too, not just self
     height_offset = 0.3,   -- positive = below feet (axis points down)
 
     panel = {
