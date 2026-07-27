@@ -65,6 +65,44 @@ local function battleTarget()
     return ok and ent or nil;
 end
 
+--[[
+* Whether a <bt> entity counts as being in combat with something.
+*
+* get_bt is not a combat test: SeekBattleActor keeps handing back an entity after the fight ends,
+* and that entity is not always a mob -- a trust in your own party turns up there, which is what
+* made the gate stick on. Sidekick solves the same problem in is_combat with the mob SpawnFlags
+* test; the party test on top of it is for trusts and pets, which live in the 0x700 index range
+* and carry the mob flag despite being yours.
+*
+* @param {userdata|nil} ent - The battle target entity.
+* @param {userdata} party - The party memory manager.
+* @return {boolean}
+--]]
+local function isEnemy(ent, party)
+    if (ent == nil) then
+        return false;
+    end
+
+    -- Not a mob: PC, NPC, or whatever stale index the pointer held.
+    if (bit.band(ent.SpawnFlags, 0x10) == 0) then
+        return false;
+    end
+
+    -- A corpse is still handed back for a while after the kill.
+    if (ent.HPPercent == 0 or ent.Status == 2 or ent.Status == 3) then
+        return false;
+    end
+
+    -- 0..17 covers party and both alliance parties, so alliance trusts are caught too.
+    for i = 0, 17 do
+        if (party:GetMemberIsActive(i) == 1 and party:GetMemberServerId(i) == ent.ServerId) then
+            return false;
+        end
+    end
+
+    return true;
+end
+
 ----------------------------------------------------------------------------------------------------
 -- Gate state. Recomputed once per frame, before anything can return early, so the config window's
 -- status line still reads true while the panel itself is hidden -- that line is the whole point
@@ -95,12 +133,18 @@ local function updateGateState(mm, player, party)
 
     local status = mm:GetEntity():GetStatus(party:GetMemberTargetIndex(0));
     local bt     = battleTarget();
+    local enemy  = isEnemy(bt, party);
 
-    gate_state.show_in_combat     = bt ~= nil;
+    gate_state.show_in_combat     = enemy;
     gate_state.show_while_engaged = status == STATUS_ENGAGED;
     gate_state.show_while_idle    = status == STATUS_IDLE;
     gate_state.status             = status;
-    gate_state.bt_text            = bt ~= nil and ('%s hp=%d%% status=%d'):fmt(bt.Name, bt.HPPercent, bt.Status) or 'none';
+
+    -- Rejected targets still print, so "gate is off but get_bt has something" is readable rather
+    -- than looking identical to "get_bt has nothing".
+    gate_state.bt_text = bt == nil and 'none'
+        or ('%s hp=%d%% status=%d flags=0x%X%s'):fmt(bt.Name, bt.HPPercent, bt.Status, bt.SpawnFlags,
+                                                     enemy and '' or ' REJECTED');
 end
 
 -- Fixed (non-configurable) drawing constant -- not requested as a setting.

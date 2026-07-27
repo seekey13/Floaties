@@ -70,11 +70,23 @@ combat" and prints a warning at load. It previously failed *open*, which under
 additive gates meant the panel was permanently visible whenever the setting was
 ticked.
 
-The gate is `get_bt() ~= nil`, nothing more — the library's answer is taken
-as-is. Sidekick layers a mob `SpawnFlags` test on top of it in `is_combat`; that
-is not done here. If `<bt>` starts reading as in-combat when it should not, the
-status line below shows exactly what entity it resolved to, and a `SpawnFlags`
-filter is the first thing to try.
+`get_bt() ~= nil` is **not** the gate, because it is not a combat test:
+`SeekBattleActor` keeps handing back an entity after the fight ends, and that
+entity is not always a mob — a trust in your own party turns up there, which
+pinned the gate on. Three filters run on top of the library's answer, matching
+what Sidekick's `is_combat` does:
+
+- **Mob** — `SpawnFlags & 0x10`, same test as Sidekick. Rejects PCs, NPCs, and
+  whatever stale index the pointer happened to hold.
+- **Alive** — `HPPercent > 0` and status not `2`/`3`. The corpse is still handed
+  back for a while after the kill.
+- **Not yours** — server id absent from party slots `0..17`. Trusts and pets
+  carry the mob flag (they live in the `0x700` index range), so the flag test
+  alone does not exclude them; the alliance range is covered too.
+
+A target that fails any of them is printed with ` REJECTED` on the status line
+rather than dropped, so "the gate is off but `get_bt` has something" reads
+differently from "`get_bt` has nothing".
 
 ### Reading the gate state
 
@@ -85,7 +97,7 @@ live — **In Combat / Engaged / Idle** in green when true, red when false,
 followed by the raw entity status and what `<bt>` currently resolves to:
 
 ```
-In Combat: true  Engaged: true  Idle: false  | status=1 | bt: Mandragora hp=63% status=1
+In Combat: true  Engaged: true  Idle: false  | status=1 | bt: Mandragora hp=63% status=1 flags=0x10
 Panel: shown
 ```
 
@@ -95,7 +107,8 @@ gate enabled it reads `hidden -- no gate enabled, so nothing can enable it`.
 
 `status=` before the pipe is *your* entity status; the one inside `bt:` is the
 battle target's, so a corpse still being handed back by `get_bt` is visible as
-`status=2`/`3` or `hp=0%`. `bt: none` means `get_bt` returned nothing.
+`status=2`/`3` or `hp=0%`, and the trust case as `REJECTED` on a party member's
+name. `bt: none` means `get_bt` returned nothing.
 `/newui bt` prints the same line to the log.
 
 **Show While Engaged** tests a similar condition through a supported Ashita API
