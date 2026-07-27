@@ -78,7 +78,12 @@ M.defaults = {
     -- `empty` = the background track behind any bar's fill.
     states = { full = 1.0, empty = 0.2, incomplete = 0.5 },
 
-    text = { color = { r = 1, g = 1, b = 1, a = 1 } },
+    -- The label is drawn twice: an outline pass in `outline_color`, then the fill in `color`
+    -- (see drawLabel). Outline alpha 0 skips the outline pass entirely.
+    text = {
+        color         = { r = 1, g = 1, b = 1, a = 1 },
+        outline_color = { r = 0, g = 0, b = 0, a = 1 },
+    },
 };
 
 -- Bars in draw order, top to bottom.

@@ -236,6 +236,11 @@ Every visual property is configurable via `/newui config` and persists across
 sessions — per-panel widths and bar heights (see **Panel sizes**), and shared
 padding/rounding/colors/border/text color.
 
+Labels carry a separate outline color from their fill: **Text Outline Color**
+draws the number a second time one pixel out in each direction, underneath, so a
+white digit stays readable over a light bar. Setting its alpha to `0` skips the
+outline pass — there is no separate toggle.
+
 ## Commands
 
 | Command | Effect |

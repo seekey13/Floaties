@@ -301,10 +301,26 @@ end
 -- raw amount was available (every target panel, and party members until their raw HP is known).
 -- Marking it matters -- a target at "42" reads as 42 HP left, not 42%.
 local function drawLabel(draw_list, left, top, width, height, value, percent, cfg)
-    local label      = percent and ('%d%%'):fmt(value) or ('%d'):fmt(value);
-    local tw, th     = imgui.CalcTextSize(label);
-    local text_col   = packColor(cfg.text.color);
-    draw_list:AddText({ left + (width - tw) / 2, top + (height - th) / 2 }, text_col, label);
+    local label  = percent and ('%d%%'):fmt(value) or ('%d'):fmt(value);
+    local tw, th = imgui.CalcTextSize(label);
+    local x      = left + (width - tw) / 2;
+    local y      = top + (height - th) / 2;
+
+    -- AddText draws a fill and nothing else, so the outline is the same string stamped in the
+    -- outline color one pixel out in each direction, underneath. Four offsets, not eight: at a
+    -- single pixel the diagonals are already covered by their two neighbours.
+    -- The offset is fixed at 1px like the font itself, which does not scale with the panel.
+    -- ponytail: outline alpha 0 is the off switch -- no separate visibility toggle.
+    local outline = cfg.text.outline_color;
+    if (outline.a > 0) then
+        local col = packColor(outline);
+        draw_list:AddText({ x - 1, y }, col, label);
+        draw_list:AddText({ x + 1, y }, col, label);
+        draw_list:AddText({ x, y - 1 }, col, label);
+        draw_list:AddText({ x, y + 1 }, col, label);
+    end
+
+    draw_list:AddText({ x, y }, packColor(cfg.text.color), label);
 end
 
 -- `size` is the panel kind's own entry in cfg.sizes -- width plus a height per bar. Everything
@@ -575,6 +591,7 @@ local function drawConfigWindow()
 
         imgui.Separator();
         colorEdit('Text Color', cfg.text.color);
+        colorEdit('Text Outline Color', cfg.text.outline_color);
     end
     imgui.End();
 end
