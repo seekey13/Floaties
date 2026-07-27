@@ -249,16 +249,23 @@ end
 
 --[[
 * Projects a world point to screen space.
-* @return {number,number,number} x, y, ndcDepth. Depth outside 0..1 means it is not on screen.
+*
+* The fourth return is p.w, the view-space depth the perspective divide is about to happen by --
+* distance along the camera's forward axis. It is handed back because it is exactly the quantity
+* distance scaling needs (config.panel_scale), and computing it here costs nothing.
+*
+* @return {number,number,number,number} x, y, ndcDepth, viewDepth. ndcDepth outside 0..1 means it
+*         is not on screen.
 --]]
 local function worldToScreen(x, y, z, view, proj, w, h)
     local p   = vec4Xf(ffi.new('D3DXVECTOR4', { x, y, z, 1 }), matMul(view, proj));
-    if (p.w == 0) then return 0, 0, -1; end
+    if (p.w == 0) then return 0, 0, -1, 0; end
 
     local rhw = 1 / p.w;
     return math.floor((p.x * rhw + 1) * 0.5 * w),
            math.floor((1 - p.y * rhw) * 0.5 * h),
-           p.z * rhw;
+           p.z * rhw,
+           p.w;
 end
 
 ----------------------------------------------------------------------------------------------------
@@ -299,15 +306,22 @@ end
 
 -- `size` is the panel kind's own entry in cfg.sizes -- width plus a height per bar. Everything
 -- else about the panel is shared config.
-local function drawPanel(sx, sy, s, bars, size)
+--
+-- `scale` multiplies every pixel dimension: the two config.lua layout functions are linear in all
+-- their inputs, so scaling their results is the same as scaling the widths, heights, gap and
+-- padding they were built from. Padding and rounding scale too, or a shrunk panel keeps a 4px
+-- border that swallows the bars.
+local function drawPanel(sx, sy, s, bars, size, scale)
     local cfg    = config.settings;
-    local width  = size.width;
-    local height = config.panel_height(cfg, size, bars);
-    local bw     = config.bar_width(cfg, size);
+    local width  = size.width * scale;
+    local height = config.panel_height(cfg, size, bars) * scale;
+    local bw     = config.bar_width(cfg, size) * scale;
+    local pad    = cfg.panel.offset * scale;
+    local gap    = cfg.gap * scale;
 
     local left     = sx - width / 2;
     local top      = sy;
-    local rounding = cfg.panel.rounded and cfg.panel.rounding or 0;
+    local rounding = cfg.panel.rounded and cfg.panel.rounding * scale or 0;
 
     local draw_list = imgui.GetBackgroundDrawList();
 
@@ -316,21 +330,27 @@ local function drawPanel(sx, sy, s, bars, size)
         draw_list:AddRect({ left, top }, { left + width, top + height }, packColor(cfg.panel.border_color), rounding);
     end
 
-    local bar_left     = left + cfg.panel.offset;
-    local bar_top      = top + cfg.panel.offset;
-    local bar_rounding = cfg.bars.rounded and BAR_ROUNDING or 0;
+    local bar_left     = left + pad;
+    local bar_top      = top + pad;
+    local bar_rounding = cfg.bars.rounded and BAR_ROUNDING * scale or 0;
+
+    -- Text is the one thing that cannot scale: these go to the background draw list, which has no
+    -- window font scale to push and takes no font size on AddText. So the numbers are dropped
+    -- once the panel is small enough that a fixed-size digit would overflow its bar -- which is
+    -- also about where it stops being readable.
+    local labels = scale >= cfg.scale_label_min;
 
     for _, key in ipairs(bars) do
         local bar_cfg = cfg.bars[key];
-        local h       = size[key];
+        local h       = size[key] * scale;
 
         if (key == 'tp') then
             -- Three separate bars, one per 1000 TP, sharing the row's width.
             -- ponytail: reuses cfg.gap for the horizontal spacing rather than adding a setting.
-            local seg_w = (bw - 2 * cfg.gap) / 3;
+            local seg_w = (bw - 2 * gap) / 3;
             for i = 1, 3 do
                 local frac = stats.tp_segment(s.tp_raw, i);
-                drawBar(draw_list, bar_left + (i - 1) * (seg_w + cfg.gap), bar_top, seg_w, h,
+                drawBar(draw_list, bar_left + (i - 1) * (seg_w + gap), bar_top, seg_w, h,
                         frac, (frac >= 1) and 'full' or 'incomplete', bar_cfg.color, cfg, bar_rounding);
             end
         else
@@ -338,9 +358,11 @@ local function drawPanel(sx, sy, s, bars, size)
         end
 
         -- Label stays centered across the whole row, so TP prints over the middle bar.
-        drawLabel(draw_list, bar_left, bar_top, bw, h, stats.label(s, key), cfg);
+        if (labels) then
+            drawLabel(draw_list, bar_left, bar_top, bw, h, stats.label(s, key), cfg);
+        end
 
-        bar_top = bar_top + h + cfg.gap;
+        bar_top = bar_top + h + gap;
     end
 end
 
@@ -369,10 +391,12 @@ local function drawAt(mm, index, s, bars, size, offset, view, proj, vp)
     local pz  = (top or ent:GetLocalPositionZ(index)) + offset;
 
     -- Position struct is stored X, Z, Y - the game's Z is the D3D up-axis.
-    local sx, sy, sz = worldToScreen(px, pz, py, view, proj, vp.Width, vp.Height);
+    local sx, sy, sz, depth = worldToScreen(px, pz, py, view, proj, vp.Width, vp.Height);
 
     if (sz >= 0 and sz <= 1 and sx >= 0 and sx <= vp.Width and sy >= 0 and sy <= vp.Height) then
-        drawPanel(sx, sy, s, bars, size);
+        -- Scale comes from the anchor point, so the panel keeps its top edge pinned under the
+        -- nameplate and grows or shrinks downward from there.
+        drawPanel(sx, sy, s, bars, size, config.panel_scale(config.settings, depth));
     end
 
     return top ~= nil;
@@ -504,6 +528,17 @@ local function drawConfigWindow()
         colorEdit('Panel Border Color', cfg.panel.border_color);
         slider(imgui.SliderInt, 'Bar Gap', cfg, 'gap', 0, 10);
         checkbox('Border Visible', cfg, 'border_visible');
+
+        -- Distance scaling. The remaining sliders do nothing while the checkbox is off, so they
+        -- are only drawn when it is on rather than sitting there inert.
+        imgui.Separator();
+        checkbox('Scale With Distance', cfg, 'distance_scale');
+        if (cfg.distance_scale) then
+            slider(imgui.SliderFloat, 'Scale Reference Depth', cfg, 'scale_ref', 1, 30);
+            slider(imgui.SliderFloat, 'Scale Min', cfg, 'scale_min', 0.1, 1);
+            slider(imgui.SliderFloat, 'Scale Max', cfg, 'scale_max', 1, 4);
+            slider(imgui.SliderFloat, 'Hide Labels Below', cfg, 'scale_label_min', 0, 2);
+        end
 
         -- Size is per panel kind; a kind only lists the bars it can actually draw, which is why
         -- Target shows an HP height and nothing else.

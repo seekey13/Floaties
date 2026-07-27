@@ -31,6 +31,15 @@ M.defaults = {
     party_height_offset  = 0.0,  -- everyone else (slots 1..5)
     target_height_offset = 0.0,  -- current target
 
+    -- Distance scaling. Off by default: on, every panel changes size with range, which is a
+    -- large enough visual change that it should be asked for rather than arrive with an update.
+    -- See M.panel_scale for the curve and why the reference is a depth rather than a distance.
+    distance_scale  = false,
+    scale_ref       = 6.0,   -- view depth (yalms) at which a panel draws at 1:1
+    scale_min       = 0.35,  -- floor, so a far mob's panel stays a readable smudge
+    scale_max       = 1.5,   -- ceiling, so a panel a yalm from the lens does not fill the screen
+    scale_label_min = 0.75,  -- below this the HP/MP/TP numbers are dropped (see below)
+
     panel = {
         offset       = 4,           -- padding: panel edge -> bar edge, all sides
         rounding     = 8,
@@ -125,9 +134,40 @@ end
 
 -- Both take the panel kind's own size table (cfg.sizes.self / .party / .target), so the two
 -- axes come from the same place and a kind can never be laid out with another's dimensions.
+--
+-- Both are also linear in every input, which is why distance scaling multiplies their *results*
+-- in drawPanel instead of threading a factor through here: scaling the output is identical to
+-- scaling the widths, heights, gap and padding, and leaves this math scale-unaware.
 
 function M.bar_width(cfg, size)
     return size.width - 2 * cfg.panel.offset;
+end
+
+--[[
+* Uniform scale factor for a panel at a given view depth.
+*
+* The curve is the perspective divide itself: a thing anchored in the world covers ref/depth as
+* many pixels at `depth` as it does at `scale_ref`. Using that -- rather than a hand-rolled
+* near/far lerp -- is what keeps the panel shrinking in step with the nameplate above it, since
+* the plate is subject to the same divide.
+*
+* `depth` is the w component out of the projection (see worldToScreen), i.e. distance along the
+* camera's forward axis, not the euclidean distance to the entity. That is deliberate: it is the
+* quantity the perspective divide actually uses, it is already computed, and it does not need the
+* camera position read out of memory.
+*
+* scale_ref defaults to 6, roughly where the third-person camera sits, so your own panel lands
+* near 1:1 and everything else scales away from that. A larger reference would peg self at
+* scale_max permanently.
+*
+* @param {number|nil} depth - view depth; nil or <= 0 (behind the lens) yields no scaling.
+* @return {number}
+--]]
+function M.panel_scale(cfg, depth)
+    if (not cfg.distance_scale or depth == nil or depth <= 0) then
+        return 1;
+    end
+    return math.min(math.max(cfg.scale_ref / depth, cfg.scale_min), cfg.scale_max);
 end
 
 function M.panel_height(cfg, size, bars)

@@ -61,6 +61,48 @@ shorter panel at whatever heights that kind is set to.
 > defaults (100 / 16) once and need setting again per panel. Everything else
 > in your settings file carries over.
 
+## Distance scaling
+
+**Scale With Distance** (off by default) shrinks panels as their entity moves
+away and grows them as it comes closer, so a panel keeps its proportion to the
+nameplate above it instead of staying a fixed pixel size at every range.
+
+The curve is the perspective divide itself — the same one the game applies to
+the nameplate — so the two track each other for free rather than being tuned to
+match:
+
+```
+scale = clamp(Scale Reference Depth / view depth, Scale Min, Scale Max)
+```
+
+*View depth* is distance along the camera's forward axis, not the straight-line
+distance to the entity. That is the quantity the projection already divides by,
+so it costs nothing to read and needs no camera position out of memory.
+
+| Setting | Default | Effect |
+|---|---|---|
+| **Scale Reference Depth** | `6.0` | Depth at which a panel draws at its configured size (1:1) |
+| **Scale Min** | `0.35` | Floor, so a distant panel stays a readable smudge |
+| **Scale Max** | `1.5` | Ceiling, so a panel near the lens does not fill the screen |
+| **Hide Labels Below** | `0.75` | Scale under which the HP/MP/TP numbers are dropped |
+
+The reference defaults to `6.0` because that is roughly where the third-person
+camera sits: your own panel lands near 1:1 and everything else scales away from
+it. A much larger reference pegs self at **Scale Max** permanently, at which
+point the slider stops doing anything you can see.
+
+Scale is taken at the anchor point, so the panel's top edge stays pinned under
+the nameplate and the panel grows or shrinks downward from there. Padding and
+corner rounding scale with everything else — otherwise a shrunk panel keeps a
+full-size border that swallows its own bars.
+
+The numbers are the one thing that cannot scale. Bars go to ImGui's background
+draw list, which has no window font scale to push and takes no font size on
+`AddText`, so instead the labels are dropped once the panel is small enough that
+a fixed-size digit would overflow its bar — about where the number stops being
+readable anyway. Raise **Hide Labels Below** past `Scale Max` to drop them
+always, or set it to `0` to keep them at every range.
+
 ## Target panel
 
 A panel over whatever you currently have targeted, on top of the self and party

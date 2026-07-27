@@ -206,6 +206,38 @@ assert(vis(IDLE_OR_ENGAGED, IDLE), 'idle+engaged shows while idle');
 assert(vis(IDLE_OR_ENGAGED, ENGAGED), 'idle+engaged shows while engaged');
 assert(not vis(IDLE_OR_ENGAGED, {}), 'idle+engaged hides while resting');
 
+-- Distance scaling: scale = clamp(ref/depth, min, max), and exactly 1 whenever it is off or the
+-- depth is unusable. `near` is defined further down, so compare with an explicit epsilon here.
+local function nearly(a, b, why)
+    assert(a ~= nil and math.abs(a - b) < 1e-9, why .. ', got ' .. tostring(a));
+end
+
+local scaling = { distance_scale = true, scale_ref = 6.0, scale_min = 0.35, scale_max = 1.5 };
+
+nearly(config.panel_scale(scaling, 6.0), 1.0, 'the reference depth draws 1:1');
+nearly(config.panel_scale(scaling, 12.0), 0.5, 'twice the reference is half size');
+nearly(config.panel_scale(scaling, 4.0), 1.5, 'closer than the reference grows');
+nearly(config.panel_scale(scaling, 3.0), 1.5, 'growth stops at scale_max');
+nearly(config.panel_scale(scaling, 60.0), 0.35, 'shrink stops at scale_min');
+
+-- Behind the lens / degenerate projections must not produce a negative or infinite panel.
+nearly(config.panel_scale(scaling, 0), 1.0, 'zero depth yields no scaling');
+nearly(config.panel_scale(scaling, -5), 1.0, 'a point behind the camera yields no scaling');
+nearly(config.panel_scale(scaling, nil), 1.0, 'a missing depth yields no scaling');
+
+-- Off is the default, and off must be exactly 1 at every depth -- anything else would move
+-- panels for people who never asked for this.
+assert(config.defaults.distance_scale == false, 'distance scaling ships off');
+for _, d in ipairs({ 0.5, 6, 50, 500 }) do
+    assert(config.panel_scale(config.defaults, d) == 1, 'disabled scaling is exactly 1 at depth ' .. d);
+end
+
+-- The defaults' own reference must leave your own panel unclamped, or scale_ref is untunable
+-- from the config window: a self panel pegged at scale_max ignores the slider entirely.
+local self_depth = 6.0;
+assert(config.panel_scale(scaling, self_depth) < scaling.scale_max,
+    'the default reference must not peg self at scale_max');
+
 print('config.lua ok');
 
 -- nameplate.lua: the actor -> skeleton -> bones pointer walk, against a fake address space.
