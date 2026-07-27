@@ -128,7 +128,7 @@ local function drawPanel(sx, sy, s)
 
     local left     = sx - width / 2;
     local top      = sy;
-    local rounding = cfg.rounded and cfg.panel.rounding or 0;
+    local rounding = cfg.panel.rounded and cfg.panel.rounding or 0;
 
     local draw_list = imgui.GetBackgroundDrawList();
 
@@ -155,7 +155,7 @@ local function drawPanel(sx, sy, s)
             cells = { { x = bar_left, width = bw, frac = s[key] } };
         end
 
-        drawBar(draw_list, bar_left, bar_top, bw, h, cells, bar_cfg, cfg, cfg.rounded and BAR_ROUNDING or 0);
+        drawBar(draw_list, bar_left, bar_top, bw, h, cells, bar_cfg, cfg, cfg.bars.rounded and BAR_ROUNDING or 0);
         drawLabel(draw_list, bar_left, bar_top, bw, h, s[key .. '_raw'], cfg);
 
         bar_top = bar_top + h + cfg.gap;
@@ -195,10 +195,11 @@ local function drawConfigWindow()
         sliderInt('Panel Width', cfg.panel, 'width', 40, 300);
         sliderInt('Panel Offset', cfg.panel, 'offset', 0, 20);
         sliderInt('Panel Rounding', cfg.panel, 'rounding', 0, 20);
-        checkbox('Rounded Corners', cfg, 'rounded');
+        checkbox('Panel Rounded', cfg.panel, 'rounded');
         sliderInt('Bar Gap', cfg, 'gap', 0, 10);
 
         imgui.Separator();
+        checkbox('Bars Rounded', cfg.bars, 'rounded');
         sliderInt('HP Height', cfg.bars.hp, 'height', 4, 40);
         colorEdit('HP Full', cfg.bars.hp.full);
         colorEdit('HP Empty', cfg.bars.hp.empty);

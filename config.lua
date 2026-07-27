@@ -20,14 +20,15 @@ M.defaults = {
         width    = 100,
         offset   = 4,           -- padding: panel edge -> bar edge, all sides
         rounding = 8,
+        rounded  = true,        -- corner rounding on/off (magnitude stays in `rounding`)
         bg       = { r = 0.11, g = 0.10, b = 0.20, a = 1.0 },
     },
-
-    rounded = true,   -- corner rounding on/off, panel and bars alike (magnitude comes from panel.rounding)
 
     gap = 2,   -- vertical gap between the 3 bars
 
     bars = {
+        rounded = true,   -- corner rounding on/off for all 3 bars (magnitude is the fixed BAR_ROUNDING constant)
+
         hp = { height = 16, full = { r = 0.91, g = 0.59, b = 0.64, a = 1 }, empty = { r = 0.55, g = 0.38, b = 0.42, a = 1 } },
         mp = { height = 16, full = { r = 0.85, g = 0.72, b = 0.60, a = 1 }, empty = { r = 0.55, g = 0.47, b = 0.42, a = 1 } },
         tp = { height = 16, full = { r = 0.60, g = 0.86, b = 0.90, a = 1 }, empty = { r = 0.40, g = 0.55, b = 0.60, a = 1 } },
