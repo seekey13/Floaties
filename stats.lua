@@ -119,16 +119,21 @@ end
 * other members they read 0 while the percent is still valid, so fall back to
 * the percent rather than printing a bogus 0.
 *
-* @return {number} raw value, or the percent when only that is known.
+* The second return says which of the two happened, so the caller can mark a
+* percent with a % sign. Deriving it here rather than re-testing hp_raw at the
+* draw site is the point: the branch that picked the number is the only thing
+* that knows what the number means, and the two can never disagree.
+*
+* @return {number,boolean} the value, and whether it is a percent rather than a raw amount.
 --]]
 function M.label(s, key)
     local raw = s[key .. '_raw'];
     if (key == 'tp' or raw > 0) then
-        return raw;
+        return raw, false;
     end
     -- The server's percent is a whole number; round rather than floor so the
     -- float round-trip through the 0..1 fraction cannot shave off a point.
-    return math.floor(s[key] * 100 + 0.5);
+    return math.floor(s[key] * 100 + 0.5), true;
 end
 
 --[[

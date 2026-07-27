@@ -297,8 +297,11 @@ local function drawBar(draw_list, left, top, width, height, frac, state, bar_col
     end
 end
 
-local function drawLabel(draw_list, left, top, width, height, value, cfg)
-    local label      = ('%d'):fmt(value);
+-- `percent` comes from stats.label: true when the number printed is an HP/MP percent because no
+-- raw amount was available (every target panel, and party members until their raw HP is known).
+-- Marking it matters -- a target at "42" reads as 42 HP left, not 42%.
+local function drawLabel(draw_list, left, top, width, height, value, percent, cfg)
+    local label      = percent and ('%d%%'):fmt(value) or ('%d'):fmt(value);
     local tw, th     = imgui.CalcTextSize(label);
     local text_col   = packColor(cfg.text.color);
     draw_list:AddText({ left + (width - tw) / 2, top + (height - th) / 2 }, text_col, label);
@@ -358,8 +361,11 @@ local function drawPanel(sx, sy, s, bars, size, scale)
         end
 
         -- Label stays centered across the whole row, so TP prints over the middle bar.
+        -- Both of stats.label's returns are bound here: inlining the call would drop the second
+        -- to fit one argument slot, and every label would silently lose its % sign.
         if (labels) then
-            drawLabel(draw_list, bar_left, bar_top, bw, h, stats.label(s, key), cfg);
+            local value, percent = stats.label(s, key);
+            drawLabel(draw_list, bar_left, bar_top, bw, h, value, percent, cfg);
         end
 
         bar_top = bar_top + h + gap;

@@ -18,6 +18,12 @@ The TP row is three individual bars side by side rather than one bar with
 dividers, spaced by the same `gap` used between rows. The label is centered
 across the whole row, so it prints over the middle bar.
 
+**Percent labels are marked with a `%`.** Raw HP/MP only arrives for yourself;
+for anyone else — and for every target panel — the client sends a percent and no
+amount, so the label falls back to that percent. It prints as `42%`, not `42`,
+because the two are the same integer and reading a mob at "42" as 42 HP left is
+the obvious way to misread it. TP is always raw, so it never carries a sign.
+
 Each bar has one color; opacity comes from a shared fill state instead of
 separate colors: `full` (1.0, alpha) for a fully-filled bar or a TP segment
 past its threshold, `incomplete` (0.5) for a TP segment still charging, and
@@ -112,8 +118,9 @@ ones. **Show Target** in the config window turns it off; it has its own
 **One bar, HP only.** Party panels can show MP and TP because the party packets
 carry them. For an arbitrary entity the client is told a single number — an HP
 percent — and nothing else, so there is no MP or TP to draw. The label is that
-percent, via the same `hp_raw == 0` fallback party members' labels already use.
-The panel shrinks to fit the one bar.
+percent, via the same `hp_raw == 0` fallback party members' labels already use,
+and prints with a trailing `%` for exactly that reason. The panel shrinks to fit
+the one bar.
 
 **Which target.** The cursor target (`<t>`) first; when nothing is selected, the
 battle target (`<bt>`) instead, so clearing your target mid-fight doesn't blank

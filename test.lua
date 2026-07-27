@@ -75,6 +75,22 @@ assert(stats.label(mate, 'mp') == 10, 'member with no raw mp falls back to perce
 assert(stats.label(mate, 'tp') == 500, 'tp is always raw, got ' .. tostring(stats.label(mate, 'tp')));
 assert(stats.label(stats.read(fakeParty(1, 0, 0, 0, 0, 0)), 'hp') == 0, 'dead member still labels 0');
 
+-- Second return marks a percent, so the draw site can print a % sign. It must track the branch
+-- that chose the number, not be guessed from the value: 40 HP and 40% are the same integer.
+local function isPct(s, key)
+    local _, pct = stats.label(s, key);
+    return pct;
+end
+
+assert(not isPct(me, 'hp'), 'self has raw hp, so its label is not a percent');
+assert(isPct(mate, 'hp'), 'a member with no raw hp labels a percent');
+assert(isPct(mate, 'mp'), 'a member with no raw mp labels a percent');
+assert(not isPct(mate, 'tp'), 'tp is always raw, never a percent');
+assert(not isPct(me, 'tp'), 'self tp is raw too');
+
+-- A dead member reads 0 raw and 0 percent; the fallback still fires, so it is a percent.
+assert(isPct(stats.read(fakeParty(1, 0, 0, 0, 0, 0)), 'hp'), 'a 0 label is still a percent');
+
 -- Entity reads: an arbitrary entity tells the client an HP percent and nothing else.
 local function fakeEnt(flags, hpp, status, serverId)
     return { SpawnFlags = flags, HPPercent = hpp, Status = status or 0, ServerId = serverId or 999, Name = 'x' };
@@ -90,6 +106,7 @@ assert(stats.read_entity(fakeEnt(0x10, 137)).hp == 1.0, 'entity hp over 100 must
 -- hp_raw = 0 is what makes label print the percent; that pairing is the whole labelling
 -- contract for entity panels, so assert it rather than assuming it.
 assert(stats.label(mob, 'hp') == 50, 'entity label falls back to percent, got ' .. tostring(stats.label(mob, 'hp')));
+assert(isPct(mob, 'hp'), 'an entity label is always a percent -- there is no raw hp to read');
 
 -- Targetability. Party slots 0..5 are rejected because drawMember already draws them.
 local targetParty = {
