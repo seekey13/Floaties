@@ -78,23 +78,21 @@ the nameplate — so the two track each other for free rather than being tuned t
 match:
 
 ```
-scale = clamp(Scale Reference Depth / view depth, Scale Min, Scale Max)
+scale = clamp(Scale Reference Depth / view depth, 0.35, 1.5)
 ```
 
 *View depth* is distance along the camera's forward axis, not the straight-line
 distance to the entity. That is the quantity the projection already divides by,
 so it costs nothing to read and needs no camera position out of memory.
 
-| Setting | Default | Effect |
-|---|---|---|
-| **Scale Reference Depth** | `6.0` | Depth at which a panel draws at its configured size (1:1) |
-| **Scale Min** | `0.35` | Floor, so a distant panel stays a readable smudge |
-| **Scale Max** | `1.5` | Ceiling, so a panel near the lens does not fill the screen |
+**Scale Reference Depth** (`6.0`) is the depth at which a panel draws at its
+configured size, and the only knob — the `0.35`/`1.5` clamps are fixed, so a
+distant panel stays a readable smudge and a near one does not fill the screen.
 
 The reference defaults to `6.0` because that is roughly where the third-person
 camera sits: your own panel lands near 1:1 and everything else scales away from
-it. A much larger reference pegs self at **Scale Max** permanently, at which
-point the slider stops doing anything you can see.
+it. A much larger reference pegs self at the ceiling permanently, at which point
+the slider stops doing anything you can see.
 
 Scale is taken at the anchor point, so the panel's top edge stays pinned under
 the nameplate and the panel grows or shrinks downward from there. Padding and
@@ -102,8 +100,8 @@ corner rounding scale with everything else — otherwise a shrunk panel keeps a
 full-size border that swallows its own bars.
 
 The numbers scale with everything else, because their size is not a setting: a
-label is drawn at its own bar's height less 4px (see **Label size**), and that
-height already carries the scale.
+label is drawn at its own bar's height (see **Label size**), and that height
+already carries the scale.
 
 ## Target panel
 
@@ -240,9 +238,9 @@ outline pass — there is no separate toggle.
 ### Label size
 
 Text size is not configurable, and deliberately so: a label is drawn at the
-height of the bar it sits in, less `config.label_inset`, so it can never be
-taller than that bar — at any configured bar height and at any distance scale,
-since the drawn height already carries the scale.
+height of the bar it sits in, so it can never be taller than that bar — at any
+configured bar height and at any distance scale, since the drawn height already
+carries the scale.
 
 A bar that cannot hold a legible digit drops its label instead of drawing mush.
 That happens when the size the bar would give works out under **Min Text Size**
@@ -257,13 +255,9 @@ rather than numbers, and the 1px outline underneath is then wider than the
 strokes it is outlining. `6` printed a readable-looking 6px label on a 10px TP
 bar, which is what the floor exists to stop.
 
-Labels **fade** over the first 3px above the floor rather than cutting out at
-it, and both their size and their origin are snapped to whole pixels. Both exist
-to stop the text flickering while the camera moves: view depth wobbles
-constantly, so a bar sitting near the floor would otherwise cross it several
-times a second and pop its label on and off, and a glyph asked for at a
-fractional size or drawn at a fractional origin gets resampled differently every
-frame, which reads as a shimmer.
+Label size and origin are both snapped to whole pixels, to stop the text
+shimmering while the camera moves: a glyph asked for at a fractional size or
+drawn at a fractional origin gets resampled differently every frame.
 
 **Bold Text** (on) stamps the fill a second time one pixel right, thickening
 every vertical stroke. It is not a bold face: ImGui takes a font, not a weight,
@@ -279,11 +273,8 @@ height, for the case where the bar itself is worth keeping and the digits on it
 are not. They are independent of the size rules above — a bar hides its label if
 either the toggle is off or the bar is too short for it.
 
-Sizing the text needs `ImDrawList`'s second `AddText`, the one taking a font and
-a size. Whether Ashita's Lua binding exposes that overload can only be answered
-at runtime, so the first call is probed and the answer cached; if it is not
-there, labels stay at the UI font size and the same fit check simply drops them
-from every bar too short to hold one.
+Sizing the text uses `ImDrawList`'s second `AddText`, the one taking a font and
+a size.
 
 ## Commands
 
@@ -313,9 +304,7 @@ frame-dumping to find the stack slots. This gets within a couple of pixels for t
 pointer walk.
 
 If the skeleton can't be read (zoning, model swap, an invalid index), the panel silently falls
-back to the entity's feet position for that frame. `/newui config` shows which of the two is
-live on the **Anchor** line — red there, not a mis-tuned offset, is why the panel would sit at
-your feet.
+back to the entity's feet position for that frame.
 
 ## Files
 

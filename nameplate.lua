@@ -1,20 +1,14 @@
 --[[
 * Nameplate anchor -- the world height FFXI hangs an entity's nameplate from.
 *
-* The game stores no screen coordinate for a nameplate anywhere readable: the position is computed
-* inside FFXiMain.dll every frame and is gone before d3d_present runs (see
-* docs/NAMEPLATE-HOOK-RESEARCH.md). What it *is* derived from is the top of the rendered model, and
-* that we can read: the actor's skeleton is walkable memory, so the highest bone gives the same
-* anchor point the plate uses, for free, without patching code.
+* The plate's screen position is computed inside FFXiMain.dll each frame and stored nowhere
+* readable, but it derives from the top of the rendered model, and the actor's skeleton *is*
+* walkable memory: the highest bone (smallest Z -- height is down-positive) gives the same anchor
+* without patching code. That is what keeps the panel's distance from the plate constant across
+* races, mounts, sitting and jumping, all of which a fixed offset from the ground gets wrong.
 *
-* Height is down-positive, so "highest" is the smallest Z.
-*
-* Anchoring here instead of at the feet is what makes the panel keep its distance from the plate
-* across races, mounts, sitting, jumping and /sitchair -- all the cases a fixed world offset from
-* the ground gets wrong.
-*
-* `mem` is passed in rather than required (it is ashita.memory in the addon, a fake table in
-* test.lua) so the pointer walk can be checked headless like the rest of this addon's logic.
+* `mem` is injected (ashita.memory in the addon, a fake table in test.lua) so the pointer walk can
+* be checked headless.
 --]]
 
 local M = {};

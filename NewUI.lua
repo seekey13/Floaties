@@ -107,9 +107,8 @@ end
 --[[
 * Index of the entity to draw a target panel over, before it is checked for validity.
 *
-* The cursor read goes through Ashita's own target manager rather than lib.targets, so it keeps
-* working when the signature scans miss and `targets` is nil. Only the <bt> fallback carries that
-* dependency, which the in-combat gate already did.
+* The cursor read goes through Ashita's own target manager, not lib.targets, so it survives a
+* missed signature scan. Only the <bt> fallback carries that dependency.
 *
 * @param {userdata} mm - the memory manager.
 * @param {userdata|nil} bt - the battle target, already resolved by the caller this frame.
@@ -205,11 +204,6 @@ local config_open = { false };
 -- Display names for config.size_order, matching the wording the height-offset sliders already use.
 local SIZE_LABELS = { self = 'Self', party = 'Party', target = 'Target' };
 
--- Whether your own panel found a skeleton to anchor to last frame. Diagnostic only: false means the
--- panel is sitting at the feet instead of under the nameplate, which otherwise just looks like a
--- badly tuned height offset.
-local anchor_ok = false;
-
 ----------------------------------------------------------------------------------------------------
 -- World -> screen projection. Lifted from targetlines/helpers.lua.
 ----------------------------------------------------------------------------------------------------
@@ -297,49 +291,20 @@ local function drawBar(draw_list, left, top, width, height, frac, state, bar_col
     end
 end
 
--- ImDrawList carries a second AddText that takes a font and a size (imgui.h:2397); the three
--- argument one draws at whatever the UI font happens to be. Only the sized one can tie a label to
--- its bar, and whether Ashita's Lua binding exposes it can only be answered at runtime -- so the
--- first call is probed and the answer cached. nil = not yet probed.
+-- `percent` (from stats.label) prints a % sign: a target at "42" reads as 42 HP left, not 42%.
 --
--- Without it labels stay at the UI font size, which the fit check below then drops from any bar
--- too short to hold them. Same rule, one size to choose from instead of any.
-local sized_text = nil;
-
-local function addText(draw_list, font, size, x, y, col, text)
-    if (sized_text == nil) then
-        sized_text = pcall(draw_list.AddText, draw_list, font, size, { x, y }, col, text);
-        if (sized_text) then return; end
-    end
-
-    if (sized_text) then
-        draw_list:AddText(font, size, { x, y }, col, text);
-    else
-        draw_list:AddText({ x, y }, col, text);
-    end
-end
-
--- `percent` comes from stats.label: true when the number printed is an HP/MP percent because no
--- raw amount was available (every target panel, and party members until their raw HP is known).
--- Marking it matters -- a target at "42" reads as 42 HP left, not 42%.
---
--- The label is sized off `height`, the drawn height of the bar it sits in, so it tracks both the
--- configured bar height and the distance scale (config.label_size). A bar too short to hold a
--- legible digit -- by its configured height or by how far away it scaled to -- drops its label
--- rather than printing mush; so does a value too wide for the bar. Both are per bar, not per
--- panel: a 4px TP row can go quiet while HP above it still prints.
+-- Sized off `height`, the bar's drawn height, so it tracks the configured height and the distance
+-- scale alike. Too short for a legible digit, or too narrow for the value, drops the label -- per
+-- bar, so a 4px TP row can go quiet while HP above it still prints.
 local function drawLabel(draw_list, left, top, width, height, value, percent, cfg)
     local size = config.label_size(cfg, height);
     if (size == nil) then return; end
 
     local font = imgui.GetFont();
     local base = imgui.GetFontSize();
-    if (sized_text == false) then size = base; end
 
-    -- Bold is the fill drawn a second time a pixel to the right, thickening every vertical stroke.
-    -- ImGui has no weight to ask for: a real bold face is a second font baked into the atlas, and
-    -- the atlas belongs to Ashita, which builds it before any addon loads. `bx` is that second
-    -- stamp's offset, and 0 when bold is off, so it drops out of the metrics below.
+    -- Bold is the fill stamped a second time a pixel right, thickening every vertical stroke;
+    -- ImGui takes a font, not a weight. `bx` is 0 when bold is off, so it drops out of the metrics.
     local bx = cfg.text.bold and 1 or 0;
 
     local label  = percent and ('%d%%'):fmt(value) or ('%d'):fmt(value);
@@ -348,20 +313,14 @@ local function drawLabel(draw_list, left, top, width, height, value, percent, cf
     local tw, th = imgui.CalcTextSize(label);
     tw, th = tw * k + bx, th * k;
 
-    -- In the sized path this is near enough a no-op -- the size was derived to fit. It is the
-    -- whole rule in the unsized one, and it is what catches a 4 digit value in a narrow panel.
-    if (th > height - config.label_inset or tw > width) then return; end
+    -- Height is near enough a no-op (the size was derived to fit); width is what catches a 4 digit
+    -- value in a narrow panel.
+    if (th > height or tw > width) then return; end
 
     -- Whole pixels, for the same reason the size is floored (config.label_size): a glyph whose
-    -- origin lands mid-pixel is filtered differently every frame the panel drifts, which is what
-    -- makes a label shimmer while the camera moves.
+    -- origin lands mid-pixel is filtered differently every frame the panel drifts.
     local x = math.floor(left + (width - tw) / 2);
     local y = math.floor(top + (height - th) / 2);
-
-    -- Near the floor the label fades instead of cutting out, so a bar hovering either side of it
-    -- as the camera moves does not blink its number on and off.
-    local fade = config.label_fade(cfg, size);
-    if (fade <= 0) then return; end
 
     -- AddText draws a fill and nothing else, so the outline is the same string stamped in the
     -- outline color one pixel out in each direction, underneath. Four offsets, not eight: at a
@@ -370,27 +329,23 @@ local function drawLabel(draw_list, left, top, width, height, value, percent, cf
     -- ponytail: the offset stays 1px at every text size, and outline alpha 0 is the off switch.
     local outline = cfg.text.outline_color;
     if (outline.a > 0) then
-        local col = packColor(outline, outline.a * fade);
-        addText(draw_list, font, size, x - 1, y, col, label);
-        addText(draw_list, font, size, x + 1 + bx, y, col, label);
-        addText(draw_list, font, size, x, y - 1, col, label);
-        addText(draw_list, font, size, x, y + 1, col, label);
+        local col = packColor(outline);
+        draw_list:AddText(font, size, { x - 1, y }, col, label);
+        draw_list:AddText(font, size, { x + 1 + bx, y }, col, label);
+        draw_list:AddText(font, size, { x, y - 1 }, col, label);
+        draw_list:AddText(font, size, { x, y + 1 }, col, label);
     end
 
-    local fill = packColor(cfg.text.color, cfg.text.color.a * fade);
-    addText(draw_list, font, size, x, y, fill, label);
+    local fill = packColor(cfg.text.color);
+    draw_list:AddText(font, size, { x, y }, fill, label);
     if (cfg.text.bold) then
-        addText(draw_list, font, size, x + bx, y, fill, label);
+        draw_list:AddText(font, size, { x + bx, y }, fill, label);
     end
 end
 
--- `size` is the panel kind's own entry in cfg.sizes -- width plus a height per bar. Everything
--- else about the panel is shared config.
---
--- `scale` multiplies every pixel dimension: the two config.lua layout functions are linear in all
--- their inputs, so scaling their results is the same as scaling the widths, heights, gap and
--- padding they were built from. Padding and rounding scale too, or a shrunk panel keeps a 4px
--- border that swallows the bars.
+-- `size` is the panel kind's own cfg.sizes entry; everything else about the panel is shared.
+-- `scale` multiplies every pixel dimension, padding and rounding included -- a shrunk panel with a
+-- full-size border swallows its own bars.
 local function drawPanel(sx, sy, s, bars, size, scale)
     local cfg    = config.settings;
     local width  = size.width * scale;
@@ -433,9 +388,8 @@ local function drawPanel(sx, sy, s, bars, size, scale)
             drawBar(draw_list, bar_left, bar_top, bw, h, s[key], 'full', bar_cfg.color, cfg, bar_rounding);
         end
 
-        -- Label stays centered across the whole row, so TP prints over the middle bar.
-        -- Both of stats.label's returns are bound here: inlining the call would drop the second
-        -- to fit one argument slot, and every label would silently lose its % sign.
+        -- Label stays centered across the whole row, so TP prints over the middle bar. Both of
+        -- stats.label's returns are bound: inlining the call would drop the % flag.
         if (bar_cfg.label) then
             local value, percent = stats.label(s, key);
             drawLabel(draw_list, bar_left, bar_top, bw, h, value, percent, cfg);
@@ -451,21 +405,19 @@ end
 *
 * @param {table} size - the panel kind's cfg.sizes entry (width + per-bar heights).
 * @param {number} offset - world height nudge from the nameplate anchor, positive = down.
-* @return {boolean} whether a nameplate anchor was found -- false means the panel fell back to
-*                   the entity's feet. Reported, not acted on; only self bothers to look.
 --]]
 local function drawAt(mm, index, s, bars, size, offset, view, proj, vp)
     if (index == 0) then
-        return false;
+        return;
     end
 
     local ent = mm:GetEntity();
     local px  = ent:GetLocalPositionX(index);
     local py  = ent:GetLocalPositionY(index);
 
-    -- Anchor at the top of the model -- the point the game hangs the nameplate from -- so the panel
-    -- keeps its offset from the plate on a mount, a Galka, or mid-jump. Falls back to the entity's
-    -- own (feet) height for the odd frame where the skeleton is not readable.
+    -- Anchor at the top of the model -- where the game hangs the nameplate -- so the offset from
+    -- the plate holds on a mount, a Galka, or mid-jump. Falls back to feet when the skeleton is
+    -- unreadable for a frame.
     local top = nameplate.top(ashita.memory, ent:GetActorPointer(index));
     local pz  = (top or ent:GetLocalPositionZ(index)) + offset;
 
@@ -477,8 +429,6 @@ local function drawAt(mm, index, s, bars, size, offset, view, proj, vp)
         -- nameplate and grows or shrinks downward from there.
         drawPanel(sx, sy, s, bars, size, config.panel_scale(config.settings, depth));
     end
-
-    return top ~= nil;
 end
 
 --[[
@@ -494,15 +444,11 @@ local function drawMember(mm, party, i, view, proj, vp)
     -- job reads 0, which bars_for treats as "no MP pool".
     local cfg  = config.settings;
     local mine = i == 0;
-    local ok   = drawAt(mm, party:GetMemberTargetIndex(i), s,
-                        config.bars_for(party:GetMemberMainJob(i), party:GetMemberSubJob(i)),
-                        mine and cfg.sizes.self or cfg.sizes.party,
-                        mine and cfg.height_offset or cfg.party_height_offset,
-                        view, proj, vp);
-
-    if (i == 0) then
-        anchor_ok = ok;
-    end
+    drawAt(mm, party:GetMemberTargetIndex(i), s,
+           config.bars_for(party:GetMemberMainJob(i), party:GetMemberSubJob(i)),
+           mine and cfg.sizes.self or cfg.sizes.party,
+           mine and cfg.height_offset or cfg.party_height_offset,
+           view, proj, vp);
 end
 
 -- HP is the only stat the client is told about an arbitrary entity, so the target panel is always
@@ -578,8 +524,6 @@ local function drawConfigWindow()
         imgui.Text(('| status=%d'):fmt(gate_state.status));
         imgui.Text(('bt: %s'):fmt(gate_state.bt_text));
         imgui.Text(('target: %s'):fmt(gate_state.target_text));
-        imgui.TextColored(anchor_ok and { 0.4, 1.0, 0.4, 1.0 } or { 1.0, 0.4, 0.4, 1.0 },
-                          ('Anchor: %s'):fmt(anchor_ok and 'nameplate (model top)' or 'feet (no skeleton)'));
 
         -- The decision itself, so a gate that reads false while the panel is plainly on screen
         -- is impossible to miss. Hidden with every gate off is correct, not a bug -- say so.
@@ -608,14 +552,11 @@ local function drawConfigWindow()
         slider(imgui.SliderInt, 'Bar Gap', cfg, 'gap', 0, 10);
         checkbox('Border Visible', cfg, 'border_visible');
 
-        -- Distance scaling. The remaining sliders do nothing while the checkbox is off, so they
-        -- are only drawn when it is on rather than sitting there inert.
+        -- The reference does nothing while the checkbox is off, so it is only drawn when it is on.
         imgui.Separator();
         checkbox('Scale With Distance', cfg, 'distance_scale');
         if (cfg.distance_scale) then
             slider(imgui.SliderFloat, 'Scale Reference Depth', cfg, 'scale_ref', 1, 30);
-            slider(imgui.SliderFloat, 'Scale Min', cfg, 'scale_min', 0.1, 1);
-            slider(imgui.SliderFloat, 'Scale Max', cfg, 'scale_max', 1, 4);
         end
 
         -- Size is per panel kind; a kind only lists the bars it can actually draw, which is why

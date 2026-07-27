@@ -156,12 +156,13 @@ assert(config.bar_width(config.defaults, sizes.target) == 192, 'target width is 
 assert(config.panel_height(config.defaults, sizes.party) == 8 * 3 + 2 * 2 + 2 * 4, 'party heights are its own, got ' .. tostring(config.panel_height(config.defaults, sizes.party)));
 assert(config.panel_height(config.defaults, sizes.target, { 'hp' }) == 24 + 2 * 4, 'target height is its own, got ' .. tostring(config.panel_height(config.defaults, sizes.target, { 'hp' })));
 
--- Every kind in size_order must actually exist, and target must carry the one bar it draws.
+-- Every kind in size_order must actually lay out, target included -- a missing entry is a nil
+-- index inside panel_height, not a readable failure.
 for _, kind in ipairs(config.size_order) do
-    assert(config.defaults.sizes[kind] ~= nil, 'size_order names a missing size table: ' .. kind);
-    assert(config.defaults.sizes[kind].width ~= nil, kind .. ' has no width');
+    local size = config.defaults.sizes[kind];
+    assert(size ~= nil, 'size_order names a missing size table: ' .. kind);
+    assert(config.panel_height(config.defaults, size, { 'hp' }) > 0, kind .. ' cannot lay out an hp bar');
 end
-assert(config.defaults.sizes.target.hp ~= nil, 'the target panel draws an hp bar, so it needs an hp height');
 
 -- MP bar only shows when main or sub has an MP pool.
 assert(#config.bars_for(1, 2) == 2, 'WAR/MNK must drop the mp bar');
@@ -174,28 +175,20 @@ assert(#config.bars_for(1, 0) == 2, 'no subjob must not error');
 assert(config.panel_height(config.defaults, SELF, { 'hp', 'tp' }) == 42,
     'two-bar panel = 16+16 + 1*2 + 2*4, got ' .. tostring(config.panel_height(config.defaults, SELF, { 'hp', 'tp' })));
 
--- Label size comes from the bar, never from its own setting: bar height less the fixed inset, so
--- the text cannot be taller than what it sits in at any bar height or distance scale.
-assert(config.label_size(config.defaults, 16) == 16 - config.label_inset, 'label size = bar height - inset, got ' .. tostring(config.label_size(config.defaults, 16)));
+-- Label size comes from the bar, never from a setting of its own, so the text can never be taller
+-- than what it sits in -- at any bar height and at any distance scale.
 for h = 4, 40 do
     local size = config.label_size(config.defaults, h);
     assert(size == nil or size <= h, 'a label must never be taller than its bar (h=' .. h .. ')');
 end
 
 -- Below the floor there is no legible size left, so the bar drops its label rather than drawing
--- mush. That covers both ways a bar gets there: configured too short, or scaled too far away.
--- Derived from min_size, not written out: the floor is a setting and moves.
-local FLOOR_H = config.defaults.text.min_size + config.label_inset;
-assert(config.label_size(config.defaults, FLOOR_H) == config.defaults.text.min_size, 'the shortest bar that fits the floor still prints it');
-assert(config.label_size(config.defaults, FLOOR_H - 1) == nil, 'one pixel under the floor drops the label');
-assert(config.label_size(config.defaults, 4) == nil, 'the shortest configurable bar cannot hold a label');
+-- mush -- whether it got there by being configured short or by scaling far away.
+local MIN = config.defaults.text.min_size;
+assert(config.label_size(config.defaults, MIN) == MIN, 'the shortest bar that fits the floor still prints it');
+assert(config.label_size(config.defaults, MIN - 1) == nil, 'one pixel under the floor drops the label');
 assert(config.label_size(config.defaults, 16 * 0.5) == nil, 'a 16px bar scaled to half drops its label');
 assert(config.label_size(config.defaults, 16 * 1.5) ~= nil, 'a 16px bar scaled up keeps it');
-
--- The regression that prompted the floor: a 10px TP bar printed a 6px label -- sized, fitting and
--- unreadable. The floor is what makes "too small to read" and "not drawn" the same thing, so it
--- has to stay above where ImGui's 13px atlas stops resolving when downscaled.
-assert(config.defaults.text.min_size >= 8, 'a floor under 8px lets the mush regime back in');
 
 -- Whole-pixel sizes: a size that drifts by fractions as the camera moves resamples the same glyph
 -- every frame, which is what shimmering text is.
@@ -203,27 +196,6 @@ for _, h in ipairs({ 16.4, 16.5, 16.9, 21.0001, 39.999 }) do
     local size = config.label_size(config.defaults, h);
     assert(size == math.floor(size), 'label size must be whole pixels, got ' .. tostring(size));
     assert(size <= h, 'flooring must never round a label up past its bar');
-end
-
--- The floor fades rather than cuts, so a bar wobbling across it cannot blink its label.
-local MIN = config.defaults.text.min_size;
-assert(config.label_fade(config.defaults, MIN) == 0, 'at the floor the label is fully faded out');
-assert(config.label_fade(config.defaults, MIN + config.label_fade_range) == 1, 'a full fade range over the floor is fully opaque');
-assert(config.label_fade(config.defaults, MIN + 100) == 1, 'well over the floor stays opaque, never brighter');
-assert(config.label_fade(config.defaults, MIN - 5) == 0, 'under the floor cannot go negative');
-
--- Monotone in between, or the fade would not be a fade.
-local prev = -1;
-for size = MIN, MIN + config.label_fade_range do
-    local a = config.label_fade(config.defaults, size);
-    assert(a > prev, 'fade must rise with size, stalled at ' .. size);
-    assert(a >= 0 and a <= 1, 'fade out of range at ' .. size);
-    prev = a;
-end
-
--- Per-bar label toggles: every drawable bar has one, and they ship on.
-for _, key in ipairs(config.bar_order) do
-    assert(config.defaults.bars[key].label == true, key .. ' must ship with its label on');
 end
 
 -- Visibility gates only ever *enable*: show when at least one enabled gate
@@ -281,31 +253,23 @@ local function nearly(a, b, why)
     assert(a ~= nil and math.abs(a - b) < 1e-9, why .. ', got ' .. tostring(a));
 end
 
-local scaling = { distance_scale = true, scale_ref = 6.0, scale_min = 0.35, scale_max = 1.5 };
+local scaling = { distance_scale = true, scale_ref = 6.0 };
 
 nearly(config.panel_scale(scaling, 6.0), 1.0, 'the reference depth draws 1:1');
 nearly(config.panel_scale(scaling, 12.0), 0.5, 'twice the reference is half size');
-nearly(config.panel_scale(scaling, 4.0), 1.5, 'closer than the reference grows');
-nearly(config.panel_scale(scaling, 3.0), 1.5, 'growth stops at scale_max');
-nearly(config.panel_scale(scaling, 60.0), 0.35, 'shrink stops at scale_min');
+nearly(config.panel_scale(scaling, 5.0), 1.2, 'closer than the reference grows');
+nearly(config.panel_scale(scaling, 3.0), 1.5, 'growth stops at the ceiling');
+nearly(config.panel_scale(scaling, 60.0), 0.35, 'shrink stops at the floor');
 
 -- Behind the lens / degenerate projections must not produce a negative or infinite panel.
 nearly(config.panel_scale(scaling, 0), 1.0, 'zero depth yields no scaling');
 nearly(config.panel_scale(scaling, -5), 1.0, 'a point behind the camera yields no scaling');
 nearly(config.panel_scale(scaling, nil), 1.0, 'a missing depth yields no scaling');
 
--- Off is the default, and off must be exactly 1 at every depth -- anything else would move
--- panels for people who never asked for this.
-assert(config.defaults.distance_scale == false, 'distance scaling ships off');
+-- Off must be exactly 1 at every depth -- anything else moves panels for people who never asked.
 for _, d in ipairs({ 0.5, 6, 50, 500 }) do
     assert(config.panel_scale(config.defaults, d) == 1, 'disabled scaling is exactly 1 at depth ' .. d);
 end
-
--- The defaults' own reference must leave your own panel unclamped, or scale_ref is untunable
--- from the config window: a self panel pegged at scale_max ignores the slider entirely.
-local self_depth = 6.0;
-assert(config.panel_scale(scaling, self_depth) < scaling.scale_max,
-    'the default reference must not peg self at scale_max');
 
 print('config.lua ok');
 

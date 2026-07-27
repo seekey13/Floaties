@@ -31,13 +31,10 @@ M.defaults = {
     party_height_offset  = 0.0,  -- everyone else (slots 1..5)
     target_height_offset = 0.0,  -- current target
 
-    -- Distance scaling. Off by default: on, every panel changes size with range, which is a
-    -- large enough visual change that it should be asked for rather than arrive with an update.
-    -- See M.panel_scale for the curve and why the reference is a depth rather than a distance.
+    -- Distance scaling. Off by default: on, every panel changes size with range, a large enough
+    -- visual change that it should be asked for rather than arrive with an update.
     distance_scale  = false,
     scale_ref       = 6.0,   -- view depth (yalms) at which a panel draws at 1:1
-    scale_min       = 0.35,  -- floor, so a far mob's panel stays a readable smudge
-    scale_max       = 1.5,   -- ceiling, so a panel a yalm from the lens does not fill the screen
 
     panel = {
         offset       = 4,           -- padding: panel edge -> bar edge, all sides
@@ -47,10 +44,8 @@ M.defaults = {
         border_color = { r = 0.08, g = 0.12, b = 0.30, a = 0.4 },
     },
 
-    -- Size is the one thing that is *not* shared between the three panel kinds: width, and the
-    -- height of each bar in that panel. Everything else above and below (padding, rounding,
-    -- colors, alphas, borders, text) stays common, so retinting is still one edit.
-    -- Target carries `hp` only -- it is the only bar an arbitrary entity can fill (see stats.read_entity).
+    -- The one thing *not* shared between panel kinds: width, and each bar's height. Target
+    -- carries `hp` only -- the only bar an arbitrary entity can fill (see stats.read_entity).
     sizes = {
         self   = { width = 100, hp = 16, mp = 16, tp = 16 },
         party  = { width = 100, hp = 16, mp = 16, tp = 16 },
@@ -64,9 +59,8 @@ M.defaults = {
         rounded      = true,   -- corner rounding on/off for all 3 bars (magnitude is the fixed BAR_ROUNDING constant)
         border_color = { r = 0.08, g = 0.12, b = 0.30, a = 0.2 },   -- shared across hp/mp/tp outlines
 
-        -- Each bar has one color, shared by all three panel kinds; how opaque it draws depends
-        -- on `states` below, and how tall on `sizes` above. `label` switches that bar's number
-        -- off without touching its height -- a short TP row is usually the one worth silencing.
+        -- Each bar has one color, shared by all three panel kinds; opacity comes from `states`
+        -- below, height from `sizes` above. `label` silences that bar's number, height untouched.
         hp = { color = { r = 0.95, g = 0.45, b = 0.45 }, label = true },
         mp = { color = { r = 0.95, g = 0.90, b = 0.45 }, label = true },
         tp = { color = { r = 0.55, g = 0.75, b = 0.95 }, label = true },
@@ -78,18 +72,11 @@ M.defaults = {
     -- `empty` = the background track behind any bar's fill.
     states = { full = 1.0, empty = 0.2, incomplete = 0.5 },
 
-    -- The label is drawn twice: an outline pass in `outline_color`, then the fill in `color`
-    -- (see drawLabel). Outline alpha 0 skips the outline pass entirely.
-    --
-    -- Its size is not configured -- it comes from the bar (see M.label_size). `min_size` is only
-    -- the floor under which the label is dropped instead of drawn.
-    --
-    -- 9 because ImGui's font is rasterized at 13px and downscaled from there: by 8 the digits
-    -- have lost enough pixels to read as texture, and the 1px outline underneath is then wider
-    -- than the strokes it is outlining. A 13px bar is the shortest that still prints.
-    --
-    -- `bold` is a second fill stamped a pixel right of the first, not a bold face: ImGui takes a
-    -- font, not a weight, and the atlas is Ashita's, built before any addon loads.
+    -- Outline alpha 0 skips the outline pass; `bold` is a second fill stamped a pixel right, not
+    -- a bold face (the atlas is Ashita's, built before any addon loads). Size is not configured --
+    -- it comes from the bar (M.label_size); `min_size` is the floor under which it is dropped.
+    -- 9 because ImGui rasterizes at 13px: by 8 the digits read as texture and the 1px outline is
+    -- wider than the strokes it is outlining.
     text = {
         color         = { r = 1, g = 1, b = 1, a = 1 },
         outline_color = { r = 0, g = 0, b = 0, a = 1 },
@@ -149,33 +136,28 @@ function M.visible(cfg, conditions)
     return false;
 end
 
--- Both take the panel kind's own size table (cfg.sizes.self / .party / .target), so the two
--- axes come from the same place and a kind can never be laid out with another's dimensions.
---
--- Both are also linear in every input, which is why distance scaling multiplies their *results*
--- in drawPanel instead of threading a factor through here: scaling the output is identical to
--- scaling the widths, heights, gap and padding, and leaves this math scale-unaware.
+-- Both take the panel kind's own size table (cfg.sizes.self / .party / .target), so a kind can
+-- never be laid out with another's dimensions. Both are linear in every input, which is why
+-- distance scaling multiplies their *results* in drawPanel instead of threading a factor here.
 
 function M.bar_width(cfg, size)
     return size.width - 2 * cfg.panel.offset;
 end
 
+-- Clamps on the scale curve. Fixed, not settings: they stop a far panel vanishing and a near one
+-- filling the screen, which is not a preference. scale_ref is the knob.
+local SCALE_MIN, SCALE_MAX = 0.35, 1.5;
+
 --[[
 * Uniform scale factor for a panel at a given view depth.
 *
-* The curve is the perspective divide itself: a thing anchored in the world covers ref/depth as
-* many pixels at `depth` as it does at `scale_ref`. Using that -- rather than a hand-rolled
-* near/far lerp -- is what keeps the panel shrinking in step with the nameplate above it, since
-* the plate is subject to the same divide.
+* The curve is the perspective divide itself -- a world-anchored thing covers ref/depth as many
+* pixels at `depth` as at `scale_ref` -- which is what keeps the panel shrinking in step with the
+* nameplate above it, since the plate goes through the same divide.
 *
-* `depth` is the w component out of the projection (see worldToScreen), i.e. distance along the
-* camera's forward axis, not the euclidean distance to the entity. That is deliberate: it is the
-* quantity the perspective divide actually uses, it is already computed, and it does not need the
-* camera position read out of memory.
-*
-* scale_ref defaults to 6, roughly where the third-person camera sits, so your own panel lands
-* near 1:1 and everything else scales away from that. A larger reference would peg self at
-* scale_max permanently.
+* `depth` is the w component out of the projection (see worldToScreen): distance along the
+* camera's forward axis, not euclidean distance. It is already computed and needs no camera
+* position read out of memory.
 *
 * @param {number|nil} depth - view depth; nil or <= 0 (behind the lens) yields no scaling.
 * @return {number}
@@ -184,57 +166,27 @@ function M.panel_scale(cfg, depth)
     if (not cfg.distance_scale or depth == nil or depth <= 0) then
         return 1;
     end
-    return math.min(math.max(cfg.scale_ref / depth, cfg.scale_min), cfg.scale_max);
+    return math.min(math.max(cfg.scale_ref / depth, SCALE_MIN), SCALE_MAX);
 end
 
--- Pixels taken off the bar height to get the label's font size. Fixed, not configured: it exists
--- so a full-height digit never touches the bar's own border, which is a look, not a preference.
-M.label_inset = 0;
-
 --[[
-* Font size for the label drawn inside a bar.
-*
-* Tied to the bar rather than configured separately, so the text can never be taller than what it
-* sits in -- at any configured bar height, and at any distance scale, since `bar_height` is the
-* drawn height and already carries the scale.
+* Font size for the label drawn inside a bar: the bar's own drawn height, so the text can never
+* be taller than what it sits in, at any configured height or distance scale.
 *
 * Floored to a whole pixel. ImGui downscales one 13px atlas glyph to whatever size it is asked
-* for, so a size that drifts by fractions every frame -- which is what a distance-scaled panel
-* hands it while the camera moves -- resamples the same digit differently each frame and reads as
-* the text shimmering. Whole pixels hold it still until the size genuinely changes.
+* for, so a size drifting by fractions every frame -- what a distance-scaled panel hands it while
+* the camera moves -- resamples the same digit differently each frame and reads as a shimmer.
 *
 * @param {number} bar_height - drawn height of the bar in pixels.
 * @return {number|nil} font size, or nil when the bar cannot hold a legible one and the label
 *                      should be dropped for that bar.
 --]]
 function M.label_size(cfg, bar_height)
-    local size = math.floor(bar_height - M.label_inset);
+    local size = math.floor(bar_height);
     if (size < cfg.text.min_size) then
         return nil;
     end
     return size;
-end
-
--- Sizes over the floor across which the label fades in, in pixels.
-M.label_fade_range = 3;
-
---[[
-* Opacity multiplier for a label, so the floor is a fade rather than a cliff.
-*
-* A hard cutoff blinks: view depth wobbles as the camera moves, so a bar sitting near the floor
-* crosses it several times a second and its label pops in and out. Ramping the alpha over the
-* first few pixels above the floor makes that crossing continuous -- the label is already
-* invisible by the time it is dropped, so there is nothing left to pop.
-*
-* @param {number} size - font size from M.label_size.
-* @return {number} 0 .. 1.
---]]
-function M.label_fade(cfg, size)
-    local over = size - cfg.text.min_size;
-    if (over >= M.label_fade_range) then
-        return 1;
-    end
-    return math.max(over / M.label_fade_range, 0);
 end
 
 function M.panel_height(cfg, size, bars)
