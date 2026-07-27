@@ -1,7 +1,7 @@
 # NewUI
 
 Ashita v4 addon. Draws a styled HP/MP/TP unit-frame panel that tracks your
-character in 3D space, anchored below the feet.
+character in 3D space, anchored to the nameplate.
 
 ## V2
 
@@ -123,21 +123,40 @@ text color) is configurable via `/newui config` and persists across sessions.
 | Command | Effect |
 |---|---|
 | `/newui` | Toggle on/off |
-| `/newui height <n>` | Your own vertical world offset. Positive is below feet. Default `0.3` |
+| `/newui height <n>` | Your own vertical nudge from the nameplate anchor. Positive is downward. Default `0.0` |
 | `/newui config` | Toggle the settings window |
 | `/newui bt` | Print the current gate state (in combat / engaged / idle, raw status, resolved `<bt>` or why it was rejected) |
 
-The default height is a guess — model heights vary by race and mount, so nudge it in-game.
-Self and party have separate offsets (`Self Height Offset` / `Party Height Offset` in
-`/newui config`); the command only touches your own.
+`0.0` puts the panel's top edge level with the top of the model, i.e. directly under the
+nameplate; nudge from there. Self and party have separate offsets (`Self Height Offset` /
+`Party Height Offset` in `/newui config`); the command only touches your own.
+
+## Nameplate anchor
+
+The panel hangs from the same point the game hangs a nameplate from: the top of the rendered
+model, read from the actor's skeleton (highest bone, i.e. smallest Z — the height axis points
+down). That makes the offset from the plate hold across races, mounts, sitting, and mid-jump,
+all of which a fixed world offset from the ground gets wrong.
+
+It is *not* a hook into the game's own draw code. FFXI computes the nameplate's screen position
+inside `FFXiMain.dll` each frame and keeps it nowhere readable, so pixel-exact co-location needs
+a code cave — see `docs/NAMEPLATE-HOOK-RESEARCH.md`, which prices that at 2–4 days plus live
+frame-dumping to find the stack slots. This gets within a couple of pixels for the cost of a
+pointer walk.
+
+If the skeleton can't be read (zoning, model swap, an invalid index), the panel silently falls
+back to the entity's feet position for that frame. `/newui config` shows which of the two is
+live on the **Anchor** line — red there, not a mis-tuned offset, is why the panel would sit at
+your feet.
 
 ## Files
 
 - `NewUI.lua` — projection, ImGui rendering, gate state, config window, commands
+- `nameplate.lua` — actor → skeleton → bone walk for the model-top anchor (memory reader injected, so it tests headless)
 - `lib/targets.lua` — Ashita's target library, vendored unmodified (only `get_bt` is used)
 - `stats.lua` — HP/MP/TP normalization + TP segment math (no Ashita dependencies)
 - `config.lua` — settings defaults, load/save, derived layout math (no Ashita dependencies except load/save)
-- `test.lua` — self-check for `stats.lua` and `config.lua`; run with `lua test.lua`
+- `test.lua` — self-check for `stats.lua`, `config.lua` and `nameplate.lua`; run with `lua test.lua`
 - `docs/` — research notes this was built from (gitignored)
 
 ## Notes

@@ -2,8 +2,9 @@
 * Self-check for stats.lua. Run headless: lua test.lua
 --]]
 
-local stats  = require('stats');
-local config = require('config');
+local stats     = require('stats');
+local config    = require('config');
+local nameplate = require('nameplate');
 
 local function fakeParty(active, hpp, mpp, tp, hp, mp)
     return {
@@ -145,3 +146,62 @@ assert(vis(IDLE_OR_ENGAGED, ENGAGED), 'idle+engaged shows while engaged');
 assert(not vis(IDLE_OR_ENGAGED, {}), 'idle+engaged hides while resting');
 
 print('config.lua ok');
+
+-- nameplate.lua: the actor -> skeleton -> bones pointer walk, against a fake address space.
+--
+-- Layout built below (all offsets straight out of nameplate.lua):
+--   actor 0x1000: +0x67C feet height 10.0, +0x6B8 -> 0x2000
+--   0x2000 +0x0C -> 0x3000 -> 0x4000 (the skeleton)
+--   0x4000 +0x32 bone count, bones start at 0x30 + 0x04 + 0x1E*count + 4
+local ACTOR = 0x1000;
+
+local function fakeMem(u32, u16, f32)
+    return {
+        read_uint32 = function (a) return u32[a] or 0; end,
+        read_uint16 = function (a) return u16[a] or 0; end,
+        read_float  = function (a) return f32[a] or 0; end,
+    };
+end
+
+local function skeleton(bone_z, count)
+    count = count or #bone_z;
+    local gens = 0x4000 + 0x30 + 0x04 + 0x1E * count + 4;
+    local f32  = { [ACTOR + 0x67C] = 10.0 };
+    for i, z in ipairs(bone_z) do
+        f32[gens + (i - 1) * 0x1A + 0x12] = z;
+    end
+    return fakeMem(
+        { [ACTOR + 0x6B8] = 0x2000, [0x2000 + 0x0C] = 0x3000, [0x3000] = 0x4000 },
+        { [0x4000 + 0x32] = count },
+        f32);
+end
+
+local function near(a, b) return a ~= nil and math.abs(a - b) < 1e-6; end
+
+-- Height is down-positive, so the *highest* bone is the smallest Z, and it is relative to the
+-- actor origin: 10.0 feet + (-1.8) head = 8.2.
+assert(near(nameplate.top(skeleton({ -1.0, -1.8, -0.5 }), ACTOR), 8.2),
+    'top = feet + highest (least) bone z, got ' .. tostring(nameplate.top(skeleton({ -1.0, -1.8, -0.5 }), ACTOR)));
+assert(near(nameplate.top(skeleton({ -0.5, -1.0, -1.8 }), ACTOR), 8.2), 'bone order must not matter');
+assert(near(nameplate.top(skeleton({ 0.0 }), ACTOR), 10.0), 'a single bone at the origin is the feet height');
+
+-- A half-written bone reads NaN; it must not poison the minimum.
+local nan = 0 / 0;
+assert(near(nameplate.top(skeleton({ nan, -1.8, nan }), ACTOR), 8.2), 'NaN bones must be skipped');
+assert(nameplate.top(skeleton({ nan }), ACTOR) == nil, 'all-NaN skeleton yields no anchor');
+
+-- Every pointer in the chain can read 0 during a zone or model swap. None may throw.
+assert(nameplate.top(skeleton({ -1.0 }), nil) == nil, 'nil actor pointer yields nil');
+assert(nameplate.top(skeleton({ -1.0 }), 0) == nil, 'null actor pointer yields nil');
+assert(nameplate.top(fakeMem({}, {}, {}), ACTOR) == nil, 'null skeleton base yields nil');
+assert(nameplate.top(fakeMem({ [ACTOR + 0x6B8] = 0x2000 }, {}, {}), ACTOR) == nil, 'null skeleton offset yields nil');
+assert(nameplate.top(fakeMem({ [ACTOR + 0x6B8] = 0x2000, [0x2000 + 0x0C] = 0x3000 }, {}, {}), ACTOR) == nil,
+    'null skeleton address yields nil');
+
+-- Bone count guards: 0 is an empty model, a huge count means the walk landed on non-skeleton
+-- memory and must not be read as thousands of floats.
+assert(nameplate.top(skeleton({}, 0), ACTOR) == nil, 'zero bones yields nil');
+assert(nameplate.top(skeleton({}, 257), ACTOR) == nil, 'an implausible bone count yields nil');
+assert(nameplate.top(skeleton({}, 256), ACTOR) ~= nil, '256 bones is still walked');
+
+print('nameplate.lua ok');

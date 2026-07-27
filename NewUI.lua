@@ -10,11 +10,12 @@ addon.desc      = 'Floating HP/MP/TP bars over the player.';
 
 require('common');
 
-local ffi    = require('ffi');
-local d3d    = require('d3d8');
-local imgui  = require('imgui');
-local stats  = require('stats');
-local config = require('config');
+local ffi       = require('ffi');
+local d3d       = require('d3d8');
+local imgui     = require('imgui');
+local stats     = require('stats');
+local config    = require('config');
+local nameplate = require('nameplate');
 
 local C   = ffi.C;
 local dev = d3d.get_device();
@@ -151,6 +152,11 @@ end
 local BAR_ROUNDING = 3;
 
 local config_open = { false };
+
+-- Whether your own panel found a skeleton to anchor to last frame. Diagnostic only: false means the
+-- panel is sitting at the feet instead of under the nameplate, which otherwise just looks like a
+-- badly tuned height offset.
+local anchor_ok = false;
 
 ----------------------------------------------------------------------------------------------------
 -- World -> screen projection. Lifted from targetlines/helpers.lua.
@@ -302,8 +308,17 @@ local function drawMember(mm, party, i, view, proj, vp)
     local ent = mm:GetEntity();
     local px  = ent:GetLocalPositionX(index);
     local py  = ent:GetLocalPositionY(index);
-    local pz  = ent:GetLocalPositionZ(index)
-              + (i == 0 and config.settings.height_offset or config.settings.party_height_offset);
+
+    -- Anchor at the top of the model -- the point the game hangs the nameplate from -- so the panel
+    -- keeps its offset from the plate on a mount, a Galka, or mid-jump. Falls back to the entity's
+    -- own (feet) height for the odd frame where the skeleton is not readable.
+    local top = nameplate.top(ashita.memory, ent:GetActorPointer(index));
+    if (i == 0) then
+        anchor_ok = top ~= nil;
+    end
+
+    local pz = (top or ent:GetLocalPositionZ(index))
+             + (i == 0 and config.settings.height_offset or config.settings.party_height_offset);
 
     -- Position struct is stored X, Z, Y - the game's Z is the D3D up-axis.
     local sx, sy, sz = worldToScreen(px, pz, py, view, proj, vp.Width, vp.Height);
@@ -370,6 +385,8 @@ local function drawConfigWindow()
         gateState('Idle', 'show_while_idle');
         imgui.SameLine();
         imgui.Text(('| status=%d | bt: %s'):fmt(gate_state.status, gate_state.bt_text));
+        imgui.TextColored(anchor_ok and { 0.4, 1.0, 0.4, 1.0 } or { 1.0, 0.4, 0.4, 1.0 },
+                          ('Anchor: %s'):fmt(anchor_ok and 'nameplate (model top)' or 'feet (no skeleton)'));
 
         -- The decision itself, so a gate that reads false while the panel is plainly on screen
         -- is impossible to miss. Hidden with every gate off is correct, not a bug -- say so.
@@ -497,7 +514,7 @@ ashita.events.register('command', 'newui_command', function (e)
     if (sub == 'height' and args[3] ~= nil) then
         config.settings.height_offset = tonumber(args[3]) or config.settings.height_offset;
         config.save();
-        print(('[NewUI] self height offset: %.2f (positive is below feet)'):fmt(config.settings.height_offset));
+        print(('[NewUI] self height offset: %.2f (from the nameplate anchor, positive is down)'):fmt(config.settings.height_offset));
         return;
     end
 

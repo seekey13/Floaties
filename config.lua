@@ -22,10 +22,12 @@ M.defaults = {
     show_while_idle    = true,  -- show when entity status is Idle
     show_party         = true,  -- draw panels over party members too, not just self
 
-    -- Vertical world offset, positive = below feet (axis points down). Split self from party
-    -- so your own panel can sit clear of the ones over everyone else.
-    height_offset       = 0.3,  -- self (party slot 0)
-    party_height_offset = 0.3,  -- everyone else (slots 1..5)
+    -- Vertical world nudge from the nameplate anchor (top of the model), positive = downward,
+    -- since the height axis points down. 0 puts the panel's top edge level with the model's head,
+    -- i.e. directly under the nameplate. Split self from party so your own panel can sit clear of
+    -- the ones over everyone else.
+    height_offset       = 0.0,  -- self (party slot 0)
+    party_height_offset = 0.0,  -- everyone else (slots 1..5)
 
     panel = {
         width        = 100,
