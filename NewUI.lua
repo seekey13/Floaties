@@ -258,7 +258,8 @@ local function drawMember(mm, party, i, view, proj, vp)
     local ent = mm:GetEntity();
     local px  = ent:GetLocalPositionX(index);
     local py  = ent:GetLocalPositionY(index);
-    local pz  = ent:GetLocalPositionZ(index) + config.settings.height_offset;
+    local pz  = ent:GetLocalPositionZ(index)
+              + (i == 0 and config.settings.height_offset or config.settings.party_height_offset);
 
     -- Position struct is stored X, Z, Y - the game's Z is the D3D up-axis.
     local sx, sy, sz = worldToScreen(px, pz, py, view, proj, vp.Width, vp.Height);
@@ -341,6 +342,8 @@ local function drawConfigWindow()
         checkbox('Show While Engaged', cfg, 'show_while_engaged');
         checkbox('Show While Idle', cfg, 'show_while_idle');
         checkbox('Show Party Members', cfg, 'show_party');
+        slider(imgui.SliderFloat, 'Self Height Offset', cfg, 'height_offset', -4, 4);
+        slider(imgui.SliderFloat, 'Party Height Offset', cfg, 'party_height_offset', -4, 4);
         slider(imgui.SliderInt, 'Panel Width', cfg.panel, 'width', 40, 300);
         slider(imgui.SliderInt, 'Panel Offset', cfg.panel, 'offset', 0, 20);
         slider(imgui.SliderInt, 'Panel Rounding', cfg.panel, 'rounding', 0, 20);
@@ -450,7 +453,7 @@ ashita.events.register('command', 'newui_command', function (e)
     if (sub == 'height' and args[3] ~= nil) then
         config.settings.height_offset = tonumber(args[3]) or config.settings.height_offset;
         config.save();
-        print(('[NewUI] height offset: %.2f (positive is below feet)'):fmt(config.settings.height_offset));
+        print(('[NewUI] self height offset: %.2f (positive is below feet)'):fmt(config.settings.height_offset));
         return;
     end
 

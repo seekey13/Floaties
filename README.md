@@ -110,11 +110,13 @@ text color) is configurable via `/newui config` and persists across sessions.
 | Command | Effect |
 |---|---|
 | `/newui` | Toggle on/off |
-| `/newui height <n>` | Vertical world offset. Positive is below feet. Default `0.3` |
+| `/newui height <n>` | Your own vertical world offset. Positive is below feet. Default `0.3` |
 | `/newui config` | Toggle the settings window |
 | `/newui bt` | Print the current gate state (in combat / engaged / idle, raw status, resolved `<bt>` or why it was rejected) |
 
 The default height is a guess — model heights vary by race and mount, so nudge it in-game.
+Self and party have separate offsets (`Self Height Offset` / `Party Height Offset` in
+`/newui config`); the command only touches your own.
 
 ## Files
 

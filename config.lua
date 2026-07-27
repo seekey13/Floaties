@@ -21,7 +21,11 @@ M.defaults = {
     show_while_engaged = true,  -- show when entity status is Engaged
     show_while_idle    = true,  -- show when entity status is Idle
     show_party         = true,  -- draw panels over party members too, not just self
-    height_offset      = 0.3,   -- positive = below feet (axis points down)
+
+    -- Vertical world offset, positive = below feet (axis points down). Split self from party
+    -- so your own panel can sit clear of the ones over everyone else.
+    height_offset       = 0.3,  -- self (party slot 0)
+    party_height_offset = 0.3,  -- everyone else (slots 1..5)
 
     panel = {
         width        = 100,
