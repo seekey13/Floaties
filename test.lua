@@ -95,8 +95,8 @@ assert(#config.bars_for(1, 0) == 2, 'no subjob must not error');
 assert(config.panel_height(config.defaults, { 'hp', 'tp' }) == 42,
     'two-bar panel = 16+16 + 1*2 + 2*4, got ' .. tostring(config.panel_height(config.defaults, { 'hp', 'tp' })));
 
--- Visibility gates are additive: none on = always show, any on = show when at
--- least one enabled gate passes. Never an intersection.
+-- Visibility gates only ever *enable*: show when at least one enabled gate
+-- passes, hide otherwise. Never an intersection, and never a fallback to shown.
 local function vis(gates, conditions)
     local cfg = {};
     for _, g in ipairs(config.gates) do
@@ -110,10 +110,20 @@ local ENGAGED = { show_while_engaged = true };
 local IDLE    = { show_while_idle = true };
 local ALL     = { show_in_combat = true, show_while_engaged = true, show_while_idle = true };
 
--- No gate on: every state shows.
+-- No gate on: nothing can enable the panel, whatever the state.
 for _, cond in ipairs({ {}, COMBAT, ENGAGED, IDLE, ALL }) do
-    assert(vis({}, cond), 'no gate on must always show');
+    assert(not vis({}, cond), 'no gate on must never show');
 end
+
+-- The regression this replaced: one gate on and unsatisfied must hide. It used
+-- to fall through to the "no gate on" case and show anyway.
+assert(not vis(COMBAT, {}), 'a single enabled gate that is false must hide');
+
+-- Defaults must be visible in normal play -- an all-off default would now mean
+-- the addon draws nothing until a box is ticked.
+assert(config.visible(config.defaults, IDLE), 'defaults show while idle');
+assert(config.visible(config.defaults, ENGAGED), 'defaults show while engaged');
+assert(not config.visible(config.defaults, {}), 'defaults hide while resting/dead/zoning');
 
 assert(vis(COMBAT, COMBAT), 'combat gate shows with a battle target');
 assert(not vis(COMBAT, ENGAGED), 'combat gate hides without one, engaged or not');

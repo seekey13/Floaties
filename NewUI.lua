@@ -325,6 +325,16 @@ local function drawConfigWindow()
         gateState('Idle', 'show_while_idle');
         imgui.SameLine();
         imgui.Text(('| status=%d | bt: %s'):fmt(gate_state.status, gate_state.bt_text));
+
+        -- The decision itself, so a gate that reads false while the panel is plainly on screen
+        -- is impossible to miss. Hidden with every gate off is correct, not a bug -- say so.
+        local shown = config.visible(cfg, gate_state);
+        imgui.TextColored(shown and { 0.4, 1.0, 0.4, 1.0 } or { 1.0, 0.4, 0.4, 1.0 },
+                          ('Panel: %s'):fmt(shown and 'shown' or 'hidden'));
+        if (not (cfg.show_in_combat or cfg.show_while_engaged or cfg.show_while_idle)) then
+            imgui.SameLine();
+            imgui.Text('-- no gate enabled, so nothing can enable it');
+        end
         imgui.Separator();
 
         checkbox('Show In Combat', cfg, 'show_in_combat');

@@ -35,10 +35,15 @@ their labels fall back to the percent it does send. TP is raw for everyone.
 Party members' MP bar follows their own job, and is dropped until their job is
 known.
 
-Three visibility gates, all off by default. They are **additive**: with none on
-the panel always shows, and with any on it shows whenever at least one enabled
-gate passes. Several on is a union, so being engaged is enough on its own even
-when the battle-target check disagrees.
+Three visibility gates. Each one only ever **enables**: the panel shows when at
+least one *enabled* gate's condition is true, and is hidden otherwise. Several
+on is a union, so being engaged is enough on its own even when the battle-target
+check disagrees.
+
+All three off therefore means the panel never draws — **Show While Engaged** and
+**Show While Idle** are on by default. (Earlier versions fell back to "always
+show" with no gate enabled, which made a single ticked gate look broken: it
+could never hide anything until you ticked a second one.)
 
 | Setting | Shows when | Notes |
 |---|---|---|
@@ -81,7 +86,12 @@ followed by the raw entity status and what `<bt>` currently resolves to:
 
 ```
 In Combat: true  Engaged: true  Idle: false  | status=1 | bt: Mandragora hp=63% status=1
+Panel: shown
 ```
+
+`Panel:` is the resulting decision, so a gate reading false while the panel is
+on screen is visible as a contradiction rather than something to infer. With no
+gate enabled it reads `hidden -- no gate enabled, so nothing can enable it`.
 
 `status=` before the pipe is *your* entity status; the one inside `bt:` is the
 battle target's, so a corpse still being handed back by `get_bt` is visible as
