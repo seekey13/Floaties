@@ -88,15 +88,12 @@ end
 * and a border outline.
 --]]
 local function drawBar(draw_list, left, top, width, height, cells, bar_cfg, cfg, rounding)
-    local empty_col = packColor(bar_cfg.empty);
-    local full_col  = packColor(bar_cfg.full);
-
-    draw_list:AddRectFilled({ left, top }, { left + width, top + height }, empty_col, rounding);
+    draw_list:AddRectFilled({ left, top }, { left + width, top + height }, packColor(bar_cfg.empty), rounding);
 
     for _, cell in ipairs(cells) do
         local fill_w = cell.width * cell.frac;
         if (fill_w > 0) then
-            draw_list:AddRectFilled({ cell.x, top }, { cell.x + fill_w, top + height }, full_col, rounding);
+            draw_list:AddRectFilled({ cell.x, top }, { cell.x + fill_w, top + height }, packColor(cell.color), rounding);
         end
     end
 
@@ -149,10 +146,16 @@ local function drawPanel(sx, sy, s)
             cells = {};
             local seg_w = bw / 3;
             for i = 1, 3 do
-                cells[i] = { x = bar_left + (i - 1) * seg_w, width = seg_w, frac = stats.tp_segment(s.tp_raw, i) };
+                local frac = stats.tp_segment(s.tp_raw, i);
+                cells[i] = {
+                    x     = bar_left + (i - 1) * seg_w,
+                    width = seg_w,
+                    frac  = frac,
+                    color = (frac >= 1) and bar_cfg.complete or bar_cfg.full,
+                };
             end
         else
-            cells = { { x = bar_left, width = bw, frac = s[key] } };
+            cells = { { x = bar_left, width = bw, frac = s[key], color = bar_cfg.full } };
         end
 
         drawBar(draw_list, bar_left, bar_top, bw, h, cells, bar_cfg, cfg, cfg.bars.rounded and BAR_ROUNDING or 0);
@@ -213,6 +216,7 @@ local function drawConfigWindow()
         sliderInt('TP Height', cfg.bars.tp, 'height', 4, 40);
         colorEdit('TP Full', cfg.bars.tp.full);
         colorEdit('TP Empty', cfg.bars.tp.empty);
+        colorEdit('TP Complete', cfg.bars.tp.complete);
 
         imgui.Separator();
         colorEdit('Panel Background', cfg.panel.bg);
