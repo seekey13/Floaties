@@ -12,7 +12,11 @@ current value as text:
 |---|---|---|---|
 | HP | `party:GetMemberHPPercent(i)` | current HP | light red |
 | MP | `party:GetMemberMPPercent(i)` | current MP | light yellow |
-| TP | `party:GetMemberTP(i)` / 3000, split into 3 segments (1000 TP each) | current TP (0-3000) | light blue |
+| TP | `party:GetMemberTP(i)`, drawn as 3 separate bars (1000 TP each) | current TP (0-3000) | light blue |
+
+The TP row is three individual bars side by side rather than one bar with
+dividers, spaced by the same `gap` used between rows. The label is centered
+across the whole row, so it prints over the middle bar.
 
 Each bar has one color; opacity comes from a shared fill state instead of
 separate colors: `full` (1.0, alpha) for a fully-filled bar or a TP segment

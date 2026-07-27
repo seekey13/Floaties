@@ -152,28 +152,17 @@ local function packColor(c, alpha)
 end
 
 --[[
-* Draws one bar: empty track, filled segment(s) (TP has 3, hp/mp have 1),
-* and a border outline. Each cell's opacity comes from cfg.states[cell.state].
+* Draws one bar: empty track, filled portion, and a border outline.
+* Fill opacity comes from cfg.states[state].
 --]]
-local function drawBar(draw_list, left, top, width, height, cells, bar_color, cfg, rounding)
+local function drawBar(draw_list, left, top, width, height, frac, state, bar_color, cfg, rounding)
     local states = cfg.states;
 
     draw_list:AddRectFilled({ left, top }, { left + width, top + height }, packColor(bar_color, states.empty), rounding);
 
-    for _, cell in ipairs(cells) do
-        local fill_w = cell.width * cell.frac;
-        if (fill_w > 0) then
-            draw_list:AddRectFilled({ cell.x, top }, { cell.x + fill_w, top + height }, packColor(bar_color, states[cell.state]), rounding);
-        end
-    end
-
-    -- TP-only: thin divider lines at the 1000/2000 boundaries. Shares the label color.
-    if (#cells > 1) then
-        local divider_col = packColor(cfg.text.color);
-        for i = 1, #cells - 1 do
-            local x = cells[i + 1].x;
-            draw_list:AddLine({ x, top }, { x, top + height }, divider_col, 1.0);
-        end
+    local fill_w = width * frac;
+    if (fill_w > 0) then
+        draw_list:AddRectFilled({ left, top }, { left + fill_w, top + height }, packColor(bar_color, states[state]), rounding);
     end
 
     if (cfg.border_visible) then
@@ -212,20 +201,21 @@ local function drawPanel(sx, sy, s, bars)
     for _, key in ipairs(bars) do
         local bar_cfg = cfg.bars[key];
         local h       = bar_cfg.height;
-        local cells;
 
         if (key == 'tp') then
-            cells = {};
-            local seg_w = bw / 3;
+            -- Three separate bars, one per 1000 TP, sharing the row's width.
+            -- ponytail: reuses cfg.gap for the horizontal spacing rather than adding a setting.
+            local seg_w = (bw - 2 * cfg.gap) / 3;
             for i = 1, 3 do
                 local frac = stats.tp_segment(s.tp_raw, i);
-                cells[i] = { x = bar_left + (i - 1) * seg_w, width = seg_w, frac = frac, state = (frac >= 1) and 'full' or 'incomplete' };
+                drawBar(draw_list, bar_left + (i - 1) * (seg_w + cfg.gap), bar_top, seg_w, h,
+                        frac, (frac >= 1) and 'full' or 'incomplete', bar_cfg.color, cfg, bar_rounding);
             end
         else
-            cells = { { x = bar_left, width = bw, frac = s[key], state = 'full' } };
+            drawBar(draw_list, bar_left, bar_top, bw, h, s[key], 'full', bar_cfg.color, cfg, bar_rounding);
         end
 
-        drawBar(draw_list, bar_left, bar_top, bw, h, cells, bar_cfg.color, cfg, bar_rounding);
+        -- Label stays centered across the whole row, so TP prints over the middle bar.
         drawLabel(draw_list, bar_left, bar_top, bw, h, stats.label(s, key), cfg);
 
         bar_top = bar_top + h + cfg.gap;
