@@ -164,6 +164,26 @@ for _, kind in ipairs(config.size_order) do
     assert(config.panel_height(config.defaults, size, { 'hp' }) > 0, kind .. ' cannot lay out an hp bar');
 end
 
+-- Party slot indicator: the box plus one bar gap comes out of the bars, never out of the panel,
+-- and only for a panel kind that has a slot at all.
+local slotcfg = { panel = { offset = 4 }, gap = 2, slot = { enabled = true, size = 12 } };
+local offcfg  = { panel = { offset = 4 }, gap = 2, slot = { enabled = false, size = 12 } };
+
+assert(config.slot_box(slotcfg) == 18, 'box width = floor(1.5 * text size), got ' .. tostring(config.slot_box(slotcfg)));
+assert(config.slot_width(slotcfg, true) == 20, 'reserved width = box + one gap, got ' .. tostring(config.slot_width(slotcfg, true)));
+assert(config.slot_width(slotcfg, false) == 0, 'a panel with no slot reserves nothing');
+assert(config.slot_width(offcfg, true) == 0, 'the indicator off reserves nothing');
+
+-- Exactly the old width when off, not merely close to it: switching the tag off must not nudge
+-- bars by a rounding remainder.
+assert(config.bar_width(offcfg, SELF, true) == config.bar_width(offcfg, SELF), 'off must match the no-slot width exactly');
+assert(config.bar_width(config.defaults, SELF, true) == 92, 'the default (off) leaves bar width alone');
+assert(config.bar_width(slotcfg, SELF, true) == 92 - 20, 'bars give up box + gap, got ' .. tostring(config.bar_width(slotcfg, SELF, true)));
+assert(config.bar_width(slotcfg, sizes.target, false) == 192, 'the target panel keeps its full bar width');
+
+-- The panel's own footprint is untouched -- the space is taken from the bars inside it.
+assert(config.panel_height(slotcfg, SELF) == config.panel_height(offcfg, SELF), 'the tag must not change panel height');
+
 -- MP bar only shows when main or sub has an MP pool.
 assert(#config.bars_for(1, 2) == 2, 'WAR/MNK must drop the mp bar');
 assert(config.bars_for(1, 2)[2] == 'tp', 'remaining bars stay in draw order');

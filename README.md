@@ -57,7 +57,8 @@ Target lists one height because it draws one bar — see below. Every other visu
 property (padding, rounding, bar colors, fill alphas, borders, text color) stays
 common to all three, so a retint is still a single edit.
 
-Panel geometry is still derived, not stored: bar width is `width - 2*offset` and
+Panel geometry is still derived, not stored: bar width is `width - 2*offset`
+(minus the slot box, when that is on — see **Party slot indicator**) and
 panel height is the sum of the heights that panel's bars actually use, plus the
 gaps between them and the padding. A job with no MP pool therefore gets a
 shorter panel at whatever heights that kind is set to.
@@ -66,6 +67,33 @@ shorter panel at whatever heights that kind is set to.
 > `bars.*.height` keys are ignored, so those two settings return to their
 > defaults (100 / 16) once and need setting again per panel. Everything else
 > in your settings file carries over.
+
+## Party slot indicator
+
+**Party Slot Indicator** (off by default) draws that member's party slot — `P0`
+for yourself through `P5` — in a box on the left of the panel, and shifts the
+bars right to make room. `P1` is the same slot `<p1>` addresses.
+
+The box takes its space **out of the bars, not out of the panel**: `width` stays
+what you set it to, so the bars shift right and shorten by the box plus one gap.
+Growing the frame instead would resize every panel the moment the box was ticked.
+
+It is separated from the bars by the same **Bar Gap** the bars are separated from
+each other by, and sits inside the same panel padding, so the left edge lines up
+with nothing new. The box spans the full content height — all bars, not just the
+top one — with the text centered in it, so it reads as one tag against the whole
+stack.
+
+**Slot Text Size** is the tag's height in pixels, the one piece of text with a
+size of its own (bar labels take theirs from their bar — see **Label size**). The
+box's width is derived from it at a fixed 1.5:1, which fits `P1` with room either
+side at every size in both Ashita's font and ImGui's built-in one. Below **Min
+Text Size**, including once the distance scale has shrunk it there, the tag drops
+out the same way a bar label does; the reserved space stays, so the bars don't
+jump as you walk away.
+
+Target panels never get one — an arbitrary entity has no party slot, so that
+panel reserves no space and keeps its full bar width.
 
 ## Distance scaling
 

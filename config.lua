@@ -55,6 +55,15 @@ M.defaults = {
     gap            = 2,      -- vertical gap between the 3 bars
     border_visible = true,   -- shared toggle for panel border + bar borders
 
+    -- Party slot tag ("P0".."P5") in a box left of the bars, inside the panel. Off by default:
+    -- the panel keeps its configured width, so switching it on takes the space out of the bars,
+    -- which is a visible resize nobody asked for. Target panels never get one -- an arbitrary
+    -- entity has no party slot.
+    slot = {
+        enabled = false,
+        size    = 12,   -- text height in px; the box's width is derived from it (M.slot_box)
+    },
+
     bars = {
         rounded      = true,   -- corner rounding on/off for all 3 bars (magnitude is the fixed BAR_ROUNDING constant)
         border_color = { r = 0.08, g = 0.12, b = 0.30, a = 0.2 },   -- shared across hp/mp/tp outlines
@@ -140,8 +149,35 @@ end
 -- never be laid out with another's dimensions. Both are linear in every input, which is why
 -- distance scaling multiplies their *results* in drawPanel instead of threading a factor here.
 
-function M.bar_width(cfg, size)
-    return size.width - 2 * cfg.panel.offset;
+-- Box width per unit of text height. "P1" measures ~1.1-1.25x its own height in both Ashita's
+-- font and ImGui's built-in one, so 1.5 leaves room either side at every size -- and the ratio is
+-- size-independent, so one constant covers the whole slider range.
+-- ponytail: a fixed aspect instead of a second slider; add a width setting if a font overflows it.
+local SLOT_ASPECT = 1.5;
+
+-- Width of the slot box itself, without the gap that separates it from the bars.
+function M.slot_box(cfg)
+    return math.floor(cfg.slot.size * SLOT_ASPECT);
+end
+
+--[[
+* Horizontal space the slot indicator takes out of a panel's content: the box plus one bar gap
+* beside it, so the box sits off the bars by the same distance the bars sit off each other.
+*
+* @param {boolean} has_slot - whether this panel kind has a slot at all (false for target).
+* @return {number} 0 when there is no slot or the indicator is off, so bar_width lands back on
+*                  exactly its old value rather than near it.
+--]]
+function M.slot_width(cfg, has_slot)
+    -- has_slot first: callers that never show one (and test fixtures) need no `slot` table.
+    if (not has_slot or not cfg.slot.enabled) then
+        return 0;
+    end
+    return M.slot_box(cfg) + cfg.gap;
+end
+
+function M.bar_width(cfg, size, has_slot)
+    return size.width - 2 * cfg.panel.offset - M.slot_width(cfg, has_slot);
 end
 
 -- Clamps on the scale curve. Fixed, not settings: they stop a far panel vanishing and a near one
