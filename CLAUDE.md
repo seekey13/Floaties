@@ -16,14 +16,11 @@ the folder name.
 
 ## Commands
 
-There is no build step. Lua is installed but off PATH:
+There is no build step. Lua 5.4 is on PATH:
 
 ```sh
-LUA="$LOCALAPPDATA/Programs/Lua/bin/lua.exe"     # lua 5.4
-LUAC="$LOCALAPPDATA/Programs/Lua/bin/luac.exe"
-
-"$LUA" test.lua                        # run the whole self-check (from the repo root)
-"$LUAC" -p NewUI.lua lib/targets.lua   # syntax-check the files test.lua cannot load
+lua test.lua                        # run the whole self-check (from the repo root)
+luac -p NewUI.lua lib/targets.lua   # syntax-check the files test.lua cannot load
 ```
 
 `test.lua` is a flat list of `assert`s, not a framework — there is no way to run
