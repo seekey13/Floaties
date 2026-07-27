@@ -14,6 +14,7 @@ local M = {};
 
 M.defaults = {
     enabled       = true,
+    combat_only   = false, -- hide the panel unless a battle target is set
     height_offset = 0.3,   -- positive = below feet (axis points down)
 
     panel = {

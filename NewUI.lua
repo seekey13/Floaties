@@ -19,6 +19,40 @@ local config = require('config');
 local C   = ffi.C;
 local dev = d3d.get_device();
 
+----------------------------------------------------------------------------------------------------
+-- Battle target (<bt>). Trimmed from Ashita's targets.lua -- only the SeekBattleActor path is
+-- needed here, and only to know whether it returns anything. Type names are addon-prefixed so
+-- pulling in the full targets.lua later cannot collide with these cdefs.
+----------------------------------------------------------------------------------------------------
+
+ffi.cdef[[
+    typedef struct {
+        uint32_t    GuideNo;
+        uint32_t    UniqueNo;
+    } NEWUI_CHAR_ID;
+
+    typedef struct {
+        uint8_t         padding00[116];
+        NEWUI_CHAR_ID   id;
+    } NEWUI_XiAtelBuff;
+
+    typedef NEWUI_XiAtelBuff* (__stdcall* NEWUI_SeekBattleActor_f)(void);
+]];
+
+local seek_battle_actor = ashita.memory.find('FFXiMain.dll', 0, '66A1????????83EC186685C053565774??0FBFC08B0C85', 0, 0);
+
+--[[
+* Whether the player has a battle target, i.e. is engaged.
+* @return {boolean} true when engaged, and also when the signature scan failed --
+*                   a bad scan must not silently hide the panel forever.
+--]]
+local function inCombat()
+    if (seek_battle_actor == nil or seek_battle_actor == 0) then
+        return true;
+    end
+    return ffi.cast('NEWUI_SeekBattleActor_f', seek_battle_actor)() ~= nil;
+end
+
 -- Fixed (non-configurable) drawing constants -- not requested as settings.
 local BAR_ROUNDING     = 3;
 local TP_DIVIDER_COLOR = 0xFFFFFFFF;
@@ -204,6 +238,7 @@ local function drawConfigWindow()
     end
 
     if (imgui.Begin('NewUI Config', config_open)) then
+        checkbox('Only Show In Combat', cfg, 'combat_only');
         slider(imgui.SliderInt, 'Panel Width', cfg.panel, 'width', 40, 300);
         slider(imgui.SliderInt, 'Panel Offset', cfg.panel, 'offset', 0, 20);
         slider(imgui.SliderInt, 'Panel Rounding', cfg.panel, 'rounding', 0, 20);
@@ -242,6 +277,10 @@ ashita.events.register('d3d_present', 'newui_present', function ()
     drawConfigWindow();
 
     if (not config.settings.enabled) then
+        return;
+    end
+
+    if (config.settings.combat_only and not inCombat()) then
         return;
     end
 
