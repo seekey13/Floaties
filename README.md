@@ -1,7 +1,7 @@
 # NewUI
 
 Ashita v4 addon. Draws a styled HP/MP/TP unit-frame panel that tracks your
-character in 3D space, anchored below the feet.
+character in 3D space, anchored to the nameplate.
 
 ## V2
 
@@ -17,6 +17,12 @@ current value as text:
 The TP row is three individual bars side by side rather than one bar with
 dividers, spaced by the same `gap` used between rows. The label is centered
 across the whole row, so it prints over the middle bar.
+
+**Percent labels are marked with a `%`.** Raw HP/MP only arrives for yourself;
+for anyone else — and for every target panel — the client sends a percent and no
+amount, so the label falls back to that percent. It prints as `42%`, not `42`,
+because the two are the same integer and reading a mob at "42" as 42 HP left is
+the obvious way to misread it. TP is always raw, so it never carries a sign.
 
 Each bar has one color; opacity comes from a shared fill state instead of
 separate colors: `full` (1.0, alpha) for a fully-filled bar or a TP segment
@@ -34,6 +40,106 @@ The server only sends raw HP/MP for *you* — for everyone else those read 0, so
 their labels fall back to the percent it does send. TP is raw for everyone.
 Party members' MP bar follows their own job, and is dropped until their job is
 known.
+
+## Panel sizes
+
+Size is the one setting that is **not** shared between the three panel kinds.
+Self, party and target each own a width and a height per bar, under `sizes` in
+the settings file and in their own block in `/newui config`:
+
+| Panel | Settings |
+|---|---|
+| Self | Width, HP / MP / TP Height |
+| Party | Width, HP / MP / TP Height |
+| Target | Width, HP Height |
+
+Target lists one height because it draws one bar — see below. Every other visual
+property (padding, rounding, bar colors, fill alphas, borders, text color) stays
+common to all three, so a retint is still a single edit.
+
+Panel geometry is still derived, not stored: bar width is `width - 2*offset` and
+panel height is the sum of the heights that panel's bars actually use, plus the
+gaps between them and the padding. A job with no MP pool therefore gets a
+shorter panel at whatever heights that kind is set to.
+
+> Upgrading from a version before this split: the old shared `panel.width` and
+> `bars.*.height` keys are ignored, so those two settings return to their
+> defaults (100 / 16) once and need setting again per panel. Everything else
+> in your settings file carries over.
+
+## Distance scaling
+
+**Scale With Distance** (off by default) shrinks panels as their entity moves
+away and grows them as it comes closer, so a panel keeps its proportion to the
+nameplate above it instead of staying a fixed pixel size at every range.
+
+The curve is the perspective divide itself — the same one the game applies to
+the nameplate — so the two track each other for free rather than being tuned to
+match:
+
+```
+scale = clamp(Scale Reference Depth / view depth, 0.35, 1.5)
+```
+
+*View depth* is distance along the camera's forward axis, not the straight-line
+distance to the entity. That is the quantity the projection already divides by,
+so it costs nothing to read and needs no camera position out of memory.
+
+**Scale Reference Depth** (`6.0`) is the depth at which a panel draws at its
+configured size, and the only knob — the `0.35`/`1.5` clamps are fixed, so a
+distant panel stays a readable smudge and a near one does not fill the screen.
+
+The reference defaults to `6.0` because that is roughly where the third-person
+camera sits: your own panel lands near 1:1 and everything else scales away from
+it. A much larger reference pegs self at the ceiling permanently, at which point
+the slider stops doing anything you can see.
+
+Scale is taken at the anchor point, so the panel's top edge stays pinned under
+the nameplate and the panel grows or shrinks downward from there. Padding and
+corner rounding scale with everything else — otherwise a shrunk panel keeps a
+full-size border that swallows its own bars.
+
+The numbers scale with everything else, because their size is not a setting: a
+label is drawn at its own bar's height (see **Label size**), and that height
+already carries the scale.
+
+## Target panel
+
+A panel over whatever you currently have targeted, on top of the self and party
+ones. **Show Target** in the config window turns it off; it has its own
+**Target Height Offset**.
+
+**One bar, HP only.** Party panels can show MP and TP because the party packets
+carry them. For an arbitrary entity the client is told a single number — an HP
+percent — and nothing else, so there is no MP or TP to draw. The label is that
+percent, via the same `hp_raw == 0` fallback party members' labels already use,
+and prints with a trailing `%` for exactly that reason. The panel shrinks to fit
+the one bar.
+
+**Which target.** The cursor target (`<t>`) first; when nothing is selected, the
+battle target (`<bt>`) instead, so clearing your target mid-fight doesn't blank
+the panel. With a sub-target open (the green cursor, picking a cure recipient)
+the live selection is target slot 1, which is what gets drawn — the same way
+`lib/targets.lua` resolves `<t>`.
+
+The cursor read goes through Ashita's target manager, not `lib/targets.lua`, so
+it still works when the signature scans miss. Only the `<bt>` fallback carries
+that dependency, which the in-combat gate already did.
+
+**What draws.** Mobs (`SpawnFlags & 0x10`) and players (`& 0x01`). NPCs (`&
+0x02`) don't — you target them constantly just to talk, and a health bar over a
+shopkeeper is noise. Corpses don't (`HPPercent == 0`, or status `2`/`3`).
+Neither do you or your party members in slots `0..5`, since those already have a
+panel and a second one would stack on it.
+
+That party check is `0..5`, deliberately narrower than the in-combat gate's
+`0..17`. The gate scans the full alliance to reject *trusts and pets* as combat
+evidence; here a trust or pet you've targeted is a perfectly good thing to draw
+a panel over. Alliance members outside your own party get one too. Two small
+predicates, two different questions.
+
+**Gating.** The target panel obeys the same three visibility gates as everything
+else — one decision per frame, everything shows and hides together.
 
 Three visibility gates. Each one only ever **enables**: the panel shows when at
 least one *enabled* gate's condition is true, and is hidden otherwise. Several
@@ -97,7 +203,9 @@ live — **In Combat / Engaged / Idle** in green when true, red when false,
 followed by the raw entity status and what `<bt>` currently resolves to:
 
 ```
-In Combat: true  Engaged: true  Idle: false  | status=1 | bt: Mandragora hp=63% status=1 flags=0x10
+In Combat: true  Engaged: true  Idle: false  | status=1
+bt: Mandragora hp=63% status=1 flags=0x10
+target: Mandragora hp=63% status=1 flags=0x10
 Panel: shown
 ```
 
@@ -109,35 +217,103 @@ gate enabled it reads `hidden -- no gate enabled, so nothing can enable it`.
 battle target's, so a corpse still being handed back by `get_bt` is visible as
 `status=2`/`3` or `hp=0%`, and the trust case as `REJECTED` on a party member's
 name. `bt: none` means `get_bt` returned nothing.
-`/newui bt` prints the same line to the log.
+
+`target:` is the same treatment for the target panel, so an NPC you have clicked
+reads as ` REJECTED` with `flags=0x2` rather than looking identical to targeting
+nothing at all. `/newui bt` prints all of it to the log.
 
 **Show While Engaged** tests a similar condition through a supported Ashita API
 with no signature involved. The battle-target gate is the one that stays true
 while a claimed mob is alive but you are disengaged.
 
-Every visual property (panel size/rounding/colors, bar heights/colors, border,
-text color) is configurable via `/newui config` and persists across sessions.
+Every visual property is configurable via `/newui config` and persists across
+sessions — per-panel widths and bar heights (see **Panel sizes**), and shared
+padding/rounding/colors/border/text color.
+
+Labels carry a separate outline color from their fill: **Text Outline Color**
+draws the number a second time one pixel out in each direction, underneath, so a
+white digit stays readable over a light bar. Setting its alpha to `0` skips the
+outline pass — there is no separate toggle.
+
+### Label size
+
+Text size is not configurable, and deliberately so: a label is drawn at the
+height of the bar it sits in, so it can never be taller than that bar — at any
+configured bar height and at any distance scale, since the drawn height already
+carries the scale.
+
+A bar that cannot hold a legible digit drops its label instead of drawing mush.
+That happens when the size the bar would give works out under **Min Text Size**
+(`9`), or when the value is too wide for the bar. Both are decided per bar, not
+per panel: a short TP row can go quiet while the HP row above it still prints.
+Raise **Min Text Size** to drop labels sooner, lower it to keep them further
+out.
+
+The floor defaults to `9` because ImGui rasterizes its font at 13px and scales
+down from there: by 8px the digits have lost enough pixels to read as texture
+rather than numbers, and the 1px outline underneath is then wider than the
+strokes it is outlining. `6` printed a readable-looking 6px label on a 10px TP
+bar, which is what the floor exists to stop.
+
+Label size and origin are both snapped to whole pixels, to stop the text
+shimmering while the camera moves: a glyph asked for at a fractional size or
+drawn at a fractional origin gets resampled differently every frame.
+
+**Bold Text** (on) stamps the fill a second time one pixel right, thickening
+every vertical stroke. It is not a bold face: ImGui takes a font, not a weight,
+and the font atlas belongs to Ashita, which builds it before any addon loads —
+so a real bold face would mean shipping and baking a second TTF. The extra pixel
+is counted into the width fit check, so bolding a label can push a wide value
+over its bar's width and hide it.
+
+### Per-bar text
+
+**Show HP / MP / TP Text** switch a bar's number off without touching its
+height, for the case where the bar itself is worth keeping and the digits on it
+are not. They are independent of the size rules above — a bar hides its label if
+either the toggle is off or the bar is too short for it.
+
+Sizing the text uses `ImDrawList`'s second `AddText`, the one taking a font and
+a size.
 
 ## Commands
 
 | Command | Effect |
 |---|---|
 | `/newui` | Toggle on/off |
-| `/newui height <n>` | Your own vertical world offset. Positive is below feet. Default `0.3` |
+| `/newui height <n>` | Your own vertical nudge from the nameplate anchor. Positive is downward. Default `0.0` |
 | `/newui config` | Toggle the settings window |
-| `/newui bt` | Print the current gate state (in combat / engaged / idle, raw status, resolved `<bt>` or why it was rejected) |
+| `/newui bt` | Print the current gate state (in combat / engaged / idle, raw status, resolved `<bt>` and target, or why either was rejected) |
 
-The default height is a guess — model heights vary by race and mount, so nudge it in-game.
-Self and party have separate offsets (`Self Height Offset` / `Party Height Offset` in
-`/newui config`); the command only touches your own.
+`0.0` puts the panel's top edge level with the top of the model, i.e. directly under the
+nameplate; nudge from there. Self, party and target have separate offsets (`Self Height
+Offset` / `Party Height Offset` / `Target Height Offset` in `/newui config`); the command
+only touches your own.
+
+## Nameplate anchor
+
+The panel hangs from the same point the game hangs a nameplate from: the top of the rendered
+model, read from the actor's skeleton (highest bone, i.e. smallest Z — the height axis points
+down). That makes the offset from the plate hold across races, mounts, sitting, and mid-jump,
+all of which a fixed world offset from the ground gets wrong.
+
+It is *not* a hook into the game's own draw code. FFXI computes the nameplate's screen position
+inside `FFXiMain.dll` each frame and keeps it nowhere readable, so pixel-exact co-location needs
+a code cave — see `docs/NAMEPLATE-HOOK-RESEARCH.md`, which prices that at 2–4 days plus live
+frame-dumping to find the stack slots. This gets within a couple of pixels for the cost of a
+pointer walk.
+
+If the skeleton can't be read (zoning, model swap, an invalid index), the panel silently falls
+back to the entity's feet position for that frame.
 
 ## Files
 
 - `NewUI.lua` — projection, ImGui rendering, gate state, config window, commands
+- `nameplate.lua` — actor → skeleton → bone walk for the model-top anchor (memory reader injected, so it tests headless)
 - `lib/targets.lua` — Ashita's target library, vendored unmodified (only `get_bt` is used)
-- `stats.lua` — HP/MP/TP normalization + TP segment math (no Ashita dependencies)
+- `stats.lua` — HP/MP/TP normalization, TP segment math, and the target's entity read + targetability test (no Ashita dependencies)
 - `config.lua` — settings defaults, load/save, derived layout math (no Ashita dependencies except load/save)
-- `test.lua` — self-check for `stats.lua` and `config.lua`; run with `lua test.lua`
+- `test.lua` — self-check for `stats.lua`, `config.lua` and `nameplate.lua`; run with `lua test.lua`
 - `docs/` — research notes this was built from (gitignored)
 
 ## Notes

@@ -10,6 +10,11 @@ function M.clamp(v, lo, hi)
     return v;
 end
 
+-- Single-bit flag test. Not bit.band: `bit` is a LuaJIT global, and test.lua runs under plain lua.
+local function hasFlag(v, mask)
+    return v % (mask * 2) >= mask;
+end
+
 --[[
 * Reads one party slot and returns HP/MP/TP as both raw values (for text
 * labels) and 0.0 .. 1.0 fill fractions (for bar widths).
@@ -42,20 +47,82 @@ function M.read(party, index)
 end
 
 --[[
+* Reads an entity (rather than a party slot) into the same shape M.read returns.
+*
+* Only HP is available -- the client is told a mob's HP as a percent and nothing else -- so
+* callers draw the { 'hp' } bar set. hp_raw = 0 is not a placeholder: it is the condition M.label
+* already tests to fall back to printing that percent.
+*
+* @param {userdata|nil} ent - entity from GetEntity(index).
+* @return {table|nil} { hp, hp_raw } or nil when there is no entity.
+--]]
+function M.read_entity(ent)
+    if (ent == nil) then
+        return nil;
+    end
+
+    return {
+        hp     = M.clamp(ent.HPPercent, 0, 100) / 100,
+        hp_raw = 0,
+    };
+end
+
+--[[
+* Whether an entity should get a target panel drawn over it.
+*
+* Not NewUI's isEnemy: a trust or pet you targeted is fine to draw, so the party scan covers only
+* slots 0..5 -- the ones drawMember already draws -- to stop a second panel stacking on the first.
+*
+* @param {userdata|nil} ent - entity from GetEntity(index).
+* @param {object} party - AshitaCore:GetMemoryManager():GetParty()
+* @return {boolean}
+--]]
+function M.targetable(ent, party)
+    if (ent == nil) then
+        return false;
+    end
+
+    -- Mob (0x10) or PC (0x01). NPCs (0x02) are excluded -- a shopkeeper with a health bar
+    -- over it is noise, and targeting NPCs to talk to them is constant.
+    if (not (hasFlag(ent.SpawnFlags, 0x10) or hasFlag(ent.SpawnFlags, 0x01))) then
+        return false;
+    end
+
+    -- Corpses stay targetable in game for a while after the kill.
+    if (ent.HPPercent == 0 or ent.Status == 2 or ent.Status == 3) then
+        return false;
+    end
+
+    if (party ~= nil) then
+        for i = 0, 5 do
+            if (party:GetMemberIsActive(i) == 1 and party:GetMemberServerId(i) == ent.ServerId) then
+                return false;
+            end
+        end
+    end
+
+    return true;
+end
+
+--[[
 * Number to print on a bar. Party packets carry raw HP/MP only for self; for
 * other members they read 0 while the percent is still valid, so fall back to
 * the percent rather than printing a bogus 0.
 *
-* @return {number} raw value, or the percent when only that is known.
+* The second return says which of the two happened, so the caller can mark a
+* percent with a % sign -- derived by the branch that picked the number, so the
+* two can never disagree.
+*
+* @return {number,boolean} the value, and whether it is a percent rather than a raw amount.
 --]]
 function M.label(s, key)
     local raw = s[key .. '_raw'];
     if (key == 'tp' or raw > 0) then
-        return raw;
+        return raw, false;
     end
     -- The server's percent is a whole number; round rather than floor so the
     -- float round-trip through the 0..1 fraction cannot shave off a point.
-    return math.floor(s[key] * 100 + 0.5);
+    return math.floor(s[key] * 100 + 0.5), true;
 end
 
 --[[
