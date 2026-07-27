@@ -64,7 +64,11 @@ end
 
 function M.load()
     local settings = require('settings');
-    M.settings = settings.load(M.defaults);
+    -- settings.load calls defaults:copy()/:merge(), which live on Ashita's T
+    -- metatable. Wrapping here (not at file scope) keeps this file loadable
+    -- under plain lua for test.lua. Nested tables need no wrap -- copy/merge
+    -- recurse through table_mt directly.
+    M.settings = settings.load(T(M.defaults));
     settings.register('settings', 'newui_settings_update', function (s)
         M.settings = s;
     end);

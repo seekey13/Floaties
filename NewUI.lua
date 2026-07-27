@@ -4,14 +4,15 @@
 --]]
 
 addon.name      = 'NewUI';
-addon.author    = 'Seekey13';
-addon.version   = '2.0';
+addon.author    = 'Seekey';
+addon.version   = '0.1';
 addon.desc      = 'Floating HP/MP/TP bars over the player.';
 
 require('common');
 
 local ffi    = require('ffi');
 local d3d    = require('d3d8');
+local imgui  = require('imgui');
 local stats  = require('stats');
 local config = require('config');
 
