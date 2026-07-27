@@ -14,9 +14,12 @@ local M = {};
 
 M.defaults = {
     enabled            = true,
+    -- Gates are purely enabling (see M.visible), so all three off means the panel never
+    -- draws. Engaged+idle is on by default: visible in normal play, hidden while dead,
+    -- zoning or resting.
     show_in_combat     = false, -- show when a battle target is set (<bt>)
-    show_while_engaged = false, -- show when entity status is Engaged
-    show_while_idle    = false, -- show when entity status is Idle
+    show_while_engaged = true,  -- show when entity status is Engaged
+    show_while_idle    = true,  -- show when entity status is Idle
     show_party         = true,  -- draw panels over party members too, not just self
     height_offset      = 0.3,   -- positive = below feet (axis points down)
 
@@ -77,26 +80,26 @@ M.gates = { 'show_in_combat', 'show_while_engaged', 'show_while_idle' };
 --[[
 * Whether the panel should be drawn at all, from the visibility gates.
 *
-* The gates are additive, not restrictive: with none on the panel always shows;
-* with any on it shows whenever at least one *enabled* gate is satisfied. So
-* switching several on is a union -- being engaged is enough on its own, even
-* while the battle-target check disagrees (it goes stale, and would otherwise
-* veto a frame you are plainly fighting in).
+* Each gate purely *enables*: the panel shows when at least one enabled gate's
+* condition is currently true, and is hidden otherwise. Enabling several is a
+* union, not an intersection -- being engaged is enough on its own even while
+* the battle-target check disagrees.
+*
+* No gate enabled therefore means never visible, which is why the defaults ship
+* with engaged+idle on. This used to fall back to "always show", so a gate you
+* had switched on could not hide anything until you switched a second one on
+* too -- the setting looked broken because nothing it did was observable.
 *
 * @param {table} conditions - current state keyed by the same names as M.gates.
 * @return {boolean}
 --]]
 function M.visible(cfg, conditions)
-    local any_on = false;
     for _, gate in ipairs(M.gates) do
-        if (cfg[gate]) then
-            if (conditions[gate]) then
-                return true;
-            end
-            any_on = true;
+        if (cfg[gate] and conditions[gate]) then
+            return true;
         end
     end
-    return not any_on;
+    return false;
 end
 
 function M.bar_width(cfg)
