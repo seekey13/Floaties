@@ -118,12 +118,33 @@ assert(stats.targetable(fakeEnt(0x10, 100), nil), 'a missing party must not thro
 print('stats.lua ok');
 
 -- config.lua: derived layout math must match the defaults' expected geometry.
-assert(config.bar_width(config.defaults) == 92, 'bar width = panel.width - 2*offset, got ' .. tostring(config.bar_width(config.defaults)));
-assert(config.panel_height(config.defaults) == 60, 'panel height = sum(bar heights) + 2*gap + 2*offset, got ' .. tostring(config.panel_height(config.defaults)));
+local SELF = config.defaults.sizes.self;
+assert(config.bar_width(config.defaults, SELF) == 92, 'bar width = size.width - 2*offset, got ' .. tostring(config.bar_width(config.defaults, SELF)));
+assert(config.panel_height(config.defaults, SELF) == 60, 'panel height = sum(bar heights) + 2*gap + 2*offset, got ' .. tostring(config.panel_height(config.defaults, SELF)));
 
-local custom = { panel = { width = 200, offset = 10 }, gap = 5, bars = { hp = { height = 20 }, mp = { height = 30 }, tp = { height = 40 } } };
-assert(config.bar_width(custom) == 180, 'bar width recomputes from custom panel, got ' .. tostring(config.bar_width(custom)));
-assert(config.panel_height(custom) == 20 + 30 + 40 + 2 * 5 + 2 * 10, 'panel height recomputes from custom bars, got ' .. tostring(config.panel_height(custom)));
+local custom     = { panel = { offset = 10 }, gap = 5 };
+local customSize = { width = 200, hp = 20, mp = 30, tp = 40 };
+assert(config.bar_width(custom, customSize) == 180, 'bar width recomputes from the given size, got ' .. tostring(config.bar_width(custom, customSize)));
+assert(config.panel_height(custom, customSize) == 20 + 30 + 40 + 2 * 5 + 2 * 10, 'panel height recomputes from the given size, got ' .. tostring(config.panel_height(custom, customSize)));
+
+-- The point of the split: each kind lays out from its own size table, sharing only the padding
+-- and gap. Nothing may reach back to a single global width or bar height.
+local sizes = {
+    self   = { width = 100, hp = 16, mp = 16, tp = 16 },
+    party  = { width = 60,  hp = 8,  mp = 8,  tp = 8  },
+    target = { width = 200, hp = 24 },
+};
+assert(config.bar_width(config.defaults, sizes.party) == 52, 'party width is its own, got ' .. tostring(config.bar_width(config.defaults, sizes.party)));
+assert(config.bar_width(config.defaults, sizes.target) == 192, 'target width is its own, got ' .. tostring(config.bar_width(config.defaults, sizes.target)));
+assert(config.panel_height(config.defaults, sizes.party) == 8 * 3 + 2 * 2 + 2 * 4, 'party heights are its own, got ' .. tostring(config.panel_height(config.defaults, sizes.party)));
+assert(config.panel_height(config.defaults, sizes.target, { 'hp' }) == 24 + 2 * 4, 'target height is its own, got ' .. tostring(config.panel_height(config.defaults, sizes.target, { 'hp' })));
+
+-- Every kind in size_order must actually exist, and target must carry the one bar it draws.
+for _, kind in ipairs(config.size_order) do
+    assert(config.defaults.sizes[kind] ~= nil, 'size_order names a missing size table: ' .. kind);
+    assert(config.defaults.sizes[kind].width ~= nil, kind .. ' has no width');
+end
+assert(config.defaults.sizes.target.hp ~= nil, 'the target panel draws an hp bar, so it needs an hp height');
 
 -- MP bar only shows when main or sub has an MP pool.
 assert(#config.bars_for(1, 2) == 2, 'WAR/MNK must drop the mp bar');
@@ -133,8 +154,8 @@ assert(#config.bars_for(22, 1) == 3, 'RUN/WAR keeps the mp bar (main has MP)');
 assert(#config.bars_for(1, 0) == 2, 'no subjob must not error');
 
 -- Hiding a bar shrinks the panel by that bar's height plus one gap.
-assert(config.panel_height(config.defaults, { 'hp', 'tp' }) == 42,
-    'two-bar panel = 16+16 + 1*2 + 2*4, got ' .. tostring(config.panel_height(config.defaults, { 'hp', 'tp' })));
+assert(config.panel_height(config.defaults, SELF, { 'hp', 'tp' }) == 42,
+    'two-bar panel = 16+16 + 1*2 + 2*4, got ' .. tostring(config.panel_height(config.defaults, SELF, { 'hp', 'tp' })));
 
 -- Visibility gates only ever *enable*: show when at least one enabled gate
 -- passes, hide otherwise. Never an intersection, and never a fallback to shown.

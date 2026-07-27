@@ -35,6 +35,32 @@ their labels fall back to the percent it does send. TP is raw for everyone.
 Party members' MP bar follows their own job, and is dropped until their job is
 known.
 
+## Panel sizes
+
+Size is the one setting that is **not** shared between the three panel kinds.
+Self, party and target each own a width and a height per bar, under `sizes` in
+the settings file and in their own block in `/newui config`:
+
+| Panel | Settings |
+|---|---|
+| Self | Width, HP / MP / TP Height |
+| Party | Width, HP / MP / TP Height |
+| Target | Width, HP Height |
+
+Target lists one height because it draws one bar — see below. Every other visual
+property (padding, rounding, bar colors, fill alphas, borders, text color) stays
+common to all three, so a retint is still a single edit.
+
+Panel geometry is still derived, not stored: bar width is `width - 2*offset` and
+panel height is the sum of the heights that panel's bars actually use, plus the
+gaps between them and the padding. A job with no MP pool therefore gets a
+shorter panel at whatever heights that kind is set to.
+
+> Upgrading from a version before this split: the old shared `panel.width` and
+> `bars.*.height` keys are ignored, so those two settings return to their
+> defaults (100 / 16) once and need setting again per panel. Everything else
+> in your settings file carries over.
+
 ## Target panel
 
 A panel over whatever you currently have targeted, on top of the self and party
@@ -157,8 +183,9 @@ nothing at all. `/newui bt` prints all of it to the log.
 with no signature involved. The battle-target gate is the one that stays true
 while a claimed mob is alive but you are disengaged.
 
-Every visual property (panel size/rounding/colors, bar heights/colors, border,
-text color) is configurable via `/newui config` and persists across sessions.
+Every visual property is configurable via `/newui config` and persists across
+sessions — per-panel widths and bar heights (see **Panel sizes**), and shared
+padding/rounding/colors/border/text color.
 
 ## Commands
 

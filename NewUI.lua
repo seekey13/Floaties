@@ -202,6 +202,9 @@ local BAR_ROUNDING = 3;
 
 local config_open = { false };
 
+-- Display names for config.size_order, matching the wording the height-offset sliders already use.
+local SIZE_LABELS = { self = 'Self', party = 'Party', target = 'Target' };
+
 -- Whether your own panel found a skeleton to anchor to last frame. Diagnostic only: false means the
 -- panel is sitting at the feet instead of under the nameplate, which otherwise just looks like a
 -- badly tuned height offset.
@@ -294,11 +297,13 @@ local function drawLabel(draw_list, left, top, width, height, value, cfg)
     draw_list:AddText({ left + (width - tw) / 2, top + (height - th) / 2 }, text_col, label);
 end
 
-local function drawPanel(sx, sy, s, bars)
+-- `size` is the panel kind's own entry in cfg.sizes -- width plus a height per bar. Everything
+-- else about the panel is shared config.
+local function drawPanel(sx, sy, s, bars, size)
     local cfg    = config.settings;
-    local width  = cfg.panel.width;
-    local height = config.panel_height(cfg, bars);
-    local bw     = config.bar_width(cfg);
+    local width  = size.width;
+    local height = config.panel_height(cfg, size, bars);
+    local bw     = config.bar_width(cfg, size);
 
     local left     = sx - width / 2;
     local top      = sy;
@@ -317,7 +322,7 @@ local function drawPanel(sx, sy, s, bars)
 
     for _, key in ipairs(bars) do
         local bar_cfg = cfg.bars[key];
-        local h       = bar_cfg.height;
+        local h       = size[key];
 
         if (key == 'tp') then
             -- Three separate bars, one per 1000 TP, sharing the row's width.
@@ -343,11 +348,12 @@ end
 * Draws one panel over the entity at `index`. Silently skips entities that are out of zone
 * (index 0) or off screen.
 *
+* @param {table} size - the panel kind's cfg.sizes entry (width + per-bar heights).
 * @param {number} offset - world height nudge from the nameplate anchor, positive = down.
 * @return {boolean} whether a nameplate anchor was found -- false means the panel fell back to
 *                   the entity's feet. Reported, not acted on; only self bothers to look.
 --]]
-local function drawAt(mm, index, s, bars, offset, view, proj, vp)
+local function drawAt(mm, index, s, bars, size, offset, view, proj, vp)
     if (index == 0) then
         return false;
     end
@@ -366,7 +372,7 @@ local function drawAt(mm, index, s, bars, offset, view, proj, vp)
     local sx, sy, sz = worldToScreen(px, pz, py, view, proj, vp.Width, vp.Height);
 
     if (sz >= 0 and sz <= 1 and sx >= 0 and sx <= vp.Width and sy >= 0 and sy <= vp.Height) then
-        drawPanel(sx, sy, s, bars);
+        drawPanel(sx, sy, s, bars, size);
     end
 
     return top ~= nil;
@@ -383,10 +389,13 @@ local function drawMember(mm, party, i, view, proj, vp)
 
     -- Jobs of party members are only known once they've been seen; an unknown
     -- job reads 0, which bars_for treats as "no MP pool".
-    local ok = drawAt(mm, party:GetMemberTargetIndex(i), s,
-                      config.bars_for(party:GetMemberMainJob(i), party:GetMemberSubJob(i)),
-                      i == 0 and config.settings.height_offset or config.settings.party_height_offset,
-                      view, proj, vp);
+    local cfg  = config.settings;
+    local mine = i == 0;
+    local ok   = drawAt(mm, party:GetMemberTargetIndex(i), s,
+                        config.bars_for(party:GetMemberMainJob(i), party:GetMemberSubJob(i)),
+                        mine and cfg.sizes.self or cfg.sizes.party,
+                        mine and cfg.height_offset or cfg.party_height_offset,
+                        view, proj, vp);
 
     if (i == 0) then
         anchor_ok = ok;
@@ -407,7 +416,8 @@ local function drawTarget(mm, view, proj, vp)
         return;
     end
 
-    drawAt(mm, target_index, s, TARGET_BARS, config.settings.target_height_offset, view, proj, vp);
+    drawAt(mm, target_index, s, TARGET_BARS, config.settings.sizes.target,
+           config.settings.target_height_offset, view, proj, vp);
 end
 
 local function drawConfigWindow()
@@ -487,7 +497,6 @@ local function drawConfigWindow()
         slider(imgui.SliderFloat, 'Self Height Offset', cfg, 'height_offset', -4, 4);
         slider(imgui.SliderFloat, 'Party Height Offset', cfg, 'party_height_offset', -4, 4);
         slider(imgui.SliderFloat, 'Target Height Offset', cfg, 'target_height_offset', -4, 4);
-        slider(imgui.SliderInt, 'Panel Width', cfg.panel, 'width', 40, 300);
         slider(imgui.SliderInt, 'Panel Offset', cfg.panel, 'offset', 0, 20);
         slider(imgui.SliderInt, 'Panel Rounding', cfg.panel, 'rounding', 0, 20);
         checkbox('Panel Rounded', cfg.panel, 'rounded');
@@ -496,15 +505,27 @@ local function drawConfigWindow()
         slider(imgui.SliderInt, 'Bar Gap', cfg, 'gap', 0, 10);
         checkbox('Border Visible', cfg, 'border_visible');
 
+        -- Size is per panel kind; a kind only lists the bars it can actually draw, which is why
+        -- Target shows an HP height and nothing else.
+        imgui.Separator();
+        for _, kind in ipairs(config.size_order) do
+            local size  = cfg.sizes[kind];
+            local title = SIZE_LABELS[kind];
+            imgui.Text(('%s Panel'):fmt(title));
+            slider(imgui.SliderInt, ('%s Width'):fmt(title), size, 'width', 40, 300);
+            for _, key in ipairs(config.bar_order) do
+                if (size[key] ~= nil) then
+                    slider(imgui.SliderInt, ('%s %s Height'):fmt(title, key:upper()), size, key, 4, 40);
+                end
+            end
+        end
+
         imgui.Separator();
         checkbox('Bars Rounded', cfg.bars, 'rounded');
         colorEdit('Bar Border Color', cfg.bars.border_color);
         colorEdit3('HP Color', cfg.bars.hp.color);
-        slider(imgui.SliderInt, 'HP Height', cfg.bars.hp, 'height', 4, 40);
         colorEdit3('MP Color', cfg.bars.mp.color);
-        slider(imgui.SliderInt, 'MP Height', cfg.bars.mp, 'height', 4, 40);
         colorEdit3('TP Color', cfg.bars.tp.color);
-        slider(imgui.SliderInt, 'TP Height', cfg.bars.tp, 'height', 4, 40);
 
         imgui.Separator();
         slider(imgui.SliderFloat, 'Full Alpha', cfg.states, 'full', 0, 1);

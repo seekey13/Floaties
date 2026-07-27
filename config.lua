@@ -32,12 +32,21 @@ M.defaults = {
     target_height_offset = 0.0,  -- current target
 
     panel = {
-        width        = 100,
         offset       = 4,           -- padding: panel edge -> bar edge, all sides
         rounding     = 8,
         rounded      = true,        -- corner rounding on/off (magnitude stays in `rounding`)
         bg           = { r = 0.08, g = 0.12, b = 0.30, a = 0.7 },
         border_color = { r = 0.08, g = 0.12, b = 0.30, a = 0.4 },
+    },
+
+    -- Size is the one thing that is *not* shared between the three panel kinds: width, and the
+    -- height of each bar in that panel. Everything else above and below (padding, rounding,
+    -- colors, alphas, borders, text) stays common, so retinting is still one edit.
+    -- Target carries `hp` only -- it is the only bar an arbitrary entity can fill (see stats.read_entity).
+    sizes = {
+        self   = { width = 100, hp = 16, mp = 16, tp = 16 },
+        party  = { width = 100, hp = 16, mp = 16, tp = 16 },
+        target = { width = 100, hp = 16 },
     },
 
     gap            = 2,      -- vertical gap between the 3 bars
@@ -47,10 +56,11 @@ M.defaults = {
         rounded      = true,   -- corner rounding on/off for all 3 bars (magnitude is the fixed BAR_ROUNDING constant)
         border_color = { r = 0.08, g = 0.12, b = 0.30, a = 0.2 },   -- shared across hp/mp/tp outlines
 
-        -- Each bar has one color; how opaque it draws depends on `states` below.
-        hp = { height = 16, color = { r = 0.95, g = 0.45, b = 0.45 } },
-        mp = { height = 16, color = { r = 0.95, g = 0.90, b = 0.45 } },
-        tp = { height = 16, color = { r = 0.55, g = 0.75, b = 0.95 } },
+        -- Each bar has one color, shared by all three panel kinds; how opaque it draws depends
+        -- on `states` below, and how tall on `sizes` above.
+        hp = { color = { r = 0.95, g = 0.45, b = 0.45 } },
+        mp = { color = { r = 0.95, g = 0.90, b = 0.45 } },
+        tp = { color = { r = 0.55, g = 0.75, b = 0.95 } },
     },
 
     -- Shared fill-alpha per state, applied to whichever bar color is drawing.
@@ -64,6 +74,9 @@ M.defaults = {
 
 -- Bars in draw order, top to bottom.
 M.bar_order = { 'hp', 'mp', 'tp' };
+
+-- Panel kinds, keying M.settings.sizes. Order is config-window order only.
+M.size_order = { 'self', 'party', 'target' };
 
 -- Jobs with an MP pool, by job id: WHM BLM RDM PLD DRK SMN BLU SCH GEO RUN.
 M.mp_jobs = {
@@ -110,15 +123,18 @@ function M.visible(cfg, conditions)
     return false;
 end
 
-function M.bar_width(cfg)
-    return cfg.panel.width - 2 * cfg.panel.offset;
+-- Both take the panel kind's own size table (cfg.sizes.self / .party / .target), so the two
+-- axes come from the same place and a kind can never be laid out with another's dimensions.
+
+function M.bar_width(cfg, size)
+    return size.width - 2 * cfg.panel.offset;
 end
 
-function M.panel_height(cfg, bars)
+function M.panel_height(cfg, size, bars)
     bars = bars or M.bar_order;
     local sum = 0;
     for _, key in ipairs(bars) do
-        sum = sum + cfg.bars[key].height;
+        sum = sum + size[key];
     end
     return sum + (#bars - 1) * cfg.gap + 2 * cfg.panel.offset;
 end
