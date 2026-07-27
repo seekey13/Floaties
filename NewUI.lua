@@ -53,9 +53,8 @@ local function inCombat()
     return ffi.cast('NEWUI_SeekBattleActor_f', seek_battle_actor)() ~= nil;
 end
 
--- Fixed (non-configurable) drawing constants -- not requested as settings.
-local BAR_ROUNDING     = 3;
-local TP_DIVIDER_COLOR = 0xFFFFFFFF;
+-- Fixed (non-configurable) drawing constant -- not requested as a setting.
+local BAR_ROUNDING = 3;
 
 local config_open = { false };
 
@@ -136,11 +135,12 @@ local function drawBar(draw_list, left, top, width, height, cells, bar_color, cf
         end
     end
 
-    -- TP-only: thin divider lines at the 1000/2000 boundaries.
+    -- TP-only: thin divider lines at the 1000/2000 boundaries. Shares the label color.
     if (#cells > 1) then
+        local divider_col = packColor(cfg.text.color);
         for i = 1, #cells - 1 do
             local x = cells[i + 1].x;
-            draw_list:AddLine({ x, top }, { x, top + height }, TP_DIVIDER_COLOR, 1.0);
+            draw_list:AddLine({ x, top }, { x, top + height }, divider_col, 1.0);
         end
     end
 
