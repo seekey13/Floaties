@@ -122,10 +122,10 @@ local function drawLabel(draw_list, left, top, width, height, value, cfg)
     draw_list:AddText({ left + (width - tw) / 2, top + (height - th) / 2 }, text_col, label);
 end
 
-local function drawPanel(sx, sy, s)
+local function drawPanel(sx, sy, s, bars)
     local cfg    = config.settings;
     local width  = cfg.panel.width;
-    local height = config.panel_height(cfg);
+    local height = config.panel_height(cfg, bars);
     local bw     = config.bar_width(cfg);
 
     local left     = sx - width / 2;
@@ -143,7 +143,7 @@ local function drawPanel(sx, sy, s)
     local bar_top      = top + cfg.panel.offset;
     local bar_rounding = cfg.bars.rounded and BAR_ROUNDING or 0;
 
-    for _, key in ipairs(config.bar_order) do
+    for _, key in ipairs(bars) do
         local bar_cfg = cfg.bars[key];
         local h       = bar_cfg.height;
         local cells;
@@ -250,9 +250,16 @@ ashita.events.register('d3d_present', 'newui_present', function ()
     local party  = mm:GetParty();
 
     -- Not logged in / zoning: main job reads 0.
-    if (player == nil or player:GetMainJob() == 0) then
+    if (player == nil) then
         return;
     end
+
+    local main_job = player:GetMainJob();
+    if (main_job == 0) then
+        return;
+    end
+
+    local bars = config.bars_for(main_job, player:GetSubJob());
 
     local s = stats.read(party);
     if (s == nil) then
@@ -281,7 +288,7 @@ ashita.events.register('d3d_present', 'newui_present', function ()
         return;
     end
 
-    drawPanel(sx, sy, s);
+    drawPanel(sx, sy, s, bars);
 end);
 
 ----------------------------------------------------------------------------------------------------

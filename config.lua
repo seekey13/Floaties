@@ -50,16 +50,34 @@ M.defaults = {
 -- Bars in draw order, top to bottom.
 M.bar_order = { 'hp', 'mp', 'tp' };
 
+-- Jobs with an MP pool, by job id: WHM BLM RDM PLD DRK SMN BLU SCH GEO RUN.
+M.mp_jobs = {
+    [3] = true, [4] = true, [5] = true, [7] = true, [8] = true,
+    [15] = true, [16] = true, [20] = true, [21] = true, [22] = true,
+};
+
+--[[
+* Bars to draw for a job pairing. MP is dropped unless main or sub has MP.
+* @return {table} subset of M.bar_order, same order.
+--]]
+function M.bars_for(main_job, sub_job)
+    if (M.mp_jobs[main_job] or M.mp_jobs[sub_job]) then
+        return M.bar_order;
+    end
+    return { 'hp', 'tp' };
+end
+
 function M.bar_width(cfg)
     return cfg.panel.width - 2 * cfg.panel.offset;
 end
 
-function M.panel_height(cfg)
+function M.panel_height(cfg, bars)
+    bars = bars or M.bar_order;
     local sum = 0;
-    for _, key in ipairs(M.bar_order) do
+    for _, key in ipairs(bars) do
         sum = sum + cfg.bars[key].height;
     end
-    return sum + 2 * cfg.gap + 2 * cfg.panel.offset;
+    return sum + (#bars - 1) * cfg.gap + 2 * cfg.panel.offset;
 end
 
 function M.load()

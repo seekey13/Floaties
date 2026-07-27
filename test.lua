@@ -53,4 +53,15 @@ local custom = { panel = { width = 200, offset = 10 }, gap = 5, bars = { hp = { 
 assert(config.bar_width(custom) == 180, 'bar width recomputes from custom panel, got ' .. tostring(config.bar_width(custom)));
 assert(config.panel_height(custom) == 20 + 30 + 40 + 2 * 5 + 2 * 10, 'panel height recomputes from custom bars, got ' .. tostring(config.panel_height(custom)));
 
+-- MP bar only shows when main or sub has an MP pool.
+assert(#config.bars_for(1, 2) == 2, 'WAR/MNK must drop the mp bar');
+assert(config.bars_for(1, 2)[2] == 'tp', 'remaining bars stay in draw order');
+assert(#config.bars_for(1, 3) == 3, 'WAR/WHM keeps the mp bar (sub has MP)');
+assert(#config.bars_for(22, 1) == 3, 'RUN/WAR keeps the mp bar (main has MP)');
+assert(#config.bars_for(1, 0) == 2, 'no subjob must not error');
+
+-- Hiding a bar shrinks the panel by that bar's height plus one gap.
+assert(config.panel_height(config.defaults, { 'hp', 'tp' }) == 42,
+    'two-bar panel = 16+16 + 1*2 + 2*4, got ' .. tostring(config.panel_height(config.defaults, { 'hp', 'tp' })));
+
 print('config.lua ok');
