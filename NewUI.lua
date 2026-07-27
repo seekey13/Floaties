@@ -79,21 +79,25 @@ end
 -- Rendering
 ----------------------------------------------------------------------------------------------------
 
-local function packColor(c)
-    return imgui.GetColorU32({ c.r, c.g, c.b, c.a });
+-- `alpha`, when given, overrides the color's own stored alpha (bar colors carry no `a`;
+-- their opacity always comes from the current fill state instead).
+local function packColor(c, alpha)
+    return imgui.GetColorU32({ c.r, c.g, c.b, alpha or c.a });
 end
 
 --[[
 * Draws one bar: empty track, filled segment(s) (TP has 3, hp/mp have 1),
-* and a border outline.
+* and a border outline. Each cell's opacity comes from cfg.states[cell.state].
 --]]
-local function drawBar(draw_list, left, top, width, height, cells, bar_cfg, cfg, rounding)
-    draw_list:AddRectFilled({ left, top }, { left + width, top + height }, packColor(bar_cfg.empty), rounding);
+local function drawBar(draw_list, left, top, width, height, cells, bar_color, cfg, rounding)
+    local states = cfg.states;
+
+    draw_list:AddRectFilled({ left, top }, { left + width, top + height }, packColor(bar_color, states.empty), rounding);
 
     for _, cell in ipairs(cells) do
         local fill_w = cell.width * cell.frac;
         if (fill_w > 0) then
-            draw_list:AddRectFilled({ cell.x, top }, { cell.x + fill_w, top + height }, packColor(cell.color), rounding);
+            draw_list:AddRectFilled({ cell.x, top }, { cell.x + fill_w, top + height }, packColor(bar_color, states[cell.state]), rounding);
         end
     end
 
@@ -105,8 +109,8 @@ local function drawBar(draw_list, left, top, width, height, cells, bar_cfg, cfg,
         end
     end
 
-    if (cfg.border.visible) then
-        draw_list:AddRect({ left, top }, { left + width, top + height }, packColor(cfg.border.color), rounding);
+    if (cfg.border_visible) then
+        draw_list:AddRect({ left, top }, { left + width, top + height }, packColor(cfg.bars.border_color), rounding);
     end
 end
 
@@ -130,12 +134,13 @@ local function drawPanel(sx, sy, s)
     local draw_list = imgui.GetBackgroundDrawList();
 
     draw_list:AddRectFilled({ left, top }, { left + width, top + height }, packColor(cfg.panel.bg), rounding);
-    if (cfg.border.visible) then
-        draw_list:AddRect({ left, top }, { left + width, top + height }, packColor(cfg.border.color), rounding);
+    if (cfg.border_visible) then
+        draw_list:AddRect({ left, top }, { left + width, top + height }, packColor(cfg.panel.border_color), rounding);
     end
 
-    local bar_left = left + cfg.panel.offset;
-    local bar_top  = top + cfg.panel.offset;
+    local bar_left     = left + cfg.panel.offset;
+    local bar_top      = top + cfg.panel.offset;
+    local bar_rounding = cfg.bars.rounded and BAR_ROUNDING or 0;
 
     for _, key in ipairs(config.bar_order) do
         local bar_cfg = cfg.bars[key];
@@ -147,18 +152,13 @@ local function drawPanel(sx, sy, s)
             local seg_w = bw / 3;
             for i = 1, 3 do
                 local frac = stats.tp_segment(s.tp_raw, i);
-                cells[i] = {
-                    x     = bar_left + (i - 1) * seg_w,
-                    width = seg_w,
-                    frac  = frac,
-                    color = (frac >= 1) and bar_cfg.complete or bar_cfg.full,
-                };
+                cells[i] = { x = bar_left + (i - 1) * seg_w, width = seg_w, frac = frac, state = (frac >= 1) and 'full' or 'incomplete' };
             end
         else
-            cells = { { x = bar_left, width = bw, frac = s[key], color = bar_cfg.full } };
+            cells = { { x = bar_left, width = bw, frac = s[key], state = 'full' } };
         end
 
-        drawBar(draw_list, bar_left, bar_top, bw, h, cells, bar_cfg, cfg, cfg.bars.rounded and BAR_ROUNDING or 0);
+        drawBar(draw_list, bar_left, bar_top, bw, h, cells, bar_cfg.color, cfg, bar_rounding);
         drawLabel(draw_list, bar_left, bar_top, bw, h, s[key .. '_raw'], cfg);
 
         bar_top = bar_top + h + cfg.gap;
@@ -178,10 +178,26 @@ local function drawConfigWindow()
         end
     end
 
+    local function sliderFloat(label, obj, key, lo, hi)
+        local v = { obj[key] };
+        if (imgui.SliderFloat(label, v, lo, hi)) then
+            obj[key] = v[1];
+            config.save();
+        end
+    end
+
     local function colorEdit(label, c)
         local col = { c.r, c.g, c.b, c.a };
         if (imgui.ColorEdit4(label, col)) then
             c.r, c.g, c.b, c.a = col[1], col[2], col[3], col[4];
+            config.save();
+        end
+    end
+
+    local function colorEdit3(label, c)
+        local col = { c.r, c.g, c.b };
+        if (imgui.ColorEdit3(label, col)) then
+            c.r, c.g, c.b = col[1], col[2], col[3];
             config.save();
         end
     end
@@ -199,29 +215,27 @@ local function drawConfigWindow()
         sliderInt('Panel Offset', cfg.panel, 'offset', 0, 20);
         sliderInt('Panel Rounding', cfg.panel, 'rounding', 0, 20);
         checkbox('Panel Rounded', cfg.panel, 'rounded');
+        colorEdit('Panel Background', cfg.panel.bg);
+        colorEdit('Panel Border Color', cfg.panel.border_color);
         sliderInt('Bar Gap', cfg, 'gap', 0, 10);
+        checkbox('Border Visible', cfg, 'border_visible');
 
         imgui.Separator();
         checkbox('Bars Rounded', cfg.bars, 'rounded');
+        colorEdit('Bar Border Color', cfg.bars.border_color);
+        colorEdit3('HP Color', cfg.bars.hp.color);
         sliderInt('HP Height', cfg.bars.hp, 'height', 4, 40);
-        colorEdit('HP Full', cfg.bars.hp.full);
-        colorEdit('HP Empty', cfg.bars.hp.empty);
-
-        imgui.Separator();
+        colorEdit3('MP Color', cfg.bars.mp.color);
         sliderInt('MP Height', cfg.bars.mp, 'height', 4, 40);
-        colorEdit('MP Full', cfg.bars.mp.full);
-        colorEdit('MP Empty', cfg.bars.mp.empty);
-
-        imgui.Separator();
+        colorEdit3('TP Color', cfg.bars.tp.color);
         sliderInt('TP Height', cfg.bars.tp, 'height', 4, 40);
-        colorEdit('TP Full', cfg.bars.tp.full);
-        colorEdit('TP Empty', cfg.bars.tp.empty);
-        colorEdit('TP Complete', cfg.bars.tp.complete);
 
         imgui.Separator();
-        colorEdit('Panel Background', cfg.panel.bg);
-        checkbox('Border Visible', cfg.border, 'visible');
-        colorEdit('Border Color', cfg.border.color);
+        sliderFloat('Full Alpha', cfg.states, 'full', 0, 1);
+        sliderFloat('Empty Alpha', cfg.states, 'empty', 0, 1);
+        sliderFloat('Incomplete Alpha', cfg.states, 'incomplete', 0, 1);
+
+        imgui.Separator();
         colorEdit('Text Color', cfg.text.color);
     end
     imgui.End();

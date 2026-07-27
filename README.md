@@ -8,15 +8,18 @@ character in 3D space, anchored below the feet.
 A rounded, bordered panel with three stacked bars, each showing its raw
 current value as text:
 
-| Bar | Source | Label |
-|---|---|---|
-| HP | `party:GetMemberHPPercent(0)` | current HP |
-| MP | `party:GetMemberMPPercent(0)` | current MP |
-| TP | `party:GetMemberTP(0)` / 3000, split into 3 segments (1000 TP each) | current TP (0-3000) |
+| Bar | Source | Label | Default color |
+|---|---|---|---|
+| HP | `party:GetMemberHPPercent(0)` | current HP | light red |
+| MP | `party:GetMemberMPPercent(0)` | current MP | light yellow |
+| TP | `party:GetMemberTP(0)` / 3000, split into 3 segments (1000 TP each) | current TP (0-3000) | light blue |
 
-Each TP segment switches from the "full" (in-progress) color to a separate
-"complete" color once it hits its 1000/2000/3000 threshold, so weaponskill
-readiness is visible at a glance.
+Each bar has one color; opacity comes from a shared fill state instead of
+separate colors: `full` (1.0, alpha) for a fully-filled bar or a TP segment
+past its threshold, `incomplete` (0.5) for a TP segment still charging, and
+`empty` (0.2) for the background track behind any bar. So a TP segment that
+hits 1000/2000/3000 visibly "locks in" brighter than the one still charging,
+without needing a separate color.
 
 Self only. Hidden while zoning, logged out, or when the anchor point is off screen.
 Every visual property (panel size/rounding/colors, bar heights/colors, border,

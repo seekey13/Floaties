@@ -17,27 +17,34 @@ M.defaults = {
     height_offset = 0.3,   -- positive = below feet (axis points down)
 
     panel = {
-        width    = 100,
-        offset   = 4,           -- padding: panel edge -> bar edge, all sides
-        rounding = 8,
-        rounded  = true,        -- corner rounding on/off (magnitude stays in `rounding`)
-        bg       = { r = 0.11, g = 0.10, b = 0.20, a = 1.0 },
+        width        = 100,
+        offset       = 4,           -- padding: panel edge -> bar edge, all sides
+        rounding     = 8,
+        rounded      = true,        -- corner rounding on/off (magnitude stays in `rounding`)
+        bg           = { r = 0.08, g = 0.12, b = 0.30, a = 0.7 },
+        border_color = { r = 0.08, g = 0.12, b = 0.30, a = 0.4 },
     },
 
-    gap = 2,   -- vertical gap between the 3 bars
+    gap            = 2,      -- vertical gap between the 3 bars
+    border_visible = true,   -- shared toggle for panel border + bar borders
 
     bars = {
-        rounded = true,   -- corner rounding on/off for all 3 bars (magnitude is the fixed BAR_ROUNDING constant)
+        rounded      = true,   -- corner rounding on/off for all 3 bars (magnitude is the fixed BAR_ROUNDING constant)
+        border_color = { r = 0.08, g = 0.12, b = 0.30, a = 0.2 },   -- shared across hp/mp/tp outlines
 
-        hp = { height = 16, full = { r = 0.91, g = 0.59, b = 0.64, a = 1 }, empty = { r = 0.55, g = 0.38, b = 0.42, a = 1 } },
-        mp = { height = 16, full = { r = 0.85, g = 0.72, b = 0.60, a = 1 }, empty = { r = 0.55, g = 0.47, b = 0.42, a = 1 } },
-        -- `complete` colors a segment once it hits 1000/2000/3000 (weaponskill-ready);
-        -- `full` is the in-progress fill color for the segment still charging.
-        tp = { height = 16, full = { r = 0.60, g = 0.86, b = 0.90, a = 1 }, empty = { r = 0.40, g = 0.55, b = 0.60, a = 1 }, complete = { r = 0.95, g = 0.85, b = 0.40, a = 1 } },
+        -- Each bar has one color; how opaque it draws depends on `states` below.
+        hp = { height = 16, color = { r = 0.95, g = 0.45, b = 0.45 } },
+        mp = { height = 16, color = { r = 0.95, g = 0.90, b = 0.45 } },
+        tp = { height = 16, color = { r = 0.55, g = 0.75, b = 0.95 } },
     },
 
-    border = { visible = true, color = { r = 0.20, g = 0.18, b = 0.30, a = 1 } },
-    text   = { color = { r = 1, g = 1, b = 1, a = 1 } },
+    -- Shared fill-alpha per state, applied to whichever bar color is drawing.
+    -- `full` = fully filled (HP/MP fill, and a TP segment past its threshold).
+    -- `incomplete` = a TP segment still charging toward its threshold.
+    -- `empty` = the background track behind any bar's fill.
+    states = { full = 1.0, empty = 0.2, incomplete = 0.5 },
+
+    text = { color = { r = 1, g = 1, b = 1, a = 1 } },
 };
 
 -- Bars in draw order, top to bottom.
