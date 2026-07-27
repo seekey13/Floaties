@@ -21,13 +21,15 @@ M.defaults = {
     show_while_engaged = true,  -- show when entity status is Engaged
     show_while_idle    = true,  -- show when entity status is Idle
     show_party         = true,  -- draw panels over party members too, not just self
+    show_target        = true,  -- draw a panel over whatever you have targeted
 
     -- Vertical world nudge from the nameplate anchor (top of the model), positive = downward,
     -- since the height axis points down. 0 puts the panel's top edge level with the model's head,
     -- i.e. directly under the nameplate. Split self from party so your own panel can sit clear of
     -- the ones over everyone else.
-    height_offset       = 0.0,  -- self (party slot 0)
-    party_height_offset = 0.0,  -- everyone else (slots 1..5)
+    height_offset        = 0.0,  -- self (party slot 0)
+    party_height_offset  = 0.0,  -- everyone else (slots 1..5)
+    target_height_offset = 0.0,  -- current target
 
     panel = {
         width        = 100,

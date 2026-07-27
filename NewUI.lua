@@ -104,6 +104,36 @@ local function isEnemy(ent, party)
     return true;
 end
 
+--[[
+* Index of the entity to draw a target panel over, before it is checked for validity.
+*
+* The cursor read goes through Ashita's own target manager rather than lib.targets, so it keeps
+* working when the signature scans miss and `targets` is nil. Only the <bt> fallback carries that
+* dependency, which the in-combat gate already did.
+*
+* @param {userdata} mm - the memory manager.
+* @param {userdata|nil} bt - the battle target, already resolved by the caller this frame.
+* @return {number} target index, or 0 when nothing is targeted.
+--]]
+local function targetIndex(mm, bt)
+    local t = mm:GetTarget();
+    if (t == nil) then
+        return 0;
+    end
+
+    -- A sub-target (the green cursor, e.g. picking a cure recipient) moves the live selection to
+    -- slot 1; slot 0 then still holds whatever was targeted before it opened. lib.targets' get_t
+    -- resolves <t> the same way.
+    local index = t:GetTargetIndex(t:GetIsSubTargetActive());
+    if (index ~= 0) then
+        return index;
+    end
+
+    -- Nothing selected: fall back to what you are fighting, so clearing your target mid-fight
+    -- does not blank the panel.
+    return bt ~= nil and bt.TargetIndex or 0;
+end
+
 ----------------------------------------------------------------------------------------------------
 -- Gate state. Recomputed once per frame, before anything can return early, so the config window's
 -- status line still reads true while the panel itself is hidden -- that line is the whole point
@@ -118,9 +148,14 @@ local gate_state = {
     show_while_idle    = false,
 
     -- Diagnostics, not gates.
-    status  = -1,       -- raw entity status, -1 when unknown (not logged in / zoning)
-    bt_text = 'none',   -- battle target name + hp, or why it was rejected
+    status      = -1,       -- raw entity status, -1 when unknown (not logged in / zoning)
+    bt_text     = 'none',   -- battle target name + hp, or why it was rejected
+    target_text = 'none',   -- current target name + hp, or why it was rejected
 };
+
+-- Entity index the target panel draws over, or 0 for none. Resolved in updateGateState next to the
+-- diagnostic string describing it, so the two can never disagree about which entity is meant.
+local target_index = 0;
 
 local function updateGateState(mm, player, party)
     if (player == nil or player:GetMainJob() == 0) then
@@ -129,6 +164,8 @@ local function updateGateState(mm, player, party)
         gate_state.show_while_idle    = false;
         gate_state.status             = -1;
         gate_state.bt_text            = 'not logged in';
+        gate_state.target_text        = 'not logged in';
+        target_index                  = 0;
         return;
     end
 
@@ -146,6 +183,18 @@ local function updateGateState(mm, player, party)
     gate_state.bt_text = bt == nil and 'none'
         or ('%s hp=%d%% status=%d flags=0x%X%s'):fmt(bt.Name, bt.HPPercent, bt.Status, bt.SpawnFlags,
                                                      enemy and '' or ' REJECTED');
+
+    -- Same treatment for the target panel: a rejected target still prints, so "targeting an NPC"
+    -- reads differently from "targeting nothing".
+    local ti         = targetIndex(mm, bt);
+    local tent       = ti ~= 0 and GetEntity(ti) or nil;
+    local targetable = stats.targetable(tent, party);
+
+    target_index = targetable and ti or 0;
+
+    gate_state.target_text = tent == nil and 'none'
+        or ('%s hp=%d%% status=%d flags=0x%X%s'):fmt(tent.Name, tent.HPPercent, tent.Status,
+                                                     tent.SpawnFlags, targetable and '' or ' REJECTED');
 end
 
 -- Fixed (non-configurable) drawing constant -- not requested as a setting.
@@ -291,18 +340,16 @@ local function drawPanel(sx, sy, s, bars)
 end
 
 --[[
-* Draws one party slot's panel over that member's head. Silently skips slots
-* that are empty, out of zone (target index 0), or off screen.
+* Draws one panel over the entity at `index`. Silently skips entities that are out of zone
+* (index 0) or off screen.
+*
+* @param {number} offset - world height nudge from the nameplate anchor, positive = down.
+* @return {boolean} whether a nameplate anchor was found -- false means the panel fell back to
+*                   the entity's feet. Reported, not acted on; only self bothers to look.
 --]]
-local function drawMember(mm, party, i, view, proj, vp)
-    local s = stats.read(party, i);
-    if (s == nil) then
-        return;
-    end
-
-    local index = party:GetMemberTargetIndex(i);
+local function drawAt(mm, index, s, bars, offset, view, proj, vp)
     if (index == 0) then
-        return;
+        return false;
     end
 
     local ent = mm:GetEntity();
@@ -313,23 +360,54 @@ local function drawMember(mm, party, i, view, proj, vp)
     -- keeps its offset from the plate on a mount, a Galka, or mid-jump. Falls back to the entity's
     -- own (feet) height for the odd frame where the skeleton is not readable.
     local top = nameplate.top(ashita.memory, ent:GetActorPointer(index));
-    if (i == 0) then
-        anchor_ok = top ~= nil;
-    end
-
-    local pz = (top or ent:GetLocalPositionZ(index))
-             + (i == 0 and config.settings.height_offset or config.settings.party_height_offset);
+    local pz  = (top or ent:GetLocalPositionZ(index)) + offset;
 
     -- Position struct is stored X, Z, Y - the game's Z is the D3D up-axis.
     local sx, sy, sz = worldToScreen(px, pz, py, view, proj, vp.Width, vp.Height);
 
-    if (sz < 0 or sz > 1 or sx < 0 or sx > vp.Width or sy < 0 or sy > vp.Height) then
+    if (sz >= 0 and sz <= 1 and sx >= 0 and sx <= vp.Width and sy >= 0 and sy <= vp.Height) then
+        drawPanel(sx, sy, s, bars);
+    end
+
+    return top ~= nil;
+end
+
+--[[
+* Draws one party slot's panel over that member's head. Silently skips slots that are empty.
+--]]
+local function drawMember(mm, party, i, view, proj, vp)
+    local s = stats.read(party, i);
+    if (s == nil) then
         return;
     end
 
     -- Jobs of party members are only known once they've been seen; an unknown
     -- job reads 0, which bars_for treats as "no MP pool".
-    drawPanel(sx, sy, s, config.bars_for(party:GetMemberMainJob(i), party:GetMemberSubJob(i)));
+    local ok = drawAt(mm, party:GetMemberTargetIndex(i), s,
+                      config.bars_for(party:GetMemberMainJob(i), party:GetMemberSubJob(i)),
+                      i == 0 and config.settings.height_offset or config.settings.party_height_offset,
+                      view, proj, vp);
+
+    if (i == 0) then
+        anchor_ok = ok;
+    end
+end
+
+-- HP is the only stat the client is told about an arbitrary entity, so the target panel is always
+-- this one bar. Hoisted out of the frame loop rather than built per call.
+local TARGET_BARS = { 'hp' };
+
+--[[
+* Draws a panel over the current target. target_index is already resolved and validated by
+* updateGateState, so a rejected or absent target is just 0 here.
+--]]
+local function drawTarget(mm, view, proj, vp)
+    local s = stats.read_entity(target_index ~= 0 and GetEntity(target_index) or nil);
+    if (s == nil) then
+        return;
+    end
+
+    drawAt(mm, target_index, s, TARGET_BARS, config.settings.target_height_offset, view, proj, vp);
 end
 
 local function drawConfigWindow()
@@ -384,7 +462,9 @@ local function drawConfigWindow()
         imgui.SameLine();
         gateState('Idle', 'show_while_idle');
         imgui.SameLine();
-        imgui.Text(('| status=%d | bt: %s'):fmt(gate_state.status, gate_state.bt_text));
+        imgui.Text(('| status=%d'):fmt(gate_state.status));
+        imgui.Text(('bt: %s'):fmt(gate_state.bt_text));
+        imgui.Text(('target: %s'):fmt(gate_state.target_text));
         imgui.TextColored(anchor_ok and { 0.4, 1.0, 0.4, 1.0 } or { 1.0, 0.4, 0.4, 1.0 },
                           ('Anchor: %s'):fmt(anchor_ok and 'nameplate (model top)' or 'feet (no skeleton)'));
 
@@ -403,8 +483,10 @@ local function drawConfigWindow()
         checkbox('Show While Engaged', cfg, 'show_while_engaged');
         checkbox('Show While Idle', cfg, 'show_while_idle');
         checkbox('Show Party Members', cfg, 'show_party');
+        checkbox('Show Target', cfg, 'show_target');
         slider(imgui.SliderFloat, 'Self Height Offset', cfg, 'height_offset', -4, 4);
         slider(imgui.SliderFloat, 'Party Height Offset', cfg, 'party_height_offset', -4, 4);
+        slider(imgui.SliderFloat, 'Target Height Offset', cfg, 'target_height_offset', -4, 4);
         slider(imgui.SliderInt, 'Panel Width', cfg.panel, 'width', 40, 300);
         slider(imgui.SliderInt, 'Panel Offset', cfg.panel, 'offset', 0, 20);
         slider(imgui.SliderInt, 'Panel Rounding', cfg.panel, 'rounding', 0, 20);
@@ -479,6 +561,10 @@ ashita.events.register('d3d_present', 'newui_present', function ()
     for i = 0, (config.settings.show_party and 5 or 0) do
         drawMember(mm, party, i, view, proj, vp);
     end
+
+    if (config.settings.show_target) then
+        drawTarget(mm, view, proj, vp);
+    end
 end);
 
 ----------------------------------------------------------------------------------------------------
@@ -502,12 +588,13 @@ ashita.events.register('command', 'newui_command', function (e)
     -- One-shot print of the same state the config window's status line shows, for when you would
     -- rather watch the log across a fight than keep the window open.
     if (sub == 'bt') then
-        print(('[NewUI] in_combat=%s engaged=%s idle=%s status=%d bt=%s'):fmt(
+        print(('[NewUI] in_combat=%s engaged=%s idle=%s status=%d bt=%s target=%s'):fmt(
             tostring(gate_state.show_in_combat),
             tostring(gate_state.show_while_engaged),
             tostring(gate_state.show_while_idle),
             gate_state.status,
-            gate_state.bt_text));
+            gate_state.bt_text,
+            gate_state.target_text));
         return;
     end
 

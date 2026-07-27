@@ -35,6 +35,43 @@ their labels fall back to the percent it does send. TP is raw for everyone.
 Party members' MP bar follows their own job, and is dropped until their job is
 known.
 
+## Target panel
+
+A panel over whatever you currently have targeted, on top of the self and party
+ones. **Show Target** in the config window turns it off; it has its own
+**Target Height Offset**.
+
+**One bar, HP only.** Party panels can show MP and TP because the party packets
+carry them. For an arbitrary entity the client is told a single number — an HP
+percent — and nothing else, so there is no MP or TP to draw. The label is that
+percent, via the same `hp_raw == 0` fallback party members' labels already use.
+The panel shrinks to fit the one bar.
+
+**Which target.** The cursor target (`<t>`) first; when nothing is selected, the
+battle target (`<bt>`) instead, so clearing your target mid-fight doesn't blank
+the panel. With a sub-target open (the green cursor, picking a cure recipient)
+the live selection is target slot 1, which is what gets drawn — the same way
+`lib/targets.lua` resolves `<t>`.
+
+The cursor read goes through Ashita's target manager, not `lib/targets.lua`, so
+it still works when the signature scans miss. Only the `<bt>` fallback carries
+that dependency, which the in-combat gate already did.
+
+**What draws.** Mobs (`SpawnFlags & 0x10`) and players (`& 0x01`). NPCs (`&
+0x02`) don't — you target them constantly just to talk, and a health bar over a
+shopkeeper is noise. Corpses don't (`HPPercent == 0`, or status `2`/`3`).
+Neither do you or your party members in slots `0..5`, since those already have a
+panel and a second one would stack on it.
+
+That party check is `0..5`, deliberately narrower than the in-combat gate's
+`0..17`. The gate scans the full alliance to reject *trusts and pets* as combat
+evidence; here a trust or pet you've targeted is a perfectly good thing to draw
+a panel over. Alliance members outside your own party get one too. Two small
+predicates, two different questions.
+
+**Gating.** The target panel obeys the same three visibility gates as everything
+else — one decision per frame, everything shows and hides together.
+
 Three visibility gates. Each one only ever **enables**: the panel shows when at
 least one *enabled* gate's condition is true, and is hidden otherwise. Several
 on is a union, so being engaged is enough on its own even when the battle-target
@@ -97,7 +134,9 @@ live — **In Combat / Engaged / Idle** in green when true, red when false,
 followed by the raw entity status and what `<bt>` currently resolves to:
 
 ```
-In Combat: true  Engaged: true  Idle: false  | status=1 | bt: Mandragora hp=63% status=1 flags=0x10
+In Combat: true  Engaged: true  Idle: false  | status=1
+bt: Mandragora hp=63% status=1 flags=0x10
+target: Mandragora hp=63% status=1 flags=0x10
 Panel: shown
 ```
 
@@ -109,7 +148,10 @@ gate enabled it reads `hidden -- no gate enabled, so nothing can enable it`.
 battle target's, so a corpse still being handed back by `get_bt` is visible as
 `status=2`/`3` or `hp=0%`, and the trust case as `REJECTED` on a party member's
 name. `bt: none` means `get_bt` returned nothing.
-`/newui bt` prints the same line to the log.
+
+`target:` is the same treatment for the target panel, so an NPC you have clicked
+reads as ` REJECTED` with `flags=0x2` rather than looking identical to targeting
+nothing at all. `/newui bt` prints all of it to the log.
 
 **Show While Engaged** tests a similar condition through a supported Ashita API
 with no signature involved. The battle-target gate is the one that stays true
@@ -125,11 +167,12 @@ text color) is configurable via `/newui config` and persists across sessions.
 | `/newui` | Toggle on/off |
 | `/newui height <n>` | Your own vertical nudge from the nameplate anchor. Positive is downward. Default `0.0` |
 | `/newui config` | Toggle the settings window |
-| `/newui bt` | Print the current gate state (in combat / engaged / idle, raw status, resolved `<bt>` or why it was rejected) |
+| `/newui bt` | Print the current gate state (in combat / engaged / idle, raw status, resolved `<bt>` and target, or why either was rejected) |
 
 `0.0` puts the panel's top edge level with the top of the model, i.e. directly under the
-nameplate; nudge from there. Self and party have separate offsets (`Self Height Offset` /
-`Party Height Offset` in `/newui config`); the command only touches your own.
+nameplate; nudge from there. Self, party and target have separate offsets (`Self Height
+Offset` / `Party Height Offset` / `Target Height Offset` in `/newui config`); the command
+only touches your own.
 
 ## Nameplate anchor
 
@@ -154,7 +197,7 @@ your feet.
 - `NewUI.lua` — projection, ImGui rendering, gate state, config window, commands
 - `nameplate.lua` — actor → skeleton → bone walk for the model-top anchor (memory reader injected, so it tests headless)
 - `lib/targets.lua` — Ashita's target library, vendored unmodified (only `get_bt` is used)
-- `stats.lua` — HP/MP/TP normalization + TP segment math (no Ashita dependencies)
+- `stats.lua` — HP/MP/TP normalization, TP segment math, and the target's entity read + targetability test (no Ashita dependencies)
 - `config.lua` — settings defaults, load/save, derived layout math (no Ashita dependencies except load/save)
 - `test.lua` — self-check for `stats.lua`, `config.lua` and `nameplate.lua`; run with `lua test.lua`
 - `docs/` — research notes this was built from (gitignored)

@@ -75,6 +75,46 @@ assert(stats.label(mate, 'mp') == 10, 'member with no raw mp falls back to perce
 assert(stats.label(mate, 'tp') == 500, 'tp is always raw, got ' .. tostring(stats.label(mate, 'tp')));
 assert(stats.label(stats.read(fakeParty(1, 0, 0, 0, 0, 0)), 'hp') == 0, 'dead member still labels 0');
 
+-- Entity reads: an arbitrary entity tells the client an HP percent and nothing else.
+local function fakeEnt(flags, hpp, status, serverId)
+    return { SpawnFlags = flags, HPPercent = hpp, Status = status or 0, ServerId = serverId or 999, Name = 'x' };
+end
+
+assert(stats.read_entity(nil) == nil, 'nil entity must yield nil');
+
+local mob = stats.read_entity(fakeEnt(0x10, 50));
+assert(mob.hp == 0.5, 'entity hp 50% -> 0.5, got ' .. tostring(mob.hp));
+assert(mob.hp_raw == 0, 'entity hp_raw is 0 -- there is no raw hp to read');
+assert(stats.read_entity(fakeEnt(0x10, 137)).hp == 1.0, 'entity hp over 100 must clamp to 1.0');
+
+-- hp_raw = 0 is what makes label print the percent; that pairing is the whole labelling
+-- contract for entity panels, so assert it rather than assuming it.
+assert(stats.label(mob, 'hp') == 50, 'entity label falls back to percent, got ' .. tostring(stats.label(mob, 'hp')));
+
+-- Targetability. Party slots 0..5 are rejected because drawMember already draws them.
+local targetParty = {
+    GetMemberIsActive = function (_, i) return i <= 2 and 1 or 0; end,
+    GetMemberServerId = function (_, i) return 100 + i; end,
+};
+
+assert(not stats.targetable(nil, targetParty), 'no entity is not targetable');
+assert(stats.targetable(fakeEnt(0x10, 100), targetParty), 'a living mob is targetable');
+assert(stats.targetable(fakeEnt(0x01, 100), targetParty), 'a non-party pc is targetable');
+assert(not stats.targetable(fakeEnt(0x02, 100), targetParty), 'an npc is not targetable');
+assert(not stats.targetable(fakeEnt(0x08, 100), targetParty), 'an unknown spawn type is not targetable');
+
+-- Single-bit masks, so a mob that also carries other flag bits must still read as a mob.
+assert(stats.targetable(fakeEnt(0x12, 100), targetParty), 'the mob bit counts alongside other bits');
+
+assert(not stats.targetable(fakeEnt(0x10, 0), targetParty), 'a mob at 0% is a corpse');
+assert(not stats.targetable(fakeEnt(0x10, 100, 2), targetParty), 'status 2 is dead');
+assert(not stats.targetable(fakeEnt(0x10, 100, 3), targetParty), 'status 3 is dead');
+
+assert(not stats.targetable(fakeEnt(0x01, 100, 0, 100), targetParty), 'yourself is already drawn as slot 0');
+assert(not stats.targetable(fakeEnt(0x01, 100, 0, 102), targetParty), 'a party member is already drawn');
+assert(stats.targetable(fakeEnt(0x01, 100, 0, 103), targetParty), 'an inactive slot does not claim a server id');
+assert(stats.targetable(fakeEnt(0x10, 100), nil), 'a missing party must not throw');
+
 print('stats.lua ok');
 
 -- config.lua: derived layout math must match the defaults' expected geometry.
