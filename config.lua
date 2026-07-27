@@ -65,10 +65,11 @@ M.defaults = {
         border_color = { r = 0.08, g = 0.12, b = 0.30, a = 0.2 },   -- shared across hp/mp/tp outlines
 
         -- Each bar has one color, shared by all three panel kinds; how opaque it draws depends
-        -- on `states` below, and how tall on `sizes` above.
-        hp = { color = { r = 0.95, g = 0.45, b = 0.45 } },
-        mp = { color = { r = 0.95, g = 0.90, b = 0.45 } },
-        tp = { color = { r = 0.55, g = 0.75, b = 0.95 } },
+        -- on `states` below, and how tall on `sizes` above. `label` switches that bar's number
+        -- off without touching its height -- a short TP row is usually the one worth silencing.
+        hp = { color = { r = 0.95, g = 0.45, b = 0.45 }, label = true },
+        mp = { color = { r = 0.95, g = 0.90, b = 0.45 }, label = true },
+        tp = { color = { r = 0.55, g = 0.75, b = 0.95 }, label = true },
     },
 
     -- Shared fill-alpha per state, applied to whichever bar color is drawing.
@@ -82,10 +83,14 @@ M.defaults = {
     --
     -- Its size is not configured -- it comes from the bar (see M.label_size). `min_size` is only
     -- the floor under which the label is dropped instead of drawn.
+    --
+    -- 9 because ImGui's font is rasterized at 13px and downscaled from there: by 8 the digits
+    -- have lost enough pixels to read as texture, and the 1px outline underneath is then wider
+    -- than the strokes it is outlining. A 13px bar is the shortest that still prints.
     text = {
         color         = { r = 1, g = 1, b = 1, a = 1 },
         outline_color = { r = 0, g = 0, b = 0, a = 1 },
-        min_size      = 6,
+        min_size      = 9,
     },
 };
 

@@ -417,8 +417,10 @@ local function drawPanel(sx, sy, s, bars, size, scale)
         -- Label stays centered across the whole row, so TP prints over the middle bar.
         -- Both of stats.label's returns are bound here: inlining the call would drop the second
         -- to fit one argument slot, and every label would silently lose its % sign.
-        local value, percent = stats.label(s, key);
-        drawLabel(draw_list, bar_left, bar_top, bw, h, value, percent, cfg);
+        if (bar_cfg.label) then
+            local value, percent = stats.label(s, key);
+            drawLabel(draw_list, bar_left, bar_top, bw, h, value, percent, cfg);
+        end
 
         bar_top = bar_top + h + gap;
     end
@@ -628,6 +630,11 @@ local function drawConfigWindow()
         colorEdit('Text Color', cfg.text.color);
         colorEdit('Text Outline Color', cfg.text.outline_color);
         slider(imgui.SliderInt, 'Min Text Size', cfg.text, 'min_size', 1, 20);
+
+        -- Per bar, so a row can keep its height and lose only its number.
+        for _, key in ipairs(config.bar_order) do
+            checkbox(('Show %s Text'):fmt(key:upper()), cfg.bars[key], 'label');
+        end
     end
     imgui.End();
 end

@@ -177,17 +177,30 @@ assert(config.panel_height(config.defaults, SELF, { 'hp', 'tp' }) == 42,
 -- Label size comes from the bar, never from its own setting: bar height less the fixed inset, so
 -- the text cannot be taller than what it sits in at any bar height or distance scale.
 assert(config.label_size(config.defaults, 16) == 16 - config.label_inset, 'label size = bar height - inset, got ' .. tostring(config.label_size(config.defaults, 16)));
-for _, h in ipairs({ 10, 16, 24, 40 }) do
-    assert(config.label_size(config.defaults, h) < h, 'a label must never be as tall as its bar (h=' .. h .. ')');
+for h = 4, 40 do
+    local size = config.label_size(config.defaults, h);
+    assert(size == nil or size <= h, 'a label must never be taller than its bar (h=' .. h .. ')');
 end
 
 -- Below the floor there is no legible size left, so the bar drops its label rather than drawing
 -- mush. That covers both ways a bar gets there: configured too short, or scaled too far away.
-assert(config.label_size(config.defaults, 10) == config.defaults.text.min_size, 'the floor itself still draws');
-assert(config.label_size(config.defaults, 9) == nil, 'below the floor the label is dropped');
+-- Derived from min_size, not written out: the floor is a setting and moves.
+local FLOOR_H = config.defaults.text.min_size + config.label_inset;
+assert(config.label_size(config.defaults, FLOOR_H) == config.defaults.text.min_size, 'the shortest bar that fits the floor still prints it');
+assert(config.label_size(config.defaults, FLOOR_H - 1) == nil, 'one pixel under the floor drops the label');
 assert(config.label_size(config.defaults, 4) == nil, 'the shortest configurable bar cannot hold a label');
 assert(config.label_size(config.defaults, 16 * 0.5) == nil, 'a 16px bar scaled to half drops its label');
 assert(config.label_size(config.defaults, 16 * 1.5) ~= nil, 'a 16px bar scaled up keeps it');
+
+-- The regression that prompted the floor: a 10px TP bar printed a 6px label -- sized, fitting and
+-- unreadable. The floor is what makes "too small to read" and "not drawn" the same thing, so it
+-- has to stay above where ImGui's 13px atlas stops resolving when downscaled.
+assert(config.defaults.text.min_size >= 8, 'a floor under 8px lets the mush regime back in');
+
+-- Per-bar label toggles: every drawable bar has one, and they ship on.
+for _, key in ipairs(config.bar_order) do
+    assert(config.defaults.bars[key].label == true, key .. ' must ship with its label on');
+end
 
 -- Visibility gates only ever *enable*: show when at least one enabled gate
 -- passes, hide otherwise. Never an intersection, and never a fallback to shown.

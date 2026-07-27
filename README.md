@@ -240,16 +240,29 @@ outline pass — there is no separate toggle.
 ### Label size
 
 Text size is not configurable, and deliberately so: a label is drawn at the
-height of the bar it sits in, less a fixed 4px, so it can never be taller than
-that bar — at any configured bar height and at any distance scale, since the
-drawn height already carries the scale.
+height of the bar it sits in, less `config.label_inset`, so it can never be
+taller than that bar — at any configured bar height and at any distance scale,
+since the drawn height already carries the scale.
 
 A bar that cannot hold a legible digit drops its label instead of drawing mush.
 That happens when the size the bar would give works out under **Min Text Size**
-(`6`), or when the value is too wide for the bar. Both are decided per bar, not
+(`9`), or when the value is too wide for the bar. Both are decided per bar, not
 per panel: a short TP row can go quiet while the HP row above it still prints.
 Raise **Min Text Size** to drop labels sooner, lower it to keep them further
 out.
+
+The floor defaults to `9` because ImGui rasterizes its font at 13px and scales
+down from there: by 8px the digits have lost enough pixels to read as texture
+rather than numbers, and the 1px outline underneath is then wider than the
+strokes it is outlining. `6` printed a readable-looking 6px label on a 10px TP
+bar, which is what the floor exists to stop.
+
+### Per-bar text
+
+**Show HP / MP / TP Text** switch a bar's number off without touching its
+height, for the case where the bar itself is worth keeping and the digits on it
+are not. They are independent of the size rules above — a bar hides its label if
+either the toggle is off or the bar is too short for it.
 
 Sizing the text needs `ImDrawList`'s second `AddText`, the one taking a font and
 a size. Whether Ashita's Lua binding exposes that overload can only be answered
