@@ -170,17 +170,9 @@ local function drawConfigWindow()
 
     local cfg = config.settings;
 
-    local function sliderInt(label, obj, key, lo, hi)
+    local function slider(fn, label, obj, key, lo, hi)
         local v = { obj[key] };
-        if (imgui.SliderInt(label, v, lo, hi)) then
-            obj[key] = v[1];
-            config.save();
-        end
-    end
-
-    local function sliderFloat(label, obj, key, lo, hi)
-        local v = { obj[key] };
-        if (imgui.SliderFloat(label, v, lo, hi)) then
+        if (fn(label, v, lo, hi)) then
             obj[key] = v[1];
             config.save();
         end
@@ -211,29 +203,29 @@ local function drawConfigWindow()
     end
 
     if (imgui.Begin('NewUI Config', config_open)) then
-        sliderInt('Panel Width', cfg.panel, 'width', 40, 300);
-        sliderInt('Panel Offset', cfg.panel, 'offset', 0, 20);
-        sliderInt('Panel Rounding', cfg.panel, 'rounding', 0, 20);
+        slider(imgui.SliderInt, 'Panel Width', cfg.panel, 'width', 40, 300);
+        slider(imgui.SliderInt, 'Panel Offset', cfg.panel, 'offset', 0, 20);
+        slider(imgui.SliderInt, 'Panel Rounding', cfg.panel, 'rounding', 0, 20);
         checkbox('Panel Rounded', cfg.panel, 'rounded');
         colorEdit('Panel Background', cfg.panel.bg);
         colorEdit('Panel Border Color', cfg.panel.border_color);
-        sliderInt('Bar Gap', cfg, 'gap', 0, 10);
+        slider(imgui.SliderInt, 'Bar Gap', cfg, 'gap', 0, 10);
         checkbox('Border Visible', cfg, 'border_visible');
 
         imgui.Separator();
         checkbox('Bars Rounded', cfg.bars, 'rounded');
         colorEdit('Bar Border Color', cfg.bars.border_color);
         colorEdit3('HP Color', cfg.bars.hp.color);
-        sliderInt('HP Height', cfg.bars.hp, 'height', 4, 40);
+        slider(imgui.SliderInt, 'HP Height', cfg.bars.hp, 'height', 4, 40);
         colorEdit3('MP Color', cfg.bars.mp.color);
-        sliderInt('MP Height', cfg.bars.mp, 'height', 4, 40);
+        slider(imgui.SliderInt, 'MP Height', cfg.bars.mp, 'height', 4, 40);
         colorEdit3('TP Color', cfg.bars.tp.color);
-        sliderInt('TP Height', cfg.bars.tp, 'height', 4, 40);
+        slider(imgui.SliderInt, 'TP Height', cfg.bars.tp, 'height', 4, 40);
 
         imgui.Separator();
-        sliderFloat('Full Alpha', cfg.states, 'full', 0, 1);
-        sliderFloat('Empty Alpha', cfg.states, 'empty', 0, 1);
-        sliderFloat('Incomplete Alpha', cfg.states, 'incomplete', 0, 1);
+        slider(imgui.SliderFloat, 'Full Alpha', cfg.states, 'full', 0, 1);
+        slider(imgui.SliderFloat, 'Empty Alpha', cfg.states, 'empty', 0, 1);
+        slider(imgui.SliderFloat, 'Incomplete Alpha', cfg.states, 'incomplete', 0, 1);
 
         imgui.Separator();
         colorEdit('Text Color', cfg.text.color);
