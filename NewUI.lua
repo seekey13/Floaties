@@ -1,38 +1,28 @@
 --[[
-* NewUI - HP / MP / TP bars drawn above your character's head in 3D space.
+* NewUI - HP / MP / TP bars drawn in a styled unit-frame panel, tracking
+* the player in 3D space.
 --]]
 
 addon.name      = 'NewUI';
 addon.author    = 'Seekey13';
-addon.version   = '1.0';
+addon.version   = '2.0';
 addon.desc      = 'Floating HP/MP/TP bars over the player.';
 
 require('common');
 
-local ffi   = require('ffi');
-local d3d   = require('d3d8');
-local prims = require('primitives');
-local stats = require('stats');
+local ffi    = require('ffi');
+local d3d    = require('d3d8');
+local stats  = require('stats');
+local config = require('config');
 
-local C     = ffi.C;
-local dev   = d3d.get_device();
+local C   = ffi.C;
+local dev = d3d.get_device();
 
--- Bar geometry, in pixels.
-local BAR_W     = 90;
-local BAR_H     = 5;
-local BAR_GAP   = 2;
+-- Fixed (non-configurable) drawing constants -- not requested as settings.
+local BAR_ROUNDING     = 3;
+local TP_DIVIDER_COLOR = 0xFFFFFFFF;
 
--- Vertical placement in world units. The height axis points DOWN, so negative
--- raises the anchor. Tune in-game with: /newui height <n>
-local HEIGHT_OFFSET = -2.4;
-
-local enabled = true;
-
-local bars = T{
-    T{ key = 'hp', color = 0xFFE03C3C },    -- red
-    T{ key = 'mp', color = 0xFF3C6EE0 },    -- blue
-    T{ key = 'tp', color = 0xFFE0D23C },    -- yellow
-};
+local config_open = { false };
 
 ----------------------------------------------------------------------------------------------------
 -- World -> screen projection. Lifted from targetlines/helpers.lua.
@@ -89,36 +79,168 @@ end
 -- Rendering
 ----------------------------------------------------------------------------------------------------
 
-local function setVisible(v)
-    bars:each(function (b)
-        b.bg.visible = v;
-        b.fg.visible = v;
-    end);
+-- `alpha`, when given, overrides the color's own stored alpha (bar colors carry no `a`;
+-- their opacity always comes from the current fill state instead).
+local function packColor(c, alpha)
+    return imgui.GetColorU32({ c.r, c.g, c.b, alpha or c.a });
+end
+
+--[[
+* Draws one bar: empty track, filled segment(s) (TP has 3, hp/mp have 1),
+* and a border outline. Each cell's opacity comes from cfg.states[cell.state].
+--]]
+local function drawBar(draw_list, left, top, width, height, cells, bar_color, cfg, rounding)
+    local states = cfg.states;
+
+    draw_list:AddRectFilled({ left, top }, { left + width, top + height }, packColor(bar_color, states.empty), rounding);
+
+    for _, cell in ipairs(cells) do
+        local fill_w = cell.width * cell.frac;
+        if (fill_w > 0) then
+            draw_list:AddRectFilled({ cell.x, top }, { cell.x + fill_w, top + height }, packColor(bar_color, states[cell.state]), rounding);
+        end
+    end
+
+    -- TP-only: thin divider lines at the 1000/2000 boundaries.
+    if (#cells > 1) then
+        for i = 1, #cells - 1 do
+            local x = cells[i + 1].x;
+            draw_list:AddLine({ x, top }, { x, top + height }, TP_DIVIDER_COLOR, 1.0);
+        end
+    end
+
+    if (cfg.border_visible) then
+        draw_list:AddRect({ left, top }, { left + width, top + height }, packColor(cfg.bars.border_color), rounding);
+    end
+end
+
+local function drawLabel(draw_list, left, top, width, height, value, cfg)
+    local label      = ('%d'):fmt(value);
+    local tw, th     = imgui.CalcTextSize(label);
+    local text_col   = packColor(cfg.text.color);
+    draw_list:AddText({ left + (width - tw) / 2, top + (height - th) / 2 }, text_col, label);
+end
+
+local function drawPanel(sx, sy, s)
+    local cfg    = config.settings;
+    local width  = cfg.panel.width;
+    local height = config.panel_height(cfg);
+    local bw     = config.bar_width(cfg);
+
+    local left     = sx - width / 2;
+    local top      = sy;
+    local rounding = cfg.panel.rounded and cfg.panel.rounding or 0;
+
+    local draw_list = imgui.GetBackgroundDrawList();
+
+    draw_list:AddRectFilled({ left, top }, { left + width, top + height }, packColor(cfg.panel.bg), rounding);
+    if (cfg.border_visible) then
+        draw_list:AddRect({ left, top }, { left + width, top + height }, packColor(cfg.panel.border_color), rounding);
+    end
+
+    local bar_left     = left + cfg.panel.offset;
+    local bar_top      = top + cfg.panel.offset;
+    local bar_rounding = cfg.bars.rounded and BAR_ROUNDING or 0;
+
+    for _, key in ipairs(config.bar_order) do
+        local bar_cfg = cfg.bars[key];
+        local h       = bar_cfg.height;
+        local cells;
+
+        if (key == 'tp') then
+            cells = {};
+            local seg_w = bw / 3;
+            for i = 1, 3 do
+                local frac = stats.tp_segment(s.tp_raw, i);
+                cells[i] = { x = bar_left + (i - 1) * seg_w, width = seg_w, frac = frac, state = (frac >= 1) and 'full' or 'incomplete' };
+            end
+        else
+            cells = { { x = bar_left, width = bw, frac = s[key], state = 'full' } };
+        end
+
+        drawBar(draw_list, bar_left, bar_top, bw, h, cells, bar_cfg.color, cfg, bar_rounding);
+        drawLabel(draw_list, bar_left, bar_top, bw, h, s[key .. '_raw'], cfg);
+
+        bar_top = bar_top + h + cfg.gap;
+    end
+end
+
+local function drawConfigWindow()
+    if (not config_open[1]) then return; end
+
+    local cfg = config.settings;
+
+    local function slider(fn, label, obj, key, lo, hi)
+        local v = { obj[key] };
+        if (fn(label, v, lo, hi)) then
+            obj[key] = v[1];
+            config.save();
+        end
+    end
+
+    local function colorEdit(label, c)
+        local col = { c.r, c.g, c.b, c.a };
+        if (imgui.ColorEdit4(label, col)) then
+            c.r, c.g, c.b, c.a = col[1], col[2], col[3], col[4];
+            config.save();
+        end
+    end
+
+    local function colorEdit3(label, c)
+        local col = { c.r, c.g, c.b };
+        if (imgui.ColorEdit3(label, col)) then
+            c.r, c.g, c.b = col[1], col[2], col[3];
+            config.save();
+        end
+    end
+
+    local function checkbox(label, obj, key)
+        local v = { obj[key] };
+        if (imgui.Checkbox(label, v)) then
+            obj[key] = v[1];
+            config.save();
+        end
+    end
+
+    if (imgui.Begin('NewUI Config', config_open)) then
+        slider(imgui.SliderInt, 'Panel Width', cfg.panel, 'width', 40, 300);
+        slider(imgui.SliderInt, 'Panel Offset', cfg.panel, 'offset', 0, 20);
+        slider(imgui.SliderInt, 'Panel Rounding', cfg.panel, 'rounding', 0, 20);
+        checkbox('Panel Rounded', cfg.panel, 'rounded');
+        colorEdit('Panel Background', cfg.panel.bg);
+        colorEdit('Panel Border Color', cfg.panel.border_color);
+        slider(imgui.SliderInt, 'Bar Gap', cfg, 'gap', 0, 10);
+        checkbox('Border Visible', cfg, 'border_visible');
+
+        imgui.Separator();
+        checkbox('Bars Rounded', cfg.bars, 'rounded');
+        colorEdit('Bar Border Color', cfg.bars.border_color);
+        colorEdit3('HP Color', cfg.bars.hp.color);
+        slider(imgui.SliderInt, 'HP Height', cfg.bars.hp, 'height', 4, 40);
+        colorEdit3('MP Color', cfg.bars.mp.color);
+        slider(imgui.SliderInt, 'MP Height', cfg.bars.mp, 'height', 4, 40);
+        colorEdit3('TP Color', cfg.bars.tp.color);
+        slider(imgui.SliderInt, 'TP Height', cfg.bars.tp, 'height', 4, 40);
+
+        imgui.Separator();
+        slider(imgui.SliderFloat, 'Full Alpha', cfg.states, 'full', 0, 1);
+        slider(imgui.SliderFloat, 'Empty Alpha', cfg.states, 'empty', 0, 1);
+        slider(imgui.SliderFloat, 'Incomplete Alpha', cfg.states, 'incomplete', 0, 1);
+
+        imgui.Separator();
+        colorEdit('Text Color', cfg.text.color);
+    end
+    imgui.End();
 end
 
 ashita.events.register('load', 'newui_load', function ()
-    bars:each(function (b)
-        -- Background first so the fill primitive draws over it.
-        b.bg = prims.new(T{
-            visible = false, can_focus = false, locked = true,
-            color = 0xB0000000, width = BAR_W, height = BAR_H,
-        });
-        b.fg = prims.new(T{
-            visible = false, can_focus = false, locked = true,
-            color = b.color, width = BAR_W, height = BAR_H,
-        });
-    end);
-end);
-
-ashita.events.register('unload', 'newui_unload', function ()
-    bars:each(function (b)
-        if (b.bg ~= nil) then b.bg:destroy(); b.bg = nil; end
-        if (b.fg ~= nil) then b.fg:destroy(); b.fg = nil; end
-    end);
+    config.load();
 end);
 
 ashita.events.register('d3d_present', 'newui_present', function ()
-    if (not enabled) then
+    drawConfigWindow();
+
+    if (not config.settings.enabled) then
         return;
     end
 
@@ -128,17 +250,17 @@ ashita.events.register('d3d_present', 'newui_present', function ()
 
     -- Not logged in / zoning: main job reads 0.
     if (player == nil or player:GetMainJob() == 0) then
-        return setVisible(false);
+        return;
     end
 
     local s = stats.read(party);
     if (s == nil) then
-        return setVisible(false);
+        return;
     end
 
     local index = party:GetMemberTargetIndex(0);
     if (index == 0) then
-        return setVisible(false);
+        return;
     end
 
     -- Viewport is read per frame; capturing it once breaks on resolution change.
@@ -149,28 +271,16 @@ ashita.events.register('d3d_present', 'newui_present', function ()
     local ent = mm:GetEntity();
     local px  = ent:GetLocalPositionX(index);
     local py  = ent:GetLocalPositionY(index);
-    local pz  = ent:GetLocalPositionZ(index) + HEIGHT_OFFSET;
+    local pz  = ent:GetLocalPositionZ(index) + config.settings.height_offset;
 
     -- Position struct is stored X, Z, Y - the game's Z is the D3D up-axis.
     local sx, sy, sz = worldToScreen(px, pz, py, view, proj, vp.Width, vp.Height);
 
     if (sz < 0 or sz > 1 or sx < 0 or sx > vp.Width or sy < 0 or sy > vp.Height) then
-        return setVisible(false);
+        return;
     end
 
-    local left = sx - (BAR_W / 2);
-    for i, b in ipairs(bars) do
-        local top = sy + ((i - 1) * (BAR_H + BAR_GAP));
-
-        b.bg.position_x = left;
-        b.bg.position_y = top;
-        b.bg.visible    = true;
-
-        b.fg.position_x = left;
-        b.fg.position_y = top;
-        b.fg.width      = math.ceil(BAR_W * s[b.key]);
-        b.fg.visible    = s[b.key] > 0;
-    end
+    drawPanel(sx, sy, s);
 end);
 
 ----------------------------------------------------------------------------------------------------
@@ -186,13 +296,19 @@ ashita.events.register('command', 'newui_command', function (e)
 
     local sub = (args[2] or ''):lower();
 
-    if (sub == 'height' and args[3] ~= nil) then
-        HEIGHT_OFFSET = tonumber(args[3]) or HEIGHT_OFFSET;
-        print(('[NewUI] height offset: %.2f (negative is up)'):fmt(HEIGHT_OFFSET));
+    if (sub == 'config') then
+        config_open[1] = not config_open[1];
         return;
     end
 
-    enabled = not enabled;
-    if (not enabled) then setVisible(false); end
-    print(('[NewUI] %s'):fmt(enabled and 'on' or 'off'));
+    if (sub == 'height' and args[3] ~= nil) then
+        config.settings.height_offset = tonumber(args[3]) or config.settings.height_offset;
+        config.save();
+        print(('[NewUI] height offset: %.2f (positive is below feet)'):fmt(config.settings.height_offset));
+        return;
+    end
+
+    config.settings.enabled = not config.settings.enabled;
+    config.save();
+    print(('[NewUI] %s'):fmt(config.settings.enabled and 'on' or 'off'));
 end);
