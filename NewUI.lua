@@ -297,30 +297,72 @@ local function drawBar(draw_list, left, top, width, height, frac, state, bar_col
     end
 end
 
+-- ImDrawList carries a second AddText that takes a font and a size (imgui.h:2397); the three
+-- argument one draws at whatever the UI font happens to be. Only the sized one can tie a label to
+-- its bar, and whether Ashita's Lua binding exposes it can only be answered at runtime -- so the
+-- first call is probed and the answer cached. nil = not yet probed.
+--
+-- Without it labels stay at the UI font size, which the fit check below then drops from any bar
+-- too short to hold them. Same rule, one size to choose from instead of any.
+local sized_text = nil;
+
+local function addText(draw_list, font, size, x, y, col, text)
+    if (sized_text == nil) then
+        sized_text = pcall(draw_list.AddText, draw_list, font, size, { x, y }, col, text);
+        if (sized_text) then return; end
+    end
+
+    if (sized_text) then
+        draw_list:AddText(font, size, { x, y }, col, text);
+    else
+        draw_list:AddText({ x, y }, col, text);
+    end
+end
+
 -- `percent` comes from stats.label: true when the number printed is an HP/MP percent because no
 -- raw amount was available (every target panel, and party members until their raw HP is known).
 -- Marking it matters -- a target at "42" reads as 42 HP left, not 42%.
+--
+-- The label is sized off `height`, the drawn height of the bar it sits in, so it tracks both the
+-- configured bar height and the distance scale (config.label_size). A bar too short to hold a
+-- legible digit -- by its configured height or by how far away it scaled to -- drops its label
+-- rather than printing mush; so does a value too wide for the bar. Both are per bar, not per
+-- panel: a 4px TP row can go quiet while HP above it still prints.
 local function drawLabel(draw_list, left, top, width, height, value, percent, cfg)
+    local size = config.label_size(cfg, height);
+    if (size == nil) then return; end
+
+    local font = imgui.GetFont();
+    local base = imgui.GetFontSize();
+    if (sized_text == false) then size = base; end
+
     local label  = percent and ('%d%%'):fmt(value) or ('%d'):fmt(value);
+    -- CalcTextSize measures at the UI font, so the metrics need the same ratio the glyphs get.
+    local k      = size / base;
     local tw, th = imgui.CalcTextSize(label);
-    local x      = left + (width - tw) / 2;
-    local y      = top + (height - th) / 2;
+    tw, th = tw * k, th * k;
+
+    -- In the sized path this is near enough a no-op -- the size was derived to fit. It is the
+    -- whole rule in the unsized one, and it is what catches a 4 digit value in a narrow panel.
+    if (th > height - config.label_inset or tw > width) then return; end
+
+    local x = left + (width - tw) / 2;
+    local y = top + (height - th) / 2;
 
     -- AddText draws a fill and nothing else, so the outline is the same string stamped in the
     -- outline color one pixel out in each direction, underneath. Four offsets, not eight: at a
     -- single pixel the diagonals are already covered by their two neighbours.
-    -- The offset is fixed at 1px like the font itself, which does not scale with the panel.
-    -- ponytail: outline alpha 0 is the off switch -- no separate visibility toggle.
+    -- ponytail: the offset stays 1px at every text size, and outline alpha 0 is the off switch.
     local outline = cfg.text.outline_color;
     if (outline.a > 0) then
         local col = packColor(outline);
-        draw_list:AddText({ x - 1, y }, col, label);
-        draw_list:AddText({ x + 1, y }, col, label);
-        draw_list:AddText({ x, y - 1 }, col, label);
-        draw_list:AddText({ x, y + 1 }, col, label);
+        addText(draw_list, font, size, x - 1, y, col, label);
+        addText(draw_list, font, size, x + 1, y, col, label);
+        addText(draw_list, font, size, x, y - 1, col, label);
+        addText(draw_list, font, size, x, y + 1, col, label);
     end
 
-    draw_list:AddText({ x, y }, packColor(cfg.text.color), label);
+    addText(draw_list, font, size, x, y, packColor(cfg.text.color), label);
 end
 
 -- `size` is the panel kind's own entry in cfg.sizes -- width plus a height per bar. Everything
@@ -353,12 +395,8 @@ local function drawPanel(sx, sy, s, bars, size, scale)
     local bar_top      = top + pad;
     local bar_rounding = cfg.bars.rounded and BAR_ROUNDING * scale or 0;
 
-    -- Text is the one thing that cannot scale: these go to the background draw list, which has no
-    -- window font scale to push and takes no font size on AddText. So the numbers are dropped
-    -- once the panel is small enough that a fixed-size digit would overflow its bar -- which is
-    -- also about where it stops being readable.
-    local labels = scale >= cfg.scale_label_min;
-
+    -- Labels need no scale gate of their own: each is sized from the drawn height of its own bar
+    -- and hides itself when that height stops fitting a digit (see drawLabel).
     for _, key in ipairs(bars) do
         local bar_cfg = cfg.bars[key];
         local h       = size[key] * scale;
@@ -379,10 +417,8 @@ local function drawPanel(sx, sy, s, bars, size, scale)
         -- Label stays centered across the whole row, so TP prints over the middle bar.
         -- Both of stats.label's returns are bound here: inlining the call would drop the second
         -- to fit one argument slot, and every label would silently lose its % sign.
-        if (labels) then
-            local value, percent = stats.label(s, key);
-            drawLabel(draw_list, bar_left, bar_top, bw, h, value, percent, cfg);
-        end
+        local value, percent = stats.label(s, key);
+        drawLabel(draw_list, bar_left, bar_top, bw, h, value, percent, cfg);
 
         bar_top = bar_top + h + gap;
     end
@@ -559,7 +595,6 @@ local function drawConfigWindow()
             slider(imgui.SliderFloat, 'Scale Reference Depth', cfg, 'scale_ref', 1, 30);
             slider(imgui.SliderFloat, 'Scale Min', cfg, 'scale_min', 0.1, 1);
             slider(imgui.SliderFloat, 'Scale Max', cfg, 'scale_max', 1, 4);
-            slider(imgui.SliderFloat, 'Hide Labels Below', cfg, 'scale_label_min', 0, 2);
         end
 
         -- Size is per panel kind; a kind only lists the bars it can actually draw, which is why
@@ -592,6 +627,7 @@ local function drawConfigWindow()
         imgui.Separator();
         colorEdit('Text Color', cfg.text.color);
         colorEdit('Text Outline Color', cfg.text.outline_color);
+        slider(imgui.SliderInt, 'Min Text Size', cfg.text, 'min_size', 1, 20);
     end
     imgui.End();
 end

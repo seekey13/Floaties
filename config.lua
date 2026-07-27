@@ -38,7 +38,6 @@ M.defaults = {
     scale_ref       = 6.0,   -- view depth (yalms) at which a panel draws at 1:1
     scale_min       = 0.35,  -- floor, so a far mob's panel stays a readable smudge
     scale_max       = 1.5,   -- ceiling, so a panel a yalm from the lens does not fill the screen
-    scale_label_min = 0.75,  -- below this the HP/MP/TP numbers are dropped (see below)
 
     panel = {
         offset       = 4,           -- padding: panel edge -> bar edge, all sides
@@ -80,9 +79,13 @@ M.defaults = {
 
     -- The label is drawn twice: an outline pass in `outline_color`, then the fill in `color`
     -- (see drawLabel). Outline alpha 0 skips the outline pass entirely.
+    --
+    -- Its size is not configured -- it comes from the bar (see M.label_size). `min_size` is only
+    -- the floor under which the label is dropped instead of drawn.
     text = {
         color         = { r = 1, g = 1, b = 1, a = 1 },
         outline_color = { r = 0, g = 0, b = 0, a = 1 },
+        min_size      = 6,
     },
 };
 
@@ -173,6 +176,29 @@ function M.panel_scale(cfg, depth)
         return 1;
     end
     return math.min(math.max(cfg.scale_ref / depth, cfg.scale_min), cfg.scale_max);
+end
+
+-- Pixels taken off the bar height to get the label's font size. Fixed, not configured: it exists
+-- so a full-height digit never touches the bar's own border, which is a look, not a preference.
+M.label_inset = 0;
+
+--[[
+* Font size for the label drawn inside a bar.
+*
+* Tied to the bar rather than configured separately, so the text can never be taller than what it
+* sits in -- at any configured bar height, and at any distance scale, since `bar_height` is the
+* drawn height and already carries the scale.
+*
+* @param {number} bar_height - drawn height of the bar in pixels.
+* @return {number|nil} font size, or nil when the bar cannot hold a legible one and the label
+*                      should be dropped for that bar.
+--]]
+function M.label_size(cfg, bar_height)
+    local size = bar_height - M.label_inset;
+    if (size < cfg.text.min_size) then
+        return nil;
+    end
+    return size;
 end
 
 function M.panel_height(cfg, size, bars)

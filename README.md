@@ -90,7 +90,6 @@ so it costs nothing to read and needs no camera position out of memory.
 | **Scale Reference Depth** | `6.0` | Depth at which a panel draws at its configured size (1:1) |
 | **Scale Min** | `0.35` | Floor, so a distant panel stays a readable smudge |
 | **Scale Max** | `1.5` | Ceiling, so a panel near the lens does not fill the screen |
-| **Hide Labels Below** | `0.75` | Scale under which the HP/MP/TP numbers are dropped |
 
 The reference defaults to `6.0` because that is roughly where the third-person
 camera sits: your own panel lands near 1:1 and everything else scales away from
@@ -102,12 +101,9 @@ the nameplate and the panel grows or shrinks downward from there. Padding and
 corner rounding scale with everything else — otherwise a shrunk panel keeps a
 full-size border that swallows its own bars.
 
-The numbers are the one thing that cannot scale. Bars go to ImGui's background
-draw list, which has no window font scale to push and takes no font size on
-`AddText`, so instead the labels are dropped once the panel is small enough that
-a fixed-size digit would overflow its bar — about where the number stops being
-readable anyway. Raise **Hide Labels Below** past `Scale Max` to drop them
-always, or set it to `0` to keep them at every range.
+The numbers scale with everything else, because their size is not a setting: a
+label is drawn at its own bar's height less 4px (see **Label size**), and that
+height already carries the scale.
 
 ## Target panel
 
@@ -240,6 +236,26 @@ Labels carry a separate outline color from their fill: **Text Outline Color**
 draws the number a second time one pixel out in each direction, underneath, so a
 white digit stays readable over a light bar. Setting its alpha to `0` skips the
 outline pass — there is no separate toggle.
+
+### Label size
+
+Text size is not configurable, and deliberately so: a label is drawn at the
+height of the bar it sits in, less a fixed 4px, so it can never be taller than
+that bar — at any configured bar height and at any distance scale, since the
+drawn height already carries the scale.
+
+A bar that cannot hold a legible digit drops its label instead of drawing mush.
+That happens when the size the bar would give works out under **Min Text Size**
+(`6`), or when the value is too wide for the bar. Both are decided per bar, not
+per panel: a short TP row can go quiet while the HP row above it still prints.
+Raise **Min Text Size** to drop labels sooner, lower it to keep them further
+out.
+
+Sizing the text needs `ImDrawList`'s second `AddText`, the one taking a font and
+a size. Whether Ashita's Lua binding exposes that overload can only be answered
+at runtime, so the first call is probed and the answer cached; if it is not
+there, labels stay at the UI font size and the same fit check simply drops them
+from every bar too short to hold one.
 
 ## Commands
 

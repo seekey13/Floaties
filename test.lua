@@ -174,6 +174,21 @@ assert(#config.bars_for(1, 0) == 2, 'no subjob must not error');
 assert(config.panel_height(config.defaults, SELF, { 'hp', 'tp' }) == 42,
     'two-bar panel = 16+16 + 1*2 + 2*4, got ' .. tostring(config.panel_height(config.defaults, SELF, { 'hp', 'tp' })));
 
+-- Label size comes from the bar, never from its own setting: bar height less the fixed inset, so
+-- the text cannot be taller than what it sits in at any bar height or distance scale.
+assert(config.label_size(config.defaults, 16) == 16 - config.label_inset, 'label size = bar height - inset, got ' .. tostring(config.label_size(config.defaults, 16)));
+for _, h in ipairs({ 10, 16, 24, 40 }) do
+    assert(config.label_size(config.defaults, h) < h, 'a label must never be as tall as its bar (h=' .. h .. ')');
+end
+
+-- Below the floor there is no legible size left, so the bar drops its label rather than drawing
+-- mush. That covers both ways a bar gets there: configured too short, or scaled too far away.
+assert(config.label_size(config.defaults, 10) == config.defaults.text.min_size, 'the floor itself still draws');
+assert(config.label_size(config.defaults, 9) == nil, 'below the floor the label is dropped');
+assert(config.label_size(config.defaults, 4) == nil, 'the shortest configurable bar cannot hold a label');
+assert(config.label_size(config.defaults, 16 * 0.5) == nil, 'a 16px bar scaled to half drops its label');
+assert(config.label_size(config.defaults, 16 * 1.5) ~= nil, 'a 16px bar scaled up keeps it');
+
 -- Visibility gates only ever *enable*: show when at least one enabled gate
 -- passes, hide otherwise. Never an intersection, and never a fallback to shown.
 local function vis(gates, conditions)
