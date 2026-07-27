@@ -40,3 +40,4 @@ luac.out
 *.hex
 
 docs/
+.DS_Store
