@@ -51,17 +51,33 @@ ffi.cdef[[
 ]];
 
 local seek_battle_actor = ashita.memory.find('FFXiMain.dll', 0, '66A1????????83EC186685C053565774??0FBFC08B0C85', 0, 0);
+local bt_available      = (seek_battle_actor ~= nil and seek_battle_actor ~= 0);
 
 --[[
-* Whether the player has a battle target, i.e. is engaged.
-* @return {boolean} true when engaged, and also when the signature scan failed --
-*                   a bad scan must not silently hide the panel forever.
+* Whether the player has a battle target (<bt>).
+*
+* Fails closed. This used to return true when the signature scan missed, so that a bad scan could
+* not hide the panel forever -- but now that the gates are additive (see config.visible), an
+* always-true gate means "always visible" instead, which is the worse failure and a silent one.
+* A missed scan is reported once at load and by /newui bt.
+*
+* A non-null actor is not enough on its own: targets.lua's get_bt finishes with
+* GetEntity(ent.id.GuideNo), so <bt> is only really set when that index resolves. Index 0 is
+* "no entity", which is how a stale actor slips through as a false positive.
+*
+* @return {boolean}
 --]]
 local function inCombat()
-    if (seek_battle_actor == nil or seek_battle_actor == 0) then
-        return true;
+    if (not bt_available) then
+        return false;
     end
-    return ffi.cast('NEWUI_SeekBattleActor_f', seek_battle_actor)() ~= nil;
+
+    local actor = ffi.cast('NEWUI_SeekBattleActor_f', seek_battle_actor)();
+    if (actor == nil) then
+        return false;
+    end
+
+    return actor.id.GuideNo ~= 0;
 end
 
 -- Entity status values: 0 Idle, 1 Engaged, 2/3 Dead, 4 Zoning, 33 Resting. Dead/zoning/resting
@@ -322,6 +338,12 @@ end
 
 ashita.events.register('load', 'newui_load', function ()
     config.load();
+
+    -- FFXiMain.dll is packed on disk and only unpacked in memory, so a signature can only be
+    -- confirmed at runtime. Say so loudly rather than letting the gate quietly never match.
+    if (not bt_available) then
+        print('[NewUI] SeekBattleActor signature not found -- "Show In Combat" will never match. Use "Show While Engaged" instead.');
+    end
 end);
 
 ashita.events.register('d3d_present', 'newui_present', function ()
@@ -376,6 +398,29 @@ ashita.events.register('command', 'newui_command', function (e)
 
     if (sub == 'config') then
         config_open[1] = not config_open[1];
+        return;
+    end
+
+    -- Prints what the battle-target gate is actually seeing. Run it engaged, then idle:
+    -- guide should be non-zero only while engaged. If addr is 0 the signature never resolved,
+    -- and if guide stays non-zero after disengaging the pointer is stale on this client --
+    -- either way "Show In Combat" is not usable here and "Show While Engaged" is.
+    if (sub == 'bt') then
+        if (not bt_available) then
+            print(('[NewUI] bt: signature not found (scan returned %s)'):fmt(tostring(seek_battle_actor)));
+            return;
+        end
+
+        local mm     = AshitaCore:GetMemoryManager();
+        local actor  = ffi.cast('NEWUI_SeekBattleActor_f', seek_battle_actor)();
+        local status = mm:GetEntity():GetStatus(mm:GetParty():GetMemberTargetIndex(0));
+
+        print(('[NewUI] bt: addr=%08X actor=%s guide=%s status=%d -> inCombat=%s'):fmt(
+            seek_battle_actor,
+            actor ~= nil and 'set' or 'nil',
+            actor ~= nil and tostring(actor.id.GuideNo) or '-',
+            status,
+            tostring(inCombat())));
         return;
     end
 

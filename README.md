@@ -38,12 +38,28 @@ when the battle-target check disagrees.
 
 | Setting | Shows when | Notes |
 |---|---|---|
-| **Show In Combat** | you have a battle target (`<bt>`, via `SeekBattleActor`) | Sticky — the game keeps returning the last battle actor after you disengage, so this tends to stay true once you've fought anything |
+| **Show In Combat** | you have a battle target (`<bt>`, via `SeekBattleActor`) | Signature scan, unverified on this client — see below. Prefer **Show While Engaged** |
 | **Show While Engaged** | your entity status is `Engaged` (1) | Flips back to Idle the moment you disengage |
 | **Show While Idle** | your entity status is `Idle` (0) | Standing around, not fighting |
 
 Dead (2/3), Zoning (4) and Resting (33) match none of these, so with any gate
 on the panel is hidden in those states.
+
+### On the battle-target gate
+
+`SeekBattleActor` is reached through a byte-signature scan lifted from Ashita's
+`targets.lua`. Signatures are client-version specific, and FFXiMain.dll ships
+packed (`.text` has zero raw size on disk; the code is unpacked into memory at
+load), so whether this one resolves on CatsEyeXI can only be answered at
+runtime — hence `/newui bt`.
+
+The gate fails **closed**: if the scan misses, it reports "not in combat" and
+prints a warning at load. It previously failed *open*, which under additive
+gates meant the panel was permanently visible whenever the setting was ticked.
+
+**Show While Engaged** tests essentially the same condition through a supported
+Ashita API with no signature involved, so prefer it. The battle-target gate is
+kept for the case where you want "has a target" specifically.
 
 Every visual property (panel size/rounding/colors, bar heights/colors, border,
 text color) is configurable via `/newui config` and persists across sessions.
@@ -55,6 +71,7 @@ text color) is configurable via `/newui config` and persists across sessions.
 | `/newui` | Toggle on/off |
 | `/newui height <n>` | Vertical world offset. Positive is below feet. Default `0.3` |
 | `/newui config` | Toggle the settings window |
+| `/newui bt` | Print what the battle-target gate sees (scan address, actor, entity index, status) |
 
 The default height is a guess — model heights vary by race and mount, so nudge it in-game.
 
