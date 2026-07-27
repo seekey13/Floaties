@@ -23,6 +23,8 @@ M.defaults = {
         bg       = { r = 0.11, g = 0.10, b = 0.20, a = 1.0 },
     },
 
+    rounded = true,   -- corner rounding on/off, panel and bars alike (magnitude comes from panel.rounding)
+
     gap = 2,   -- vertical gap between the 3 bars
 
     bars = {

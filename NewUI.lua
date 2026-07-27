@@ -87,16 +87,16 @@ end
 * Draws one bar: empty track, filled segment(s) (TP has 3, hp/mp have 1),
 * and a border outline.
 --]]
-local function drawBar(draw_list, left, top, width, height, cells, bar_cfg, cfg)
+local function drawBar(draw_list, left, top, width, height, cells, bar_cfg, cfg, rounding)
     local empty_col = packColor(bar_cfg.empty);
     local full_col  = packColor(bar_cfg.full);
 
-    draw_list:AddRectFilled({ left, top }, { left + width, top + height }, empty_col, BAR_ROUNDING);
+    draw_list:AddRectFilled({ left, top }, { left + width, top + height }, empty_col, rounding);
 
     for _, cell in ipairs(cells) do
         local fill_w = cell.width * cell.frac;
         if (fill_w > 0) then
-            draw_list:AddRectFilled({ cell.x, top }, { cell.x + fill_w, top + height }, full_col, BAR_ROUNDING);
+            draw_list:AddRectFilled({ cell.x, top }, { cell.x + fill_w, top + height }, full_col, rounding);
         end
     end
 
@@ -109,7 +109,7 @@ local function drawBar(draw_list, left, top, width, height, cells, bar_cfg, cfg)
     end
 
     if (cfg.border.visible) then
-        draw_list:AddRect({ left, top }, { left + width, top + height }, packColor(cfg.border.color), BAR_ROUNDING);
+        draw_list:AddRect({ left, top }, { left + width, top + height }, packColor(cfg.border.color), rounding);
     end
 end
 
@@ -126,14 +126,15 @@ local function drawPanel(sx, sy, s)
     local height = config.panel_height(cfg);
     local bw     = config.bar_width(cfg);
 
-    local left = sx - width / 2;
-    local top  = sy;
+    local left     = sx - width / 2;
+    local top      = sy;
+    local rounding = cfg.rounded and cfg.panel.rounding or 0;
 
     local draw_list = imgui.GetBackgroundDrawList();
 
-    draw_list:AddRectFilled({ left, top }, { left + width, top + height }, packColor(cfg.panel.bg), cfg.panel.rounding);
+    draw_list:AddRectFilled({ left, top }, { left + width, top + height }, packColor(cfg.panel.bg), rounding);
     if (cfg.border.visible) then
-        draw_list:AddRect({ left, top }, { left + width, top + height }, packColor(cfg.border.color), cfg.panel.rounding);
+        draw_list:AddRect({ left, top }, { left + width, top + height }, packColor(cfg.border.color), rounding);
     end
 
     local bar_left = left + cfg.panel.offset;
@@ -154,7 +155,7 @@ local function drawPanel(sx, sy, s)
             cells = { { x = bar_left, width = bw, frac = s[key] } };
         end
 
-        drawBar(draw_list, bar_left, bar_top, bw, h, cells, bar_cfg, cfg);
+        drawBar(draw_list, bar_left, bar_top, bw, h, cells, bar_cfg, cfg, cfg.rounded and BAR_ROUNDING or 0);
         drawLabel(draw_list, bar_left, bar_top, bw, h, s[key .. '_raw'], cfg);
 
         bar_top = bar_top + h + cfg.gap;
@@ -194,6 +195,7 @@ local function drawConfigWindow()
         sliderInt('Panel Width', cfg.panel, 'width', 40, 300);
         sliderInt('Panel Offset', cfg.panel, 'offset', 0, 20);
         sliderInt('Panel Rounding', cfg.panel, 'rounding', 0, 20);
+        checkbox('Rounded Corners', cfg, 'rounded');
         sliderInt('Bar Gap', cfg, 'gap', 0, 10);
 
         imgui.Separator();
