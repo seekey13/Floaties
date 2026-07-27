@@ -42,7 +42,7 @@ when the battle-target check disagrees.
 
 | Setting | Shows when | Notes |
 |---|---|---|
-| **Show In Combat** | you have a battle target (`<bt>`, via `SeekBattleActor`) | Signature scan, unverified on this client — see below. Prefer **Show While Engaged** |
+| **Show In Combat** | your battle target (`<bt>`, via `SeekBattleActor`) resolves to a living mob | Signature scan, unverified on this client — see below |
 | **Show While Engaged** | your entity status is `Engaged` (1) | Flips back to Idle the moment you disengage |
 | **Show While Idle** | your entity status is `Idle` (0) | Standing around, not fighting |
 
@@ -51,19 +51,46 @@ on the panel is hidden in those states.
 
 ### On the battle-target gate
 
-`SeekBattleActor` is reached through a byte-signature scan lifted from Ashita's
-`targets.lua`. Signatures are client-version specific, and FFXiMain.dll ships
-packed (`.text` has zero raw size on disk; the code is unpacked into memory at
-load), so whether this one resolves on CatsEyeXI can only be answered at
-runtime — hence `/newui bt`.
+`<bt>` comes from `lib/targets.lua` — Ashita's own `targets.lua`, dropped in
+**unmodified**, the same file Sidekick carries at `lib/core/targets.lua`. It is
+`require`d inside a `pcall`: it hard-`error`s at load if any of its four
+byte-signature scans miss, and only the `SeekBattleActor` one matters here, so a
+miss disables the in-combat gate rather than taking the whole addon down.
+Signatures are client-version specific and FFXiMain.dll ships packed (`.text`
+has zero raw size on disk; the code is unpacked into memory at load), so whether
+they resolve on CatsEyeXI can only be answered at runtime.
 
-The gate fails **closed**: if the scan misses, it reports "not in combat" and
-prints a warning at load. It previously failed *open*, which under additive
-gates meant the panel was permanently visible whenever the setting was ticked.
+The gate fails **closed**: if the library does not load, it reports "not in
+combat" and prints a warning at load. It previously failed *open*, which under
+additive gates meant the panel was permanently visible whenever the setting was
+ticked.
 
-**Show While Engaged** tests essentially the same condition through a supported
-Ashita API with no signature involved, so prefer it. The battle-target gate is
-kept for the case where you want "has a target" specifically.
+The gate is `get_bt() ~= nil`, nothing more — the library's answer is taken
+as-is. Sidekick layers a mob `SpawnFlags` test on top of it in `is_combat`; that
+is not done here. If `<bt>` starts reading as in-combat when it should not, the
+status line below shows exactly what entity it resolved to, and a `SpawnFlags`
+filter is the first thing to try.
+
+### Reading the gate state
+
+Both gate conditions are evaluated once per frame into a single state table,
+*before* any of the early returns, so it keeps updating while the addon is
+disabled or the panel is gated off. The top line of `/newui config` shows it
+live — **In Combat / Engaged / Idle** in green when true, red when false,
+followed by the raw entity status and what `<bt>` currently resolves to:
+
+```
+In Combat: true  Engaged: true  Idle: false  | status=1 | bt: Mandragora hp=63% status=1
+```
+
+`status=` before the pipe is *your* entity status; the one inside `bt:` is the
+battle target's, so a corpse still being handed back by `get_bt` is visible as
+`status=2`/`3` or `hp=0%`. `bt: none` means `get_bt` returned nothing.
+`/newui bt` prints the same line to the log.
+
+**Show While Engaged** tests a similar condition through a supported Ashita API
+with no signature involved. The battle-target gate is the one that stays true
+while a claimed mob is alive but you are disengaged.
 
 Every visual property (panel size/rounding/colors, bar heights/colors, border,
 text color) is configurable via `/newui config` and persists across sessions.
@@ -75,13 +102,14 @@ text color) is configurable via `/newui config` and persists across sessions.
 | `/newui` | Toggle on/off |
 | `/newui height <n>` | Vertical world offset. Positive is below feet. Default `0.3` |
 | `/newui config` | Toggle the settings window |
-| `/newui bt` | Print what the battle-target gate sees (scan address, actor, entity index, status) |
+| `/newui bt` | Print the current gate state (in combat / engaged / idle, raw status, resolved `<bt>` or why it was rejected) |
 
 The default height is a guess — model heights vary by race and mount, so nudge it in-game.
 
 ## Files
 
-- `NewUI.lua` — projection, ImGui rendering, config window, commands
+- `NewUI.lua` — projection, ImGui rendering, gate state, config window, commands
+- `lib/targets.lua` — Ashita's target library, vendored unmodified (only `get_bt` is used)
 - `stats.lua` — HP/MP/TP normalization + TP segment math (no Ashita dependencies)
 - `config.lua` — settings defaults, load/save, derived layout math (no Ashita dependencies except load/save)
 - `test.lua` — self-check for `stats.lua` and `config.lua`; run with `lua test.lua`

@@ -22,68 +22,86 @@ local dev = d3d.get_device();
 ----------------------------------------------------------------------------------------------------
 -- Visibility gates. Independent checks, each with its own setting:
 --
---   show_in_combat     -- has a battle target (<bt>), via SeekBattleActor.
+--   show_in_combat     -- battle target (<bt>) resolves to a living mob, via SeekBattleActor.
 --   show_while_engaged -- entity status says Engaged.
 --   show_while_idle    -- entity status says Idle.
 --
--- The first two are not the same test. SeekBattleActor keeps returning the last battle actor
--- after you disengage, so it tends to stay true once you have fought anything; status flips back
--- to Idle immediately. Because they disagree, the gates combine as a union, not an intersection
--- -- see config.visible.
+-- The first two are not the same test: status drops to Idle the moment you disengage, while the
+-- battle target stays valid as long as the claimed mob is alive. Because they can disagree, the
+-- gates combine as a union, not an intersection -- see config.visible.
 ----------------------------------------------------------------------------------------------------
 
--- Battle target (<bt>). Trimmed from Ashita's targets.lua -- only the SeekBattleActor path is
--- needed here, and only to know whether it returns anything. Type names are addon-prefixed so
--- pulling in the full targets.lua later cannot collide with these cdefs.
-
-ffi.cdef[[
-    typedef struct {
-        uint32_t    GuideNo;
-        uint32_t    UniqueNo;
-    } NEWUI_CHAR_ID;
-
-    typedef struct {
-        uint8_t         padding00[116];
-        NEWUI_CHAR_ID   id;
-    } NEWUI_XiAtelBuff;
-
-    typedef NEWUI_XiAtelBuff* (__stdcall* NEWUI_SeekBattleActor_f)(void);
-]];
-
-local seek_battle_actor = ashita.memory.find('FFXiMain.dll', 0, '66A1????????83EC186685C053565774??0FBFC08B0C85', 0, 0);
-local bt_available      = (seek_battle_actor ~= nil and seek_battle_actor ~= 0);
-
---[[
-* Whether the player has a battle target (<bt>).
-*
-* Fails closed. This used to return true when the signature scan missed, so that a bad scan could
-* not hide the panel forever -- but now that the gates are additive (see config.visible), an
-* always-true gate means "always visible" instead, which is the worse failure and a silent one.
-* A missed scan is reported once at load and by /newui bt.
-*
-* A non-null actor is not enough on its own: targets.lua's get_bt finishes with
-* GetEntity(ent.id.GuideNo), so <bt> is only really set when that index resolves. Index 0 is
-* "no entity", which is how a stale actor slips through as a false positive.
-*
-* @return {boolean}
---]]
-local function inCombat()
-    if (not bt_available) then
-        return false;
-    end
-
-    local actor = ffi.cast('NEWUI_SeekBattleActor_f', seek_battle_actor)();
-    if (actor == nil) then
-        return false;
-    end
-
-    return actor.id.GuideNo ~= 0;
+-- Battle target (<bt>) comes from Ashita's targets.lua, copied in unmodified at lib/targets.lua
+-- (same file Sidekick uses at lib/core/targets.lua). It errors at load if any of its four
+-- signature scans miss -- pcall so a miss degrades the in-combat gate instead of killing the
+-- whole addon, which is what a bare require would do.
+local targets = nil;
+do
+    local ok, lib = pcall(require, 'lib.targets');
+    targets = ok and lib or nil;
 end
 
 -- Entity status values: 0 Idle, 1 Engaged, 2/3 Dead, 4 Zoning, 33 Resting. Dead/zoning/resting
--- are none of the gates below, so a panel gated only on idle+engaged hides while resting.
+-- are none of the gates, so a panel gated only on idle+engaged hides while resting.
 local STATUS_IDLE    = 0;
 local STATUS_ENGAGED = 1;
+
+--[[
+* The battle target (<bt>) entity, or nil.
+*
+* Thin wrapper over targets.get_bt -- the library's own answer is taken as-is, with no filtering
+* on top of it. The pcall is the one thing added, and for the same reason Sidekick's is_combat
+* has one: get_bt indexes the entity table with whatever the underlying pointer holds, so a bad
+* index throws, and this runs every frame.
+*
+* @return {userdata|nil}
+--]]
+local function battleTarget()
+    if (targets == nil) then
+        return nil;
+    end
+
+    local ok, ent = pcall(targets.get_bt);
+    return ok and ent or nil;
+end
+
+----------------------------------------------------------------------------------------------------
+-- Gate state. Recomputed once per frame, before anything can return early, so the config window's
+-- status line still reads true while the panel itself is hidden -- that line is the whole point
+-- when a gate is misbehaving.
+--
+-- Keys match config.gates so this table can be handed straight to config.visible.
+----------------------------------------------------------------------------------------------------
+
+local gate_state = {
+    show_in_combat     = false,
+    show_while_engaged = false,
+    show_while_idle    = false,
+
+    -- Diagnostics, not gates.
+    status  = -1,       -- raw entity status, -1 when unknown (not logged in / zoning)
+    bt_text = 'none',   -- battle target name + hp, or why it was rejected
+};
+
+local function updateGateState(mm, player, party)
+    if (player == nil or player:GetMainJob() == 0) then
+        gate_state.show_in_combat     = false;
+        gate_state.show_while_engaged = false;
+        gate_state.show_while_idle    = false;
+        gate_state.status             = -1;
+        gate_state.bt_text            = 'not logged in';
+        return;
+    end
+
+    local status = mm:GetEntity():GetStatus(party:GetMemberTargetIndex(0));
+    local bt     = battleTarget();
+
+    gate_state.show_in_combat     = bt ~= nil;
+    gate_state.show_while_engaged = status == STATUS_ENGAGED;
+    gate_state.show_while_idle    = status == STATUS_IDLE;
+    gate_state.status             = status;
+    gate_state.bt_text            = bt ~= nil and ('%s hp=%d%% status=%d'):fmt(bt.Name, bt.HPPercent, bt.Status) or 'none';
+end
 
 -- Fixed (non-configurable) drawing constant -- not requested as a setting.
 local BAR_ROUNDING = 3;
@@ -291,7 +309,24 @@ local function drawConfigWindow()
         end
     end
 
+    -- Live gate state, so a gate that is not firing can be told apart from one that is firing
+    -- when it should not. Green = the condition is true right now, red = false.
+    local function gateState(label, key)
+        local on = gate_state[key];
+        imgui.TextColored(on and { 0.4, 1.0, 0.4, 1.0 } or { 1.0, 0.4, 0.4, 1.0 },
+                          ('%s: %s'):fmt(label, tostring(on)));
+    end
+
     if (imgui.Begin('NewUI Config', config_open)) then
+        gateState('In Combat', 'show_in_combat');
+        imgui.SameLine();
+        gateState('Engaged', 'show_while_engaged');
+        imgui.SameLine();
+        gateState('Idle', 'show_while_idle');
+        imgui.SameLine();
+        imgui.Text(('| status=%d | bt: %s'):fmt(gate_state.status, gate_state.bt_text));
+        imgui.Separator();
+
         checkbox('Show In Combat', cfg, 'show_in_combat');
         checkbox('Show While Engaged', cfg, 'show_while_engaged');
         checkbox('Show While Idle', cfg, 'show_while_idle');
@@ -329,23 +364,27 @@ end
 ashita.events.register('load', 'newui_load', function ()
     config.load();
 
-    -- FFXiMain.dll is packed on disk and only unpacked in memory, so a signature can only be
-    -- confirmed at runtime. Say so loudly rather than letting the gate quietly never match.
-    if (not bt_available) then
-        print('[NewUI] SeekBattleActor signature not found -- "Show In Combat" will never match. Use "Show While Engaged" instead.');
+    -- FFXiMain.dll is packed on disk and only unpacked in memory, so targets.lua's signatures can
+    -- only be confirmed at runtime. Say so loudly rather than letting the gate quietly never match.
+    if (targets == nil) then
+        print('[NewUI] lib/targets.lua failed to load -- "Show In Combat" will never match. Use "Show While Engaged" instead.');
     end
 end);
 
 ashita.events.register('d3d_present', 'newui_present', function ()
+    local mm     = AshitaCore:GetMemoryManager();
+    local player = mm:GetPlayer();
+    local party  = mm:GetParty();
+
+    -- Before every early return below, so the config window's status line keeps updating while
+    -- the addon is disabled or the panel is gated off.
+    updateGateState(mm, player, party);
+
     drawConfigWindow();
 
     if (not config.settings.enabled) then
         return;
     end
-
-    local mm     = AshitaCore:GetMemoryManager();
-    local player = mm:GetPlayer();
-    local party  = mm:GetParty();
 
     -- Not logged in / zoning: main job reads 0.
     if (player == nil or player:GetMainJob() == 0) then
@@ -353,12 +392,7 @@ ashita.events.register('d3d_present', 'newui_present', function ()
     end
 
     -- Gated on your own status, not each member's, so the whole set shows/hides together.
-    local status = mm:GetEntity():GetStatus(party:GetMemberTargetIndex(0));
-    if (not config.visible(config.settings, {
-            show_in_combat     = inCombat(),
-            show_while_engaged = status == STATUS_ENGAGED,
-            show_while_idle    = status == STATUS_IDLE,
-        })) then
+    if (not config.visible(config.settings, gate_state)) then
         return;
     end
 
@@ -391,26 +425,15 @@ ashita.events.register('command', 'newui_command', function (e)
         return;
     end
 
-    -- Prints what the battle-target gate is actually seeing. Run it engaged, then idle:
-    -- guide should be non-zero only while engaged. If addr is 0 the signature never resolved,
-    -- and if guide stays non-zero after disengaging the pointer is stale on this client --
-    -- either way "Show In Combat" is not usable here and "Show While Engaged" is.
+    -- One-shot print of the same state the config window's status line shows, for when you would
+    -- rather watch the log across a fight than keep the window open.
     if (sub == 'bt') then
-        if (not bt_available) then
-            print(('[NewUI] bt: signature not found (scan returned %s)'):fmt(tostring(seek_battle_actor)));
-            return;
-        end
-
-        local mm     = AshitaCore:GetMemoryManager();
-        local actor  = ffi.cast('NEWUI_SeekBattleActor_f', seek_battle_actor)();
-        local status = mm:GetEntity():GetStatus(mm:GetParty():GetMemberTargetIndex(0));
-
-        print(('[NewUI] bt: addr=%08X actor=%s guide=%s status=%d -> inCombat=%s'):fmt(
-            seek_battle_actor,
-            actor ~= nil and 'set' or 'nil',
-            actor ~= nil and tostring(actor.id.GuideNo) or '-',
-            status,
-            tostring(inCombat())));
+        print(('[NewUI] in_combat=%s engaged=%s idle=%s status=%d bt=%s'):fmt(
+            tostring(gate_state.show_in_combat),
+            tostring(gate_state.show_while_engaged),
+            tostring(gate_state.show_while_idle),
+            gate_state.status,
+            gate_state.bt_text));
         return;
     end
 
