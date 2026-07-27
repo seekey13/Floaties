@@ -4,23 +4,151 @@
 --]]
 
 addon.name      = 'NewUI';
-addon.author    = 'Seekey13';
-addon.version   = '2.0';
+addon.author    = 'Seekey';
+addon.version   = '0.1';
 addon.desc      = 'Floating HP/MP/TP bars over the player.';
 
 require('common');
 
 local ffi    = require('ffi');
 local d3d    = require('d3d8');
+local imgui  = require('imgui');
 local stats  = require('stats');
 local config = require('config');
 
 local C   = ffi.C;
 local dev = d3d.get_device();
 
--- Fixed (non-configurable) drawing constants -- not requested as settings.
-local BAR_ROUNDING     = 3;
-local TP_DIVIDER_COLOR = 0xFFFFFFFF;
+----------------------------------------------------------------------------------------------------
+-- Visibility gates. Independent checks, each with its own setting:
+--
+--   show_in_combat     -- battle target (<bt>) resolves to a living mob, via SeekBattleActor.
+--   show_while_engaged -- entity status says Engaged.
+--   show_while_idle    -- entity status says Idle.
+--
+-- The first two are not the same test: status drops to Idle the moment you disengage, while the
+-- battle target stays valid as long as the claimed mob is alive. Because they can disagree, the
+-- gates combine as a union, not an intersection -- see config.visible.
+----------------------------------------------------------------------------------------------------
+
+-- Battle target (<bt>) comes from Ashita's targets.lua, copied in unmodified at lib/targets.lua
+-- (same file Sidekick uses at lib/core/targets.lua). It errors at load if any of its four
+-- signature scans miss -- pcall so a miss degrades the in-combat gate instead of killing the
+-- whole addon, which is what a bare require would do.
+local targets = nil;
+do
+    local ok, lib = pcall(require, 'lib.targets');
+    targets = ok and lib or nil;
+end
+
+-- Entity status values: 0 Idle, 1 Engaged, 2/3 Dead, 4 Zoning, 33 Resting. Dead/zoning/resting
+-- are none of the gates, so a panel gated only on idle+engaged hides while resting.
+local STATUS_IDLE    = 0;
+local STATUS_ENGAGED = 1;
+
+--[[
+* The battle target (<bt>) entity, or nil.
+*
+* Thin wrapper over targets.get_bt -- the library's own answer is taken as-is, with no filtering
+* on top of it. The pcall is the one thing added, and for the same reason Sidekick's is_combat
+* has one: get_bt indexes the entity table with whatever the underlying pointer holds, so a bad
+* index throws, and this runs every frame.
+*
+* @return {userdata|nil}
+--]]
+local function battleTarget()
+    if (targets == nil) then
+        return nil;
+    end
+
+    local ok, ent = pcall(targets.get_bt);
+    return ok and ent or nil;
+end
+
+--[[
+* Whether a <bt> entity counts as being in combat with something.
+*
+* get_bt is not a combat test: SeekBattleActor keeps handing back an entity after the fight ends,
+* and that entity is not always a mob -- a trust in your own party turns up there, which is what
+* made the gate stick on. Sidekick solves the same problem in is_combat with the mob SpawnFlags
+* test; the party test on top of it is for trusts and pets, which live in the 0x700 index range
+* and carry the mob flag despite being yours.
+*
+* @param {userdata|nil} ent - The battle target entity.
+* @param {userdata} party - The party memory manager.
+* @return {boolean}
+--]]
+local function isEnemy(ent, party)
+    if (ent == nil) then
+        return false;
+    end
+
+    -- Not a mob: PC, NPC, or whatever stale index the pointer held.
+    if (bit.band(ent.SpawnFlags, 0x10) == 0) then
+        return false;
+    end
+
+    -- A corpse is still handed back for a while after the kill.
+    if (ent.HPPercent == 0 or ent.Status == 2 or ent.Status == 3) then
+        return false;
+    end
+
+    -- 0..17 covers party and both alliance parties, so alliance trusts are caught too.
+    for i = 0, 17 do
+        if (party:GetMemberIsActive(i) == 1 and party:GetMemberServerId(i) == ent.ServerId) then
+            return false;
+        end
+    end
+
+    return true;
+end
+
+----------------------------------------------------------------------------------------------------
+-- Gate state. Recomputed once per frame, before anything can return early, so the config window's
+-- status line still reads true while the panel itself is hidden -- that line is the whole point
+-- when a gate is misbehaving.
+--
+-- Keys match config.gates so this table can be handed straight to config.visible.
+----------------------------------------------------------------------------------------------------
+
+local gate_state = {
+    show_in_combat     = false,
+    show_while_engaged = false,
+    show_while_idle    = false,
+
+    -- Diagnostics, not gates.
+    status  = -1,       -- raw entity status, -1 when unknown (not logged in / zoning)
+    bt_text = 'none',   -- battle target name + hp, or why it was rejected
+};
+
+local function updateGateState(mm, player, party)
+    if (player == nil or player:GetMainJob() == 0) then
+        gate_state.show_in_combat     = false;
+        gate_state.show_while_engaged = false;
+        gate_state.show_while_idle    = false;
+        gate_state.status             = -1;
+        gate_state.bt_text            = 'not logged in';
+        return;
+    end
+
+    local status = mm:GetEntity():GetStatus(party:GetMemberTargetIndex(0));
+    local bt     = battleTarget();
+    local enemy  = isEnemy(bt, party);
+
+    gate_state.show_in_combat     = enemy;
+    gate_state.show_while_engaged = status == STATUS_ENGAGED;
+    gate_state.show_while_idle    = status == STATUS_IDLE;
+    gate_state.status             = status;
+
+    -- Rejected targets still print, so "gate is off but get_bt has something" is readable rather
+    -- than looking identical to "get_bt has nothing".
+    gate_state.bt_text = bt == nil and 'none'
+        or ('%s hp=%d%% status=%d flags=0x%X%s'):fmt(bt.Name, bt.HPPercent, bt.Status, bt.SpawnFlags,
+                                                     enemy and '' or ' REJECTED');
+end
+
+-- Fixed (non-configurable) drawing constant -- not requested as a setting.
+local BAR_ROUNDING = 3;
 
 local config_open = { false };
 
@@ -86,27 +214,17 @@ local function packColor(c, alpha)
 end
 
 --[[
-* Draws one bar: empty track, filled segment(s) (TP has 3, hp/mp have 1),
-* and a border outline. Each cell's opacity comes from cfg.states[cell.state].
+* Draws one bar: empty track, filled portion, and a border outline.
+* Fill opacity comes from cfg.states[state].
 --]]
-local function drawBar(draw_list, left, top, width, height, cells, bar_color, cfg, rounding)
+local function drawBar(draw_list, left, top, width, height, frac, state, bar_color, cfg, rounding)
     local states = cfg.states;
 
     draw_list:AddRectFilled({ left, top }, { left + width, top + height }, packColor(bar_color, states.empty), rounding);
 
-    for _, cell in ipairs(cells) do
-        local fill_w = cell.width * cell.frac;
-        if (fill_w > 0) then
-            draw_list:AddRectFilled({ cell.x, top }, { cell.x + fill_w, top + height }, packColor(bar_color, states[cell.state]), rounding);
-        end
-    end
-
-    -- TP-only: thin divider lines at the 1000/2000 boundaries.
-    if (#cells > 1) then
-        for i = 1, #cells - 1 do
-            local x = cells[i + 1].x;
-            draw_list:AddLine({ x, top }, { x, top + height }, TP_DIVIDER_COLOR, 1.0);
-        end
+    local fill_w = width * frac;
+    if (fill_w > 0) then
+        draw_list:AddRectFilled({ left, top }, { left + fill_w, top + height }, packColor(bar_color, states[state]), rounding);
     end
 
     if (cfg.border_visible) then
@@ -121,10 +239,10 @@ local function drawLabel(draw_list, left, top, width, height, value, cfg)
     draw_list:AddText({ left + (width - tw) / 2, top + (height - th) / 2 }, text_col, label);
 end
 
-local function drawPanel(sx, sy, s)
+local function drawPanel(sx, sy, s, bars)
     local cfg    = config.settings;
     local width  = cfg.panel.width;
-    local height = config.panel_height(cfg);
+    local height = config.panel_height(cfg, bars);
     local bw     = config.bar_width(cfg);
 
     local left     = sx - width / 2;
@@ -142,27 +260,61 @@ local function drawPanel(sx, sy, s)
     local bar_top      = top + cfg.panel.offset;
     local bar_rounding = cfg.bars.rounded and BAR_ROUNDING or 0;
 
-    for _, key in ipairs(config.bar_order) do
+    for _, key in ipairs(bars) do
         local bar_cfg = cfg.bars[key];
         local h       = bar_cfg.height;
-        local cells;
 
         if (key == 'tp') then
-            cells = {};
-            local seg_w = bw / 3;
+            -- Three separate bars, one per 1000 TP, sharing the row's width.
+            -- ponytail: reuses cfg.gap for the horizontal spacing rather than adding a setting.
+            local seg_w = (bw - 2 * cfg.gap) / 3;
             for i = 1, 3 do
                 local frac = stats.tp_segment(s.tp_raw, i);
-                cells[i] = { x = bar_left + (i - 1) * seg_w, width = seg_w, frac = frac, state = (frac >= 1) and 'full' or 'incomplete' };
+                drawBar(draw_list, bar_left + (i - 1) * (seg_w + cfg.gap), bar_top, seg_w, h,
+                        frac, (frac >= 1) and 'full' or 'incomplete', bar_cfg.color, cfg, bar_rounding);
             end
         else
-            cells = { { x = bar_left, width = bw, frac = s[key], state = 'full' } };
+            drawBar(draw_list, bar_left, bar_top, bw, h, s[key], 'full', bar_cfg.color, cfg, bar_rounding);
         end
 
-        drawBar(draw_list, bar_left, bar_top, bw, h, cells, bar_cfg.color, cfg, bar_rounding);
-        drawLabel(draw_list, bar_left, bar_top, bw, h, s[key .. '_raw'], cfg);
+        -- Label stays centered across the whole row, so TP prints over the middle bar.
+        drawLabel(draw_list, bar_left, bar_top, bw, h, stats.label(s, key), cfg);
 
         bar_top = bar_top + h + cfg.gap;
     end
+end
+
+--[[
+* Draws one party slot's panel over that member's head. Silently skips slots
+* that are empty, out of zone (target index 0), or off screen.
+--]]
+local function drawMember(mm, party, i, view, proj, vp)
+    local s = stats.read(party, i);
+    if (s == nil) then
+        return;
+    end
+
+    local index = party:GetMemberTargetIndex(i);
+    if (index == 0) then
+        return;
+    end
+
+    local ent = mm:GetEntity();
+    local px  = ent:GetLocalPositionX(index);
+    local py  = ent:GetLocalPositionY(index);
+    local pz  = ent:GetLocalPositionZ(index)
+              + (i == 0 and config.settings.height_offset or config.settings.party_height_offset);
+
+    -- Position struct is stored X, Z, Y - the game's Z is the D3D up-axis.
+    local sx, sy, sz = worldToScreen(px, pz, py, view, proj, vp.Width, vp.Height);
+
+    if (sz < 0 or sz > 1 or sx < 0 or sx > vp.Width or sy < 0 or sy > vp.Height) then
+        return;
+    end
+
+    -- Jobs of party members are only known once they've been seen; an unknown
+    -- job reads 0, which bars_for treats as "no MP pool".
+    drawPanel(sx, sy, s, config.bars_for(party:GetMemberMainJob(i), party:GetMemberSubJob(i)));
 end
 
 local function drawConfigWindow()
@@ -202,7 +354,40 @@ local function drawConfigWindow()
         end
     end
 
+    -- Live gate state, so a gate that is not firing can be told apart from one that is firing
+    -- when it should not. Green = the condition is true right now, red = false.
+    local function gateState(label, key)
+        local on = gate_state[key];
+        imgui.TextColored(on and { 0.4, 1.0, 0.4, 1.0 } or { 1.0, 0.4, 0.4, 1.0 },
+                          ('%s: %s'):fmt(label, tostring(on)));
+    end
+
     if (imgui.Begin('NewUI Config', config_open)) then
+        gateState('In Combat', 'show_in_combat');
+        imgui.SameLine();
+        gateState('Engaged', 'show_while_engaged');
+        imgui.SameLine();
+        gateState('Idle', 'show_while_idle');
+        imgui.SameLine();
+        imgui.Text(('| status=%d | bt: %s'):fmt(gate_state.status, gate_state.bt_text));
+
+        -- The decision itself, so a gate that reads false while the panel is plainly on screen
+        -- is impossible to miss. Hidden with every gate off is correct, not a bug -- say so.
+        local shown = config.visible(cfg, gate_state);
+        imgui.TextColored(shown and { 0.4, 1.0, 0.4, 1.0 } or { 1.0, 0.4, 0.4, 1.0 },
+                          ('Panel: %s'):fmt(shown and 'shown' or 'hidden'));
+        if (not (cfg.show_in_combat or cfg.show_while_engaged or cfg.show_while_idle)) then
+            imgui.SameLine();
+            imgui.Text('-- no gate enabled, so nothing can enable it');
+        end
+        imgui.Separator();
+
+        checkbox('Show In Combat', cfg, 'show_in_combat');
+        checkbox('Show While Engaged', cfg, 'show_while_engaged');
+        checkbox('Show While Idle', cfg, 'show_while_idle');
+        checkbox('Show Party Members', cfg, 'show_party');
+        slider(imgui.SliderFloat, 'Self Height Offset', cfg, 'height_offset', -4, 4);
+        slider(imgui.SliderFloat, 'Party Height Offset', cfg, 'party_height_offset', -4, 4);
         slider(imgui.SliderInt, 'Panel Width', cfg.panel, 'width', 40, 300);
         slider(imgui.SliderInt, 'Panel Offset', cfg.panel, 'offset', 0, 20);
         slider(imgui.SliderInt, 'Panel Rounding', cfg.panel, 'rounding', 0, 20);
@@ -235,31 +420,36 @@ end
 
 ashita.events.register('load', 'newui_load', function ()
     config.load();
+
+    -- FFXiMain.dll is packed on disk and only unpacked in memory, so targets.lua's signatures can
+    -- only be confirmed at runtime. Say so loudly rather than letting the gate quietly never match.
+    if (targets == nil) then
+        print('[NewUI] lib/targets.lua failed to load -- "Show In Combat" will never match. Use "Show While Engaged" instead.');
+    end
 end);
 
 ashita.events.register('d3d_present', 'newui_present', function ()
+    local mm     = AshitaCore:GetMemoryManager();
+    local player = mm:GetPlayer();
+    local party  = mm:GetParty();
+
+    -- Before every early return below, so the config window's status line keeps updating while
+    -- the addon is disabled or the panel is gated off.
+    updateGateState(mm, player, party);
+
     drawConfigWindow();
 
     if (not config.settings.enabled) then
         return;
     end
 
-    local mm     = AshitaCore:GetMemoryManager();
-    local player = mm:GetPlayer();
-    local party  = mm:GetParty();
-
     -- Not logged in / zoning: main job reads 0.
     if (player == nil or player:GetMainJob() == 0) then
         return;
     end
 
-    local s = stats.read(party);
-    if (s == nil) then
-        return;
-    end
-
-    local index = party:GetMemberTargetIndex(0);
-    if (index == 0) then
+    -- Gated on your own status, not each member's, so the whole set shows/hides together.
+    if (not config.visible(config.settings, gate_state)) then
         return;
     end
 
@@ -268,19 +458,10 @@ ashita.events.register('d3d_present', 'newui_present', function ()
     local _, view = dev:GetTransform(C.D3DTS_VIEW);
     local _, proj = dev:GetTransform(C.D3DTS_PROJECTION);
 
-    local ent = mm:GetEntity();
-    local px  = ent:GetLocalPositionX(index);
-    local py  = ent:GetLocalPositionY(index);
-    local pz  = ent:GetLocalPositionZ(index) + config.settings.height_offset;
-
-    -- Position struct is stored X, Z, Y - the game's Z is the D3D up-axis.
-    local sx, sy, sz = worldToScreen(px, pz, py, view, proj, vp.Width, vp.Height);
-
-    if (sz < 0 or sz > 1 or sx < 0 or sx > vp.Width or sy < 0 or sy > vp.Height) then
-        return;
+    -- Slot 0 is self; 1..5 are the rest of the party.
+    for i = 0, (config.settings.show_party and 5 or 0) do
+        drawMember(mm, party, i, view, proj, vp);
     end
-
-    drawPanel(sx, sy, s);
 end);
 
 ----------------------------------------------------------------------------------------------------
@@ -301,10 +482,22 @@ ashita.events.register('command', 'newui_command', function (e)
         return;
     end
 
+    -- One-shot print of the same state the config window's status line shows, for when you would
+    -- rather watch the log across a fight than keep the window open.
+    if (sub == 'bt') then
+        print(('[NewUI] in_combat=%s engaged=%s idle=%s status=%d bt=%s'):fmt(
+            tostring(gate_state.show_in_combat),
+            tostring(gate_state.show_while_engaged),
+            tostring(gate_state.show_while_idle),
+            gate_state.status,
+            gate_state.bt_text));
+        return;
+    end
+
     if (sub == 'height' and args[3] ~= nil) then
         config.settings.height_offset = tonumber(args[3]) or config.settings.height_offset;
         config.save();
-        print(('[NewUI] height offset: %.2f (positive is below feet)'):fmt(config.settings.height_offset));
+        print(('[NewUI] self height offset: %.2f (positive is below feet)'):fmt(config.settings.height_offset));
         return;
     end
 

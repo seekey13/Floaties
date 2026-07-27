@@ -13,8 +13,19 @@
 local M = {};
 
 M.defaults = {
-    enabled       = true,
-    height_offset = 0.3,   -- positive = below feet (axis points down)
+    enabled            = true,
+    -- Gates are purely enabling (see M.visible), so all three off means the panel never
+    -- draws. Engaged+idle is on by default: visible in normal play, hidden while dead,
+    -- zoning or resting.
+    show_in_combat     = false, -- show when a battle target is set (<bt>)
+    show_while_engaged = true,  -- show when entity status is Engaged
+    show_while_idle    = true,  -- show when entity status is Idle
+    show_party         = true,  -- draw panels over party members too, not just self
+
+    -- Vertical world offset, positive = below feet (axis points down). Split self from party
+    -- so your own panel can sit clear of the ones over everyone else.
+    height_offset       = 0.3,  -- self (party slot 0)
+    party_height_offset = 0.3,  -- everyone else (slots 1..5)
 
     panel = {
         width        = 100,
@@ -50,21 +61,71 @@ M.defaults = {
 -- Bars in draw order, top to bottom.
 M.bar_order = { 'hp', 'mp', 'tp' };
 
+-- Jobs with an MP pool, by job id: WHM BLM RDM PLD DRK SMN BLU SCH GEO RUN.
+M.mp_jobs = {
+    [3] = true, [4] = true, [5] = true, [7] = true, [8] = true,
+    [15] = true, [16] = true, [20] = true, [21] = true, [22] = true,
+};
+
+--[[
+* Bars to draw for a job pairing. MP is dropped unless main or sub has MP.
+* @return {table} subset of M.bar_order, same order.
+--]]
+function M.bars_for(main_job, sub_job)
+    if (M.mp_jobs[main_job] or M.mp_jobs[sub_job]) then
+        return M.bar_order;
+    end
+    return { 'hp', 'tp' };
+end
+
+-- Visibility gates, by setting name. Adding one is a string here plus a checkbox.
+M.gates = { 'show_in_combat', 'show_while_engaged', 'show_while_idle' };
+
+--[[
+* Whether the panel should be drawn at all, from the visibility gates.
+*
+* Each gate purely *enables*: the panel shows when at least one enabled gate's
+* condition is currently true, and is hidden otherwise. Enabling several is a
+* union, not an intersection -- being engaged is enough on its own even while
+* the battle-target check disagrees.
+*
+* No gate enabled therefore means never visible, which is why the defaults ship
+* with engaged+idle on. This used to fall back to "always show", so a gate you
+* had switched on could not hide anything until you switched a second one on
+* too -- the setting looked broken because nothing it did was observable.
+*
+* @param {table} conditions - current state keyed by the same names as M.gates.
+* @return {boolean}
+--]]
+function M.visible(cfg, conditions)
+    for _, gate in ipairs(M.gates) do
+        if (cfg[gate] and conditions[gate]) then
+            return true;
+        end
+    end
+    return false;
+end
+
 function M.bar_width(cfg)
     return cfg.panel.width - 2 * cfg.panel.offset;
 end
 
-function M.panel_height(cfg)
+function M.panel_height(cfg, bars)
+    bars = bars or M.bar_order;
     local sum = 0;
-    for _, key in ipairs(M.bar_order) do
+    for _, key in ipairs(bars) do
         sum = sum + cfg.bars[key].height;
     end
-    return sum + 2 * cfg.gap + 2 * cfg.panel.offset;
+    return sum + (#bars - 1) * cfg.gap + 2 * cfg.panel.offset;
 end
 
 function M.load()
     local settings = require('settings');
-    M.settings = settings.load(M.defaults);
+    -- settings.load calls defaults:copy()/:merge(), which live on Ashita's T
+    -- metatable. Wrapping here (not at file scope) keeps this file loadable
+    -- under plain lua for test.lua. Nested tables need no wrap -- copy/merge
+    -- recurse through table_mt directly.
+    M.settings = settings.load(T(M.defaults));
     settings.register('settings', 'newui_settings_update', function (s)
         M.settings = s;
     end);
