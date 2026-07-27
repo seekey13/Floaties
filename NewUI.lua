@@ -20,15 +20,16 @@ local C   = ffi.C;
 local dev = d3d.get_device();
 
 ----------------------------------------------------------------------------------------------------
--- Visibility gates. Two independent checks, each with its own setting:
+-- Visibility gates. Independent checks, each with its own setting:
 --
 --   show_in_combat     -- has a battle target (<bt>), via SeekBattleActor.
 --   show_while_engaged -- entity status says Engaged.
+--   show_while_idle    -- entity status says Idle.
 --
--- They are not the same test. SeekBattleActor keeps returning the last battle actor after you
--- disengage, so it tends to stay true once you have fought anything; status flips back to Idle
--- immediately. Because the two disagree, the gates combine as a union, not an intersection --
--- see config.visible.
+-- The first two are not the same test. SeekBattleActor keeps returning the last battle actor
+-- after you disengage, so it tends to stay true once you have fought anything; status flips back
+-- to Idle immediately. Because they disagree, the gates combine as a union, not an intersection
+-- -- see config.visible.
 ----------------------------------------------------------------------------------------------------
 
 -- Battle target (<bt>). Trimmed from Ashita's targets.lua -- only the SeekBattleActor path is
@@ -63,7 +64,9 @@ local function inCombat()
     return ffi.cast('NEWUI_SeekBattleActor_f', seek_battle_actor)() ~= nil;
 end
 
--- Entity status values: 0 Idle, 1 Engaged, 2/3 Dead, 4 Zoning, 33 Resting.
+-- Entity status values: 0 Idle, 1 Engaged, 2/3 Dead, 4 Zoning, 33 Resting. Dead/zoning/resting
+-- are none of the gates below, so a panel gated only on idle+engaged hides while resting.
+local STATUS_IDLE    = 0;
 local STATUS_ENGAGED = 1;
 
 -- Fixed (non-configurable) drawing constant -- not requested as a setting.
@@ -285,6 +288,7 @@ local function drawConfigWindow()
     if (imgui.Begin('NewUI Config', config_open)) then
         checkbox('Show In Combat', cfg, 'show_in_combat');
         checkbox('Show While Engaged', cfg, 'show_while_engaged');
+        checkbox('Show While Idle', cfg, 'show_while_idle');
         checkbox('Show Party Members', cfg, 'show_party');
         slider(imgui.SliderInt, 'Panel Width', cfg.panel, 'width', 40, 300);
         slider(imgui.SliderInt, 'Panel Offset', cfg.panel, 'offset', 0, 20);
@@ -337,8 +341,12 @@ ashita.events.register('d3d_present', 'newui_present', function ()
     end
 
     -- Gated on your own status, not each member's, so the whole set shows/hides together.
-    local engaged = mm:GetEntity():GetStatus(party:GetMemberTargetIndex(0)) == STATUS_ENGAGED;
-    if (not config.visible(config.settings, inCombat(), engaged)) then
+    local status = mm:GetEntity():GetStatus(party:GetMemberTargetIndex(0));
+    if (not config.visible(config.settings, {
+            show_in_combat     = inCombat(),
+            show_while_engaged = status == STATUS_ENGAGED,
+            show_while_idle    = status == STATUS_IDLE,
+        })) then
         return;
     end
 

@@ -95,26 +95,43 @@ assert(#config.bars_for(1, 0) == 2, 'no subjob must not error');
 assert(config.panel_height(config.defaults, { 'hp', 'tp' }) == 42,
     'two-bar panel = 16+16 + 1*2 + 2*4, got ' .. tostring(config.panel_height(config.defaults, { 'hp', 'tp' })));
 
--- Visibility gates are additive: neither on = always show, either on = show when
--- at least one enabled gate passes. Never an intersection.
-local function vis(in_combat, engaged, gate_combat, gate_engaged)
-    return config.visible({ show_in_combat = gate_combat, show_while_engaged = gate_engaged }, in_combat, engaged);
-end
-
-for _, c in ipairs({ true, false }) do
-    for _, e in ipairs({ true, false }) do
-        assert(vis(c, e, false, false), 'no gate on must always show');
+-- Visibility gates are additive: none on = always show, any on = show when at
+-- least one enabled gate passes. Never an intersection.
+local function vis(gates, conditions)
+    local cfg = {};
+    for _, g in ipairs(config.gates) do
+        cfg[g] = gates[g] or false;
     end
+    return config.visible(cfg, conditions);
 end
 
-assert(vis(true,  false, true, false), 'combat gate alone shows with a battle target');
-assert(not vis(false, true,  true, false), 'combat gate alone hides without one, engaged or not');
-assert(vis(false, true,  false, true), 'engaged gate alone shows while engaged');
-assert(not vis(true,  false, false, true), 'engaged gate alone hides when not engaged');
+local COMBAT  = { show_in_combat = true };
+local ENGAGED = { show_while_engaged = true };
+local IDLE    = { show_while_idle = true };
+local ALL     = { show_in_combat = true, show_while_engaged = true, show_while_idle = true };
 
--- The case that drove this: both on, engaged, but <bt> has gone stale/false.
-assert(vis(false, true, true, true), 'both gates on: engaged alone is enough');
-assert(vis(true, false, true, true), 'both gates on: a battle target alone is enough');
-assert(not vis(false, false, true, true), 'both gates on: neither condition means hidden');
+-- No gate on: every state shows.
+for _, cond in ipairs({ {}, COMBAT, ENGAGED, IDLE, ALL }) do
+    assert(vis({}, cond), 'no gate on must always show');
+end
+
+assert(vis(COMBAT, COMBAT), 'combat gate shows with a battle target');
+assert(not vis(COMBAT, ENGAGED), 'combat gate hides without one, engaged or not');
+assert(vis(ENGAGED, ENGAGED), 'engaged gate shows while engaged');
+assert(not vis(ENGAGED, IDLE), 'engaged gate hides while idle');
+assert(vis(IDLE, IDLE), 'idle gate shows while idle');
+assert(not vis(IDLE, ENGAGED), 'idle gate hides while engaged');
+
+-- Union, not intersection: any one enabled gate passing is enough.
+assert(vis(ALL, ENGAGED), 'all gates on: engaged alone is enough even with <bt> stale');
+assert(vis(ALL, COMBAT), 'all gates on: a battle target alone is enough');
+assert(vis(ALL, IDLE), 'all gates on: idle alone is enough');
+assert(not vis(ALL, {}), 'all gates on: dead/zoning/resting matches nothing, so hidden');
+
+-- Idle + engaged together still hide the states that are neither (dead, zoning, resting).
+local IDLE_OR_ENGAGED = { show_while_engaged = true, show_while_idle = true };
+assert(vis(IDLE_OR_ENGAGED, IDLE), 'idle+engaged shows while idle');
+assert(vis(IDLE_OR_ENGAGED, ENGAGED), 'idle+engaged shows while engaged');
+assert(not vis(IDLE_OR_ENGAGED, {}), 'idle+engaged hides while resting');
 
 print('config.lua ok');

@@ -16,6 +16,7 @@ M.defaults = {
     enabled            = true,
     show_in_combat     = false, -- show when a battle target is set (<bt>)
     show_while_engaged = false, -- show when entity status is Engaged
+    show_while_idle    = false, -- show when entity status is Idle
     show_party         = true,  -- draw panels over party members too, not just self
     height_offset      = 0.3,   -- positive = below feet (axis points down)
 
@@ -70,24 +71,32 @@ function M.bars_for(main_job, sub_job)
     return { 'hp', 'tp' };
 end
 
+-- Visibility gates, by setting name. Adding one is a string here plus a checkbox.
+M.gates = { 'show_in_combat', 'show_while_engaged', 'show_while_idle' };
+
 --[[
-* Whether the panel should be drawn at all, from the two visibility gates.
+* Whether the panel should be drawn at all, from the visibility gates.
 *
-* The gates are additive, not restrictive: with neither on the panel always
-* shows; with either on it shows whenever at least one *enabled* gate is
-* satisfied. So switching both on is a union -- being engaged is enough on its
-* own, even while the battle-target check disagrees (it goes stale, and would
-* otherwise veto a frame you are plainly fighting in).
+* The gates are additive, not restrictive: with none on the panel always shows;
+* with any on it shows whenever at least one *enabled* gate is satisfied. So
+* switching several on is a union -- being engaged is enough on its own, even
+* while the battle-target check disagrees (it goes stale, and would otherwise
+* veto a frame you are plainly fighting in).
 *
-* @param {boolean} in_combat - a battle target is set.
-* @param {boolean} engaged - entity status is Engaged.
+* @param {table} conditions - current state keyed by the same names as M.gates.
 * @return {boolean}
 --]]
-function M.visible(cfg, in_combat, engaged)
-    if (not cfg.show_in_combat and not cfg.show_while_engaged) then
-        return true;
+function M.visible(cfg, conditions)
+    local any_on = false;
+    for _, gate in ipairs(M.gates) do
+        if (cfg[gate]) then
+            if (conditions[gate]) then
+                return true;
+            end
+            any_on = true;
+        end
     end
-    return (cfg.show_in_combat and in_combat) or (cfg.show_while_engaged and engaged);
+    return not any_on;
 end
 
 function M.bar_width(cfg)
