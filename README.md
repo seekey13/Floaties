@@ -10,9 +10,9 @@ current value as text:
 
 | Bar | Source | Label | Default color |
 |---|---|---|---|
-| HP | `party:GetMemberHPPercent(0)` | current HP | light red |
-| MP | `party:GetMemberMPPercent(0)` | current MP | light yellow |
-| TP | `party:GetMemberTP(0)` / 3000, split into 3 segments (1000 TP each) | current TP (0-3000) | light blue |
+| HP | `party:GetMemberHPPercent(i)` | current HP | light red |
+| MP | `party:GetMemberMPPercent(i)` | current MP | light yellow |
+| TP | `party:GetMemberTP(i)` / 3000, split into 3 segments (1000 TP each) | current TP (0-3000) | light blue |
 
 Each bar has one color; opacity comes from a shared fill state instead of
 separate colors: `full` (1.0, alpha) for a fully-filled bar or a TP segment
@@ -21,7 +21,16 @@ past its threshold, `incomplete` (0.5) for a TP segment still charging, and
 hits 1000/2000/3000 visibly "locks in" brighter than the one still charging,
 without needing a separate color.
 
-Self only. Hidden while zoning, logged out, or when the anchor point is off screen.
+One panel per party member (all 6 slots), each anchored to that member. Turn
+off with **Show Party Members** in the config window to go back to self only.
+A slot is skipped when it is empty, out of zone, or off screen; the whole UI
+hides while zoning or logged out.
+
+The server only sends raw HP/MP for *you* — for everyone else those read 0, so
+their labels fall back to the percent it does send. TP is raw for everyone.
+Party members' MP bar follows their own job, and is dropped until their job is
+known.
+
 Every visual property (panel size/rounding/colors, bar heights/colors, border,
 text color) is configurable via `/newui config` and persists across sessions.
 

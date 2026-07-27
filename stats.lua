@@ -53,7 +53,9 @@ function M.label(s, key)
     if (key == 'tp' or raw > 0) then
         return raw;
     end
-    return math.floor(s[key] * 100);
+    -- The server's percent is a whole number; round rather than floor so the
+    -- float round-trip through the 0..1 fraction cannot shave off a point.
+    return math.floor(s[key] * 100 + 0.5);
 end
 
 --[[
