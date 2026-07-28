@@ -5,6 +5,7 @@
 local stats     = require('stats');
 local config    = require('config');
 local nameplate = require('nameplate');
+local mobinfo   = require('mobinfo');
 
 local function fakeParty(active, hpp, mpp, tp, hp, mp)
     return {
@@ -190,6 +191,32 @@ assert(config.label_size(config.defaults, config.defaults.slot.size) ~= nil, 'th
 -- The panel's own footprint is untouched -- the space is taken from the bars inside it.
 assert(config.panel_height(slotcfg, SELF) == config.panel_height(offcfg, SELF), 'the tag must not change panel height');
 
+-- Mob reference lines hang *below* the panel, so they cost it no height at all: a target panel is
+-- the same shape whether the mob has three lines or none, and panel_height counts bars only.
+local TARGET = config.defaults.sizes.target;
+assert(config.panel_height(config.defaults, TARGET, { 'hp' }) == 20 + 2 * 2,
+    'lines must not enter the panel height, got ' .. tostring(config.panel_height(config.defaults, TARGET, { 'hp' })));
+
+-- The row holds at Min Text Size instead of dropping out below it, the way a bar label does: a
+-- label leaves a bar behind it that still reads, while a blanked reference line reads as missing
+-- data at exactly the range the panel is smallest.
+local MIN_INFO = config.defaults.text.min_size;
+assert(config.info_row(config.defaults, 1) == 14, 'at 1:1 the row is the configured size');
+assert(config.info_row(config.defaults, nil) == 14, 'no scale is 1:1');
+assert(config.info_row(config.defaults, 1.5) == 21, 'scaling up is not clamped');
+assert(config.info_row(config.defaults, 0.35) == MIN_INFO, 'the smallest scale holds at the floor, got ' .. tostring(config.info_row(config.defaults, 0.35)));
+
+-- The floor is never *above* what was configured: an Info Text Size dragged below Min Text Size is
+-- honoured rather than bumped up to a size nobody asked for.
+local tiny = { mob = { size = 8 }, gap = 1, text = { min_size = 12 } };
+assert(config.info_row(tiny, 1) == 8, 'a size under the floor still draws at that size');
+assert(config.info_row(tiny, 0.35) == 8, 'and is its own floor');
+
+-- info_row is the whole of the block's geometry, and it must not need anything a panel kind with no
+-- lines lacks -- `tiny` above carries no gap-dependent state and every fixture here ships no sizes.
+assert(config.info_row({ mob = { size = 40 }, text = { min_size = 12 } }, 0.35) == 14,
+    'the row reads only mob.size and text.min_size, got ' .. tostring(config.info_row({ mob = { size = 40 }, text = { min_size = 12 } }, 0.35)));
+
 -- MP bar only shows when main or sub has an MP pool.
 assert(#config.bars_for(1, 2) == 2, 'WAR/MNK must drop the mp bar');
 assert(config.bars_for(1, 2)[2] == 'tp', 'remaining bars stay in draw order');
@@ -365,3 +392,196 @@ assert(nameplate.top(skeleton({}, 257), ACTOR) == nil, 'an implausible bone coun
 assert(nameplate.top(skeleton({}, 256), ACTOR) ~= nil, '256 bones is still walked');
 
 print('nameplate.lua ok');
+
+-- mobinfo.lua: the three reference lines, formatted off real mobdb rows (West Ronfaure, zone 100).
+local BOMB = { Name='Bomb', Notorious=false, Aggro=true, Link=false, TrueSight=false, Job=0,
+               MinLevel=8, MaxLevel=10, Sight=true, Sound=false, Blood=false, Magic=true, JA=false,
+               Scent=false,
+               Modifiers={ Slashing=1, Piercing=1, H2H=1, Impact=1, Fire=1.25, Ice=0.5, Wind=0.5,
+                           Earth=0.5, Lightning=0.5, Water=0.5, Light=0.5, Dark=0.5 } };
+
+local BONES = { Name='Enchanted Bones', Notorious=false, Aggro=true, Link=false, TrueSight=false,
+                Job=0, MinLevel=5, MaxLevel=8, Sight=false, Sound=true, Blood=true, Magic=false,
+                JA=false, Scent=false,
+                Modifiers={ Slashing=0.875, Piercing=0.5, H2H=1.125, Impact=1.25, Fire=1.25,
+                            Ice=0.875, Wind=1, Earth=1, Lightning=1, Water=1, Light=1.25, Dark=0.5 } };
+
+local jobs = { [1] = 'WAR', [2] = 'MNK' };
+local function jobname(id) return jobs[id]; end
+
+-- Detection and resistance lines are segments, drawn as mobdb's icons. These two flatten a line to
+-- what NewUI draws when a texture is missing (alt in the icon's place) and to the icon names it
+-- asks for -- one assertion per line either way, and the fallback wording is exactly the text the
+-- lines used to be, so the readings below did not have to change with the shape.
+local function text(line)
+    if (line == nil) then return nil; end
+    local out = {};
+    for i, seg in ipairs(line) do
+        out[i] = (seg.alt or '') .. (seg.text or '');
+    end
+    return table.concat(out, ' ');
+end
+
+local function icons(line)
+    local out = {};
+    for i, seg in ipairs(line) do
+        out[i] = seg.icon or '-';
+    end
+    return table.concat(out, ' ');
+end
+
+-- Level and job. The job is dropped entirely at Job 0 rather than printing a placeholder -- most
+-- low-level fauna carries no job.
+assert(mobinfo.level_job(BOMB, jobname) == 'Lv.8-10', 'job 0 prints the range alone, got ' .. tostring(mobinfo.level_job(BOMB, jobname)));
+assert(mobinfo.level_job({ MinLevel=14, MaxLevel=17, Job=1 }, jobname) == 'Lv.14-17 WAR',
+    'range + main job, got ' .. tostring(mobinfo.level_job({ MinLevel=14, MaxLevel=17, Job=1 }, jobname)));
+assert(mobinfo.level_job({ MinLevel=14, MaxLevel=17, Job=1, SubJob=2 }, jobname) == 'Lv.14-17 WAR/MNK', 'sub job is appended');
+assert(mobinfo.level_job({ MinLevel=14, MaxLevel=17, Job=1, SubJob=0 }, jobname) == 'Lv.14-17 WAR', 'sub job 0 is not a job');
+assert(mobinfo.level_job({ Level=75, MinLevel=75, MaxLevel=75, Job=1 }, jobname) == 'Lv.75 WAR', 'a fixed level prints once, not as a range');
+assert(mobinfo.level_job({ MinLevel=1, MaxLevel=2, Job=1 }, nil) == 'Lv.1-2', 'no job lookup means no job');
+assert(mobinfo.level_job({ MinLevel=1, MaxLevel=2, Job=99 }, jobname) == 'Lv.1-2 ?', 'an unknown job id must not error');
+assert(mobinfo.level_job(nil, jobname) == nil, 'an unknown mob has no level line');
+
+-- Threat: what happens when you walk up to it. Aggro/Passive always prints -- "detects nothing" and
+-- "does not aggro" are different facts, and a vanishing group would read as missing data rather
+-- than as a safe mob. Link rides with it rather than with the senses: it is not one.
+assert(text(mobinfo.threat(BOMB)) == 'Aggro', 'got ' .. tostring(text(mobinfo.threat(BOMB))));
+assert(text(mobinfo.threat({ Aggro=false })) == 'Passive', 'a passive mob with no flags still prints');
+assert(text(mobinfo.threat({ Aggro=true, Link=true })) == 'Aggro Link', 'link follows the aggro flag');
+assert(text(mobinfo.threat({ Aggro=true, Notorious=true })) == 'NM Aggro', 'NM leads the group');
+assert(mobinfo.threat(nil) == nil, 'an unknown mob has no threat group');
+
+-- Senses: what it notices you with, right of the level. Link must not turn up here.
+assert(text(mobinfo.senses(BOMB)) == 'Sight Magic', 'got ' .. tostring(text(mobinfo.senses(BOMB))));
+assert(text(mobinfo.senses(BONES)) == 'Sound Blood', 'got ' .. tostring(text(mobinfo.senses(BONES))));
+assert(text(mobinfo.senses({ Aggro=true, Link=true, TrueSight=true, Sight=true })) == 'TrueSight Sight',
+    'truesight leads sight, and link is not a sense, got ' .. tostring(text(mobinfo.senses({ Aggro=true, Link=true, TrueSight=true, Sight=true }))));
+assert(#mobinfo.senses({ Aggro=false }) == 0, 'a mob that senses nothing has an empty group, not a missing one');
+assert(mobinfo.senses(nil) == nil, 'an unknown mob has no senses group');
+
+-- The icons those segments ask mobdb for. Names must match the PNGs in mobdb/icons exactly, or the
+-- line silently falls back to words -- which is why they are asserted rather than eyeballed.
+assert(icons(mobinfo.threat(BOMB)) == 'AggroNQ', 'got ' .. icons(mobinfo.threat(BOMB)));
+assert(icons(mobinfo.senses(BOMB)) == 'Sight Magic', 'got ' .. icons(mobinfo.senses(BOMB)));
+assert(icons(mobinfo.threat({ Aggro=false })) == 'PassiveNQ', 'a passive mob gets the passive icon');
+assert(icons(mobinfo.threat({ Aggro=true, Link=true })) == 'AggroNQ Link', 'link has an icon of its own');
+-- Notorious has no icon of its own: it is the HQ variant of the aggro/passive one, so an NM is one
+-- glyph, not two -- while the fallback above still spells "NM" out, having no frame to show.
+assert(icons(mobinfo.threat({ Aggro=true, Notorious=true })) == 'AggroHQ', 'an NM takes the HQ frame');
+assert(icons(mobinfo.threat({ Aggro=false, Notorious=true })) == 'PassiveHQ', 'a passive NM too');
+
+-- Weakness/resistance, sorted by potency descending so what to hit it with reads first.
+assert(text(mobinfo.resist(BOMB)) == 'Fire+25% Ice-50% Wind-50% Earth-50% Lightning-50% Water-50% Light-50% Dark-50%',
+    'got ' .. tostring(text(mobinfo.resist(BOMB))));
+assert(text(mobinfo.resist(BONES)) == 'Blunt+25% Fire+25% Light+25% H2H+12.5% Slash-12.5% Ice-12.5% Pierce-50% Dark-50%',
+    'got ' .. tostring(text(mobinfo.resist(BONES))));
+
+-- The icon is the element's own name, so only the three renamed physical types can drift apart --
+-- Blunt is the icon Impact, and a segment carries both.
+assert(icons(mobinfo.resist(BONES)) == 'Impact Fire Light H2H Slashing Ice Piercing Dark',
+    'got ' .. icons(mobinfo.resist(BONES)));
+
+-- Eighths are what the data is made of, so the half-percent has to survive while a whole one must
+-- not print a trailing zero.
+assert(text(mobinfo.resist({ Modifiers={ Fire=1.125 } })) == 'Fire+12.5%', 'got ' .. tostring(text(mobinfo.resist({ Modifiers={ Fire=1.125 } }))));
+assert(text(mobinfo.resist({ Modifiers={ Fire=1.25 } })) == 'Fire+25%', 'a whole percent drops its decimal');
+assert(text(mobinfo.resist({ Modifiers={ Fire=0.875 } })) == 'Fire-12.5%', 'a resistance is signed negative');
+
+-- Every segment keeps its own percentage, unlike mobdb, which prints one for a run of equal
+-- potencies: a panel is only as wide as its widest line, and a number under the wrong icon is the
+-- likelier misreading there.
+assert(text(mobinfo.resist({ Modifiers={ Fire=0.5, Ice=0.5 } })) == 'Fire-50% Ice-50%', 'ties are not collapsed');
+
+-- Ties keep collection order (physical first, then the elements in game order) rather than falling
+-- out of `pairs`: this is rebuilt every frame, and a shuffling order would flicker the line.
+local tied = { Modifiers={ Dark=0.5, Fire=0.5, Slashing=0.5, Water=0.5 } };
+assert(text(mobinfo.resist(tied)) == 'Slash-50% Fire-50% Water-50% Dark-50%', 'got ' .. tostring(text(mobinfo.resist(tied))));
+
+assert(mobinfo.resist({ Modifiers={ Fire=1, Ice=1 } }) == nil, 'a mob that takes everything normally has no line');
+assert(mobinfo.resist({}) == nil, 'a row with no modifiers has no line');
+assert(mobinfo.resist(nil) == nil, 'an unknown mob has no resist line');
+
+-- Lookup: index first (dynamic spawns are keyed by it), then name.
+local db = { Indices = { [382] = BONES }, Names = { ['Bomb'] = BOMB } };
+assert(mobinfo.find(db, 382, 'Bomb') == BONES, 'the index entry wins over the name');
+assert(mobinfo.find(db, 17, 'Bomb') == BOMB, 'an unindexed mob is found by name');
+assert(mobinfo.find(db, 17, "\007Bomb") == BOMB, 'a client name marker is stripped');
+assert(mobinfo.find(db, 17, 'Orcish Fodder') == nil, 'an unknown name yields nothing');
+assert(mobinfo.find(db, 17, nil) == nil, 'a nameless entity yields nothing');
+assert(mobinfo.find(nil, 17, 'Bomb') == nil, 'no zone data yields nothing');
+
+-- Panel assembly: each part keyed by where it draws, not by which toggle made it -- the bar's own
+-- label, the two groups flanking the bar, and the rows hung underneath.
+local ALL_LINES   = { level = true, detect = true, resist = true };
+local NO_LINES    = { level = false, detect = false, resist = false };
+local ONLY_LEVEL  = { level = true, detect = false, resist = false };
+local ONLY_DETECT = { level = false, detect = true, resist = false };
+
+local LINKER = { MinLevel=14, MaxLevel=17, Job=1, Aggro=false, Notorious=true, Link=true,
+                 Sight=true, Sound=true, Scent=true };
+
+local full = mobinfo.panel(LINKER, ALL_LINES, jobname);
+assert(full.label == 'Lv.14-17 WAR', 'the level is the bar label, got ' .. tostring(full.label));
+assert(icons(full.left) == 'PassiveHQ Link', 'threat flanks left, got ' .. icons(full.left));
+assert(icons(full.right) == 'Sight Sound Scent', 'senses flank right, got ' .. icons(full.right));
+assert(#full.rows == 0, 'a mob with no modifiers hangs no rows');
+
+local bomb = mobinfo.panel(BOMB, ALL_LINES, jobname);
+assert(bomb.label == 'Lv.8-10', 'got ' .. tostring(bomb.label));
+assert(icons(bomb.left) == 'AggroNQ', 'no link, so the left group is the aggro icon alone');
+assert(icons(bomb.right) == 'Sight Magic', 'got ' .. icons(bomb.right));
+assert(#bomb.rows == 1, 'the resistance list is the row under the panel');
+assert(text(bomb.rows[1]) == 'Fire+25% Ice-50% Wind-50% Earth-50% Lightning-50% Water-50% Light-50% Dark-50%',
+    'got ' .. tostring(text(bomb.rows[1])));
+
+-- Each toggle still owns exactly what it names, and nothing else moves when one is off.
+local lvl = mobinfo.panel(BOMB, ONLY_LEVEL, jobname);
+assert(lvl.label == 'Lv.8-10' and #lvl.left == 0 and #lvl.right == 0 and #lvl.rows == 0,
+    'level alone is the label and nothing else');
+
+local det = mobinfo.panel(BOMB, ONLY_DETECT, jobname);
+assert(det.label == nil and icons(det.left) == 'AggroNQ' and icons(det.right) == 'Sight Magic',
+    'detect alone is the icons, and the bar keeps its own label');
+
+-- The empty shape is always the full shape: every caller indexes these three, so none of them may
+-- ever be nil, whatever went missing upstream.
+for _, empty in ipairs({ mobinfo.panel(BOMB, NO_LINES, jobname),
+                         mobinfo.panel(nil, ALL_LINES, jobname),
+                         mobinfo.panel(BOMB, nil, jobname) }) do
+    assert(empty.label == nil, 'nothing to say means no label');
+    assert(#empty.left == 0 and #empty.right == 0 and #empty.rows == 0, 'and no groups');
+end
+
+local shipped = mobinfo.panel(BOMB, config.defaults.mob, jobname);
+assert(shipped.label ~= nil and #shipped.left > 0 and #shipped.rows == 1, 'the defaults ship every toggle on');
+
+-- The loader. A missing file is the normal case -- mobdb ships ~245 zones and may not be
+-- installed at all -- so it must land on nil rather than throwing.
+assert(mobinfo.load('no-such-zone-file-12345.lua') == nil, 'a missing zone file yields no data');
+
+local tmp = os.tmpname();
+local fh  = io.open(tmp, 'w');
+fh:write("return { Names = { ['Bomb'] = { MinLevel = 8, MaxLevel = 10 } }, Indices = { [382] = { MinLevel = 5, MaxLevel = 8 } } };");
+fh:close();
+local loaded = mobinfo.load(tmp);
+assert(loaded ~= nil, 'a mobdb zone file must load under stock lua');
+assert(mobinfo.level_job(mobinfo.find(loaded, 1, 'Bomb')) == 'Lv.8-10', 'names survive the round trip');
+assert(mobinfo.level_job(mobinfo.find(loaded, 382, 'Bomb')) == 'Lv.5-8', 'indices survive the round trip');
+
+fh = io.open(tmp, 'w');
+fh:write('this is not lua');
+fh:close();
+assert(mobinfo.load(tmp) == nil, 'a corrupt zone file yields no data');
+
+fh = io.open(tmp, 'w');
+fh:write('return 7;');
+fh:close();
+assert(mobinfo.load(tmp) == nil, 'a file that does not return a table yields no data');
+
+fh = io.open(tmp, 'w');
+fh:write('return {};');
+fh:close();
+assert(mobinfo.load(tmp).Names ~= nil and mobinfo.load(tmp).Indices ~= nil, 'both tables are always present, so find never indexes nil');
+os.remove(tmp);
+
+print('mobinfo.lua ok');

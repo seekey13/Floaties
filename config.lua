@@ -14,13 +14,15 @@ local M = {};
 
 M.defaults = {
     enabled            = true,
-    -- Gates are purely enabling (see M.visible), so all three off means the panel never
-    -- draws. All three on: visible in normal play, hidden while dead, zoning or resting.
+    -- Gates are purely enabling (see M.visible), so all three off means the self/party panels
+    -- never draw. All three on: visible in normal play, hidden while dead, zoning or resting.
+    -- They do not reach the target panel -- having a target is its own answer to whether it
+    -- should draw, so it hangs off show_target alone (see drawPanels).
     show_in_combat     = true,  -- show when a battle target is set (<bt>)
     show_while_engaged = true,  -- show when entity status is Engaged
     show_while_idle    = true,  -- show when entity status is Idle
     show_party         = true,  -- draw panels over party members too, not just self
-    show_target        = true,  -- draw a panel over whatever you have targeted
+    show_target        = true,  -- draw a panel over whatever you have targeted, ungated
 
     -- Vertical world nudge from the nameplate anchor (top of the model), positive = downward,
     -- since the height axis points down. 0 puts the panel's top edge level with the model's head,
@@ -70,6 +72,22 @@ M.defaults = {
     slot = {
         enabled = true,
         size    = 21,   -- text height in px; the box's width is derived from it (M.slot_box)
+    },
+
+    -- Mob reference drawn around the target panel, read out of mobdb's zone data -- see
+    -- mobinfo.panel for where each piece lands. Each is independently switchable, and anything
+    -- with nothing to say (an unknown mob, a mob that takes every damage type normally) is skipped
+    -- rather than drawn blank, so switching one on does not guarantee content. Target panels only:
+    -- party members are not mobs.
+    mob = {
+        level  = true,   -- Lv.14-17 WAR, labelling the HP bar until the mob is damaged
+        detect = true,   -- aggro/passive + Link flanking left, the senses flanking right
+        resist = true,   -- element icon + percentage, on a row under the panel
+        -- Row height in px: the text size, and the icons' side. The second piece of text with a
+        -- size of its own (see slot.size), but unlike the others it holds at text.min_size instead
+        -- of dropping out below it (M.info_row) -- the panel widens to hold whatever the lines come
+        -- out as rather than the text shrinking to fit.
+        size   = 14,
     },
 
     bars = {
@@ -132,7 +150,8 @@ end
 M.gates = { 'show_in_combat', 'show_while_engaged', 'show_while_idle' };
 
 --[[
-* Whether the panel should be drawn at all, from the visibility gates.
+* Whether the self and party panels should be drawn at all, from the visibility
+* gates. The target panel is not gated -- see drawPanels in NewUI.lua.
 *
 * Each gate purely *enables*: the panel shows when at least one enabled gate's
 * condition is currently true, and is hidden otherwise. Enabling several is a
@@ -236,6 +255,29 @@ function M.label_size(cfg, bar_height)
     return size;
 end
 
+--[[
+* Drawn height of one mob reference row at a distance scale -- which is also its text size and its
+* icons' side.
+*
+* Unlike a bar label, this does *not* drop out below text.min_size: it holds there instead. A label
+* that goes quiet still leaves a bar behind it that reads at any size, while these lines are the
+* only thing on the panel carrying facts nothing else shows -- what a mob aggros to is exactly what
+* you want at the range where the panel has shrunk, and blanking it there reads as broken data.
+*
+* The floor never rises above the configured size, so Info Text Size dragged below Min Text Size is
+* honoured rather than bumped up to a size nobody asked for.
+*
+* This is the whole of the reference block's geometry: the lines hang *below* the panel, so nothing
+* reserves height for them and there is no info_height to keep in step with this -- drawPanel steps
+* one row at a time from the panel's bottom edge.
+*
+* @param {number|nil} scale - distance scale; nil is 1:1.
+--]]
+function M.info_row(cfg, scale)
+    return math.max(cfg.mob.size * (scale or 1), math.min(cfg.mob.size, cfg.text.min_size));
+end
+
+-- Bars only -- the reference lines are drawn under the panel, not inside it, and cost it no height.
 function M.panel_height(cfg, size, bars)
     bars = bars or M.bar_order;
     local sum = 0;

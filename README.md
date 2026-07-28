@@ -153,8 +153,11 @@ ones. **Show Target** in the config window turns it off; it has its own
 carry them. For an arbitrary entity the client is told a single number — an HP
 percent — and nothing else, so there is no MP or TP to draw. The label is that
 percent, via the same `hp_raw == 0` fallback party members' labels already use,
-and prints with a trailing `%` for exactly that reason. The panel shrinks to fit
-the one bar.
+and prints with a trailing `%` for exactly that reason — except while the mob is
+at full health, when the bar carries its level instead (see **Target reference
+lines**). The panel shrinks to fit the one bar and stays that shape: every piece
+of mob reference is drawn *around* it, never inside, so none of it changes the
+panel's geometry.
 
 **Which target.** The cursor target (`<t>`) first; when nothing is selected, the
 battle target (`<bt>`) instead, so clearing your target mid-fight doesn't blank
@@ -178,19 +181,29 @@ evidence; here a trust or pet you've targeted is a perfectly good thing to draw
 a panel over. Alliance members outside your own party get one too. Two small
 predicates, two different questions.
 
-**Gating.** The target panel obeys the same three visibility gates as everything
-else — one decision per frame, everything shows and hides together.
+**Ungated.** The target panel does *not* obey the visibility gates below; the
+self and party panels do. Having something targeted is already the answer to
+"should this draw", and running that through gates keyed on *your own* status
+meant a mob you had just clicked drew nothing until you engaged it — the moment
+the panel is most for. It answers to **Show Target** and a resolved target and
+nothing else, so it appears the frame a valid target is picked and goes the frame
+it is cleared, in any status, including while resting or dead.
 
-Three visibility gates. Each one only ever **enables**: the panel shows when at
-least one *enabled* gate's condition is true, and is hidden otherwise. Several
-on is a union, so being engaged is enough on its own even when the battle-target
-check disagrees.
+That leaves two independent decisions per frame instead of one, which is why the
+config window reports them on two lines (see **Reading the gate state**).
 
-All three off therefore means the panel never draws — all three are on by
-default, which shows the panel in normal play and still hides it while dead,
-zoning or resting, since those match no gate. (Earlier versions fell back to
-"always show" with no gate enabled, which made a single ticked gate look broken:
-it could never hide anything until you ticked a second one.)
+## Visibility gates
+
+Three visibility gates, covering the **self and party panels**. Each one only
+ever **enables**: those panels show when at least one *enabled* gate's condition
+is true, and are hidden otherwise. Several on is a union, so being engaged is
+enough on its own even when the battle-target check disagrees.
+
+All three off therefore means they never draw — all three are on by default,
+which shows them in normal play and still hides them while dead, zoning or
+resting, since those match no gate. (Earlier versions fell back to "always show"
+with no gate enabled, which made a single ticked gate look broken: it could never
+hide anything until you ticked a second one.)
 
 | Setting | Shows when | Notes |
 |---|---|---|
@@ -198,8 +211,9 @@ it could never hide anything until you ticked a second one.)
 | **Show While Engaged** | your entity status is `Engaged` (1) | Flips back to Idle the moment you disengage |
 | **Show While Idle** | your entity status is `Idle` (0) | Standing around, not fighting |
 
-Dead (2/3), Zoning (4) and Resting (33) match none of these, so with any gate
-on the panel is hidden in those states.
+Dead (2/3), Zoning (4) and Resting (33) match none of these, so with any gate on
+the self and party panels are hidden in those states. A target panel still draws
+in them, because it is not gated.
 
 ### On the battle-target gate
 
@@ -247,12 +261,37 @@ followed by the raw entity status and what `<bt>` currently resolves to:
 In Combat: true  Engaged: true  Idle: false  | status=1
 bt: Mandragora hp=63% status=1 flags=0x10
 target: Mandragora hp=63% status=1 flags=0x10
-Panel: shown
+Self/party panels: shown
+Target panel: shown
 ```
 
-`Panel:` is the resulting decision, so a gate reading false while the panel is
-on screen is visible as a contradiction rather than something to infer. With no
-gate enabled it reads `hidden -- no gate enabled, so nothing can enable it`.
+`Self/party panels:` is the resulting decision — **`Enabled` and the gates
+together**, not the gates alone — so a gate reading false while a panel is on
+screen is visible as a contradiction rather than something to infer. With no gate
+enabled it reads `hidden -- no gate enabled, so nothing can enable it`; with the
+addon switched off it reads `hidden -- addon switched off; tick Enabled below, or
+/newui`.
+
+`Target panel:` is the second decision, and it is deliberately a second line: the
+gates do not reach it, so folding both into one `Panel:` verdict would have it
+read `hidden` while a target panel was plainly on screen. It is `shown` when
+`Enabled` and **Show Target** are both on and the current target survived the
+filters above — which is exactly the `target:` line reading anything but `none`
+or ` REJECTED`.
+
+`Enabled` is the master switch `/newui` toggles, and it is persisted. It reports
+here and has its own checkbox because leaving it out of both is what let it be
+off and invisible at the same time: the line meant to answer "is this a gate
+problem?" said `shown` over an empty screen for as long as the setting stayed
+off.
+
+**Either line reading `shown` with nothing on screen means the drawing threw**,
+not that a gate is wrong — and a `draw error:` line under it says what. The panels are
+drawn inside a `pcall` for exactly this: the config window is drawn *first* in
+the frame, so an uncaught throw below it takes every panel with it and leaves
+the window truthfully reporting `shown` over an empty screen, with the reason
+only in Ashita's own log. Trapped, one bad frame costs the panels and prints
+why. The line clears itself on the first frame that draws cleanly.
 
 `status=` before the pipe is *your* entity status; the one inside `bt:` is the
 battle target's, so a corpse still being handed back by `get_bt` is visible as
@@ -292,10 +331,15 @@ see **Party slot indicator**.)
 
 A bar that cannot hold a legible digit drops its label instead of drawing mush.
 That happens when the size the bar would give works out under **Min Text Size**
-(`12`), or when the value is too wide for the bar. Both are decided per bar, not
-per panel: a short TP row can go quiet while the HP row above it still prints.
-Raise **Min Text Size** to drop labels sooner, lower it to keep them further
-out.
+(`12`). It is decided per bar, not per panel: a short TP row can go quiet while
+the HP row above it still prints. Raise **Min Text Size** to drop labels sooner,
+lower it to keep them further out.
+
+Too *narrow* a bar is handled the other way: the label shrinks until it fits,
+rather than being dropped. Height and width are different failures — no legible
+glyph at all versus a long string in a bar that is tall enough for it — and only
+the first is worth going quiet over. See **The level on the bar**, which is what
+made the distinction matter.
 
 The floor defaults to `12` because ImGui rasterizes its font at 13px and scales
 down from there: a label that prints at 12 or above is drawn at about the size
@@ -326,11 +370,187 @@ it.
 Sizing the text uses `ImDrawList`'s second `AddText`, the one taking a font and
 a size.
 
+## Target reference lines
+
+Mob reference data drawn **around** the target panel — none of it inside the
+frame — reading left to right as one sentence: what it does to you, what it is,
+what it sees you with.
+
+```
+<Passive> <Link>  [═══════ Lv.14-17 WAR/MNK ═══════]  <Sight> <Sound> <Scent>
+                    <Fire>+25% <Ice>-50% <Dark>-50%
+```
+
+Three toggles in `/newui config` feed it:
+
+| Setting | Contributes | Drawn as |
+|---|---|---|
+| **Show Detection** | the icon groups flanking the bar | left of it: aggro/passive, then Link. Right of it: TrueSight, Sight, Sound, Scent, Magic, JA, Blood |
+| **Show Level & Job** | the bar's own label | `Lv.14-17 WAR/MNK`, in place of the HP percent |
+| **Show Weakness/Resist** | a row under the panel | an icon and a percentage each: `<Fire>+25% <Ice>-50%` |
+
+**Show Detection** owns both groups because they answer the same question from
+two sides — Link sits with the aggro flag rather than with the senses, since it
+is not one, and the two of them together are the pull decision. Each toggle
+still owns exactly what it names: **Show Detection** alone draws the icons and
+leaves the bar its percent, **Show Level & Job** alone relabels the bar and draws
+no icons.
+
+Resistances stay on their own row under the panel. That list has no fixed
+length, so flanking with it would shove the bar off-center by however many
+damage types the mob happens to have.
+
+All three ship on. They draw on the target panel only — party members are not
+mobs, and a PC you have targeted has no entry either.
+
+### The level on the bar
+
+**A full-health mob shows its level where the `100%` used to be, and switches to
+the percent the moment it takes damage.**
+
+`100%` over a full bar is the bar repeating itself — the fill already says it —
+while the level is shown nowhere else on screen. Once there is damage on it that
+stops being true: the fill no longer resolves 71% from 64%, and the percent is
+the number being read. So the swap happens on the first hit and stays.
+
+**The label shrinks to fit rather than being dropped.** A number always fitted
+the bar; `Lv.14-17 WAR/MNK` is as long as the mob's job pairing makes it, and a
+label that vanished would leave the bar saying nothing at all. The size solves
+directly out of the width — no iteration — starting from the bar-height size
+every label uses.
+
+A bar too *short* still drops its text rather than shrinking it to mush. That is
+the other failure — no glyph is legible at any width — and **Min Text Size**
+already owns it.
+
+### Where the icons sit
+
+Flanking the bar, one **Bar Gap** clear of each edge and centered on the panel's
+height, growing outward: the left group leftward, the right group rightward.
+Neither shifts the other, the bar between them, or the panel.
+
+They are outside the frame because they cannot fit inside it. Seven sense icons
+at the default size are wider than the whole target panel, so a mob that happens
+to notice everything would squeeze the bar they were meant to annotate down to
+nothing.
+
+Everything but the level is **mobdb's own icons** (see *Where the data comes
+from*) — a row of glyphs reads at a glance where `Aggro Sight Magic` has to be
+parsed. The level stays text because mobdb ships no icon for a level range or a
+job, and it is the only text on that row.
+
+Notorious is not an icon of its own. mobdb has HQ variants of the aggro and
+passive icons — the same glyph in a gold frame — so an NM is one icon, not two.
+
+**A ticked box does not guarantee content.** Anything with nothing to say is
+skipped rather than drawn blank: a mob with no job prints its level range alone,
+a mob that senses nothing contributes no icons to the right of it, and a mob
+that takes every damage type normally has no resistance row at all. The
+aggro/passive icon is the one thing that always draws when **Show Detection** is
+on, because "detects nothing" and "does not aggro" are different facts and a
+vanished icon would read as missing data rather than as a safe mob.
+
+Resistances are sorted by potency, weaknesses first, so what to hit it with
+reads before what to avoid. Ties keep a fixed order (physical first, then the
+elements in the game's own order) rather than whatever `pairs` hands back — the
+line is rebuilt every frame, and an order that shuffled between frames would
+flicker.
+
+Unlike mobdb, a run of equally-potent types keeps a percentage on every one
+rather than printing it once at the end of the run. mobdb lays its icons out on
+a window-wide row where that grouping reads; these are a free-standing row under
+a panel, where a number lining up under the wrong icon is the likelier reading.
+
+### Placement
+
+The rows sit one **Bar Gap** under the panel's bottom edge, each centered on the
+same anchor the panel is, and **none of the reference costs the panel any height
+or width** — a target panel is exactly the same shape whether the mob has
+everything to say or nothing.
+
+That is the point of it all being outside. A resistance list has no natural
+width: a mob weak and resistant to eight damage types is a long line at any
+legible font size. Inside the frame it forced the panel to stretch to hold it, so
+the frame changed size every time you switched targets. Outside, a long line
+simply overhangs both sides evenly and nothing else moves.
+
+Nothing clips any of it, either — icons and text are drawn straight onto the
+world, not into a box, and the shared text outline is what keeps them readable
+over it.
+
+**Info Text Size** (`14`) is the row height — the text size and the icons' side
+alike. Unlike a bar label, **the rows do not drop out at distance — they hold at
+Min Text Size and stop shrinking there.** A label that goes quiet still
+leaves a bar behind it that reads at any size, while these lines carry facts
+nothing else shows — a mob's level and what it aggros to is exactly what you want
+at the range where the panel has gone small, and blanking it there reads as
+missing data rather than as distance.
+
+The floor never rises *above* what you configured, so **Info Text Size** dragged
+under **Min Text Size** is honoured rather than bumped back up to a size you did
+not ask for.
+
+The block therefore stops shrinking while the panel above it keeps going, and at
+range it reads large next to a small panel. Nothing has to be reconciled for
+that: it is drawn below the frame, so it can outgrow it without overlapping
+anything.
+
+### Where the data comes from
+
+[mobdb](https://ashitaxi.com/)'s zone files, read straight off disk from
+`Ashita/addons/mobdb/data/<zone>.lua` — reloaded on zone-in (packet `0x00A`),
+the same hook mobdb reloads its own on.
+
+**mobdb does not have to be loaded, or even installed.** Those files are plain
+`return { Names = {...}, Indices = {...} }` tables with no globals and no
+`require`s in them, so `loadfile` is the whole dependency. A zone with no file,
+or no mobdb at all, reads as no data and the lines simply don't draw — which is
+also why the loader is testable headless along with everything else.
+
+Entries are looked up by entity index first and by name second, matching mobdb:
+dynamic spawns (the `0x700`+ range) differ per zone instance and are keyed by
+index, everything else by name. Client name markers are stripped before the name
+lookup.
+
+The config window's `mob data:` line reports the loaded zone and whether a file
+was found, so "every line ticked and still nothing under the bar" can be told
+apart from "mobdb isn't installed":
+
+```
+mob data: zone 100, loaded
+```
+
+Missing icons need no line of their own: a segment whose PNG did not load draws
+its word instead, so data loaded but every line reading as words already says the
+icons are missing (or that `D3DXCreateTextureFromFileA` did not resolve on this
+Ashita build), as against the mob being absent from mobdb.
+
+Job abbreviations come from Ashita's own job resource, with the same
+`jobs.names_abbr` → `jobs_abbr` fallback mobdb carries for older versions.
+
+The icons are mobdb's too, read from `Ashita/addons/mobdb/icons/<name>.png` —
+nothing is shipped or duplicated here, and mobdb still does not have to be
+loaded. They are loaded on first use, not by scanning the directory at startup:
+a target panel can only ask for about twenty of them, and a name that has no
+file has to be handled anyway, since mobdb's data and its icons are separate
+downloads and either can be absent.
+
+**A missing icon falls back to the word it stood for** — `Aggro`, `Sight`,
+`Fire+25%`, with `Slashing`/`Piercing`/`Impact` shortened to
+`Slash`/`Pierce`/`Blunt` for the width. That is not decoration: without it a
+resistance segment with no icon would print a bare `+25%` with nothing saying
+which element. A failed load is remembered, so a missing file is retried never
+rather than every frame.
+
+Icons draw at the **Info Text Size**, square and untinted — they are already
+colored per element and per flag, and the shared text color has no business
+retinting them.
+
 ## Commands
 
 | Command | Effect |
 |---|---|
-| `/newui` | Toggle on/off |
+| `/newui` | Toggle on/off. Persisted, and the same setting as the **Enabled** checkbox in the config window |
 | `/newui height <n>` | Your own vertical nudge from the nameplate anchor. Positive is downward. Default `0.228` |
 | `/newui config` | Toggle the settings window |
 | `/newui bt` | Print the current gate state (in combat / engaged / idle, raw status, resolved `<bt>` and target, or why either was rejected) |
@@ -364,7 +584,8 @@ back to the entity's feet position for that frame.
 - `lib/targets.lua` — Ashita's target library, vendored unmodified (only `get_bt` is used)
 - `stats.lua` — HP/MP/TP normalization, TP segment math, and the target's entity read + targetability test (no Ashita dependencies)
 - `config.lua` — settings defaults, load/save, derived layout math (no Ashita dependencies except load/save)
-- `test.lua` — self-check for `stats.lua`, `config.lua` and `nameplate.lua`; run with `lua test.lua`
+- `mobinfo.lua` — mobdb zone-data loader and the reference rows, built as icon/text segments (no Ashita dependencies — it picks the icon names, `NewUI.lua` loads and draws them)
+- `test.lua` — self-check for `stats.lua`, `config.lua`, `nameplate.lua` and `mobinfo.lua`; run with `lua test.lua`
 - `docs/` — research notes this was built from (gitignored)
 
 ## Notes
