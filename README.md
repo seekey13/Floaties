@@ -5,14 +5,17 @@ character in 3D space, anchored to the nameplate.
 
 ## V2
 
-A rounded, bordered panel with three stacked bars, each showing its raw
-current value as text:
+A rounded panel over a dark scrim with three stacked bars, each able to show its
+raw current value as text:
 
-| Bar | Source | Label | Default color |
-|---|---|---|---|
-| HP | `party:GetMemberHPPercent(i)` | current HP | light red |
-| MP | `party:GetMemberMPPercent(i)` | current MP | light yellow |
-| TP | `party:GetMemberTP(i)`, drawn as 3 separate bars (1000 TP each) | current TP (0-3000) | light blue |
+| Bar | Source | Label | Default color | Label on by default |
+|---|---|---|---|---|
+| HP | `party:GetMemberHPPercent(i)` | current HP | light red | yes |
+| MP | `party:GetMemberMPPercent(i)` | current MP | light yellow | no |
+| TP | `party:GetMemberTP(i)`, drawn as 3 separate bars (1000 TP each) | current TP (0-3000) | light blue | no |
+
+Only HP prints its number by default — it is the one being read — while the
+shorter MP and TP bars stay clean. **Show MP / TP Text** turns theirs back on.
 
 The TP row is three individual bars side by side rather than one bar with
 dividers, spaced by the same `gap` used between rows. The label is centered
@@ -47,11 +50,14 @@ Size is the one setting that is **not** shared between the three panel kinds.
 Self, party and target each own a width and a height per bar, under `sizes` in
 the settings file and in their own block in `/newui config`:
 
-| Panel | Settings |
-|---|---|
-| Self | Width, HP / MP / TP Height |
-| Party | Width, HP / MP / TP Height |
-| Target | Width, HP Height |
+| Panel | Settings | Defaults |
+|---|---|---|
+| Self | Width, HP / MP / TP Height | 200 — 18 / 10 / 16 |
+| Party | Width, HP / MP / TP Height | 150 — 14 / 7 / 10 |
+| Target | Width, HP Height | 300 — 20 |
+
+The defaults size by how closely each is read: the target panel is the widest,
+then your own, then the five party panels that are on screen all at once.
 
 Target lists one height because it draws one bar — see below. Every other visual
 property (padding, rounding, bar colors, fill alphas, borders, text color) stays
@@ -64,15 +70,15 @@ gaps between them and the padding. A job with no MP pool therefore gets a
 shorter panel at whatever heights that kind is set to.
 
 > Upgrading from a version before this split: the old shared `panel.width` and
-> `bars.*.height` keys are ignored, so those two settings return to their
-> defaults (100 / 16) once and need setting again per panel. Everything else
-> in your settings file carries over.
+> `bars.*.height` keys are ignored, so those two settings return to the defaults
+> above once and need setting again per panel. Everything else in your settings
+> file carries over.
 
 ## Party slot indicator
 
-**Party Slot Indicator** (off by default) draws that member's party slot — `P1`
-through `P5`, the same slots `<p1>`..`<p5>` address — in a box on the left of the
-panel, and shifts the bars right to make room.
+**Party Slot Indicator** (on) draws that member's party slot — `P1` through `P5`,
+the same slots `<p1>`..`<p5>` address — in a box on the left of the panel, and
+shifts the bars right to make room.
 
 **Your own panel never gets one.** The panel over your own head is the one you
 never need told apart from the others, and it reserves no box either, so your
@@ -81,6 +87,7 @@ bars keep the full width rather than sitting beside a blank space.
 The box takes its space **out of the bars, not out of the panel**: `width` stays
 what you set it to, so the bars shift right and shorten by the box plus one gap.
 Growing the frame instead would resize every panel the moment the box was ticked.
+At the default `21`px text and `1` gap that is 32px of the party panel's 150.
 
 It is separated from the bars by the same **Bar Gap** the bars are separated from
 each other by, and sits inside the same panel padding, so the left edge lines up
@@ -101,9 +108,10 @@ that panel also reserves no space and keeps its full bar width.
 
 ## Distance scaling
 
-**Scale With Distance** (off by default) shrinks panels as their entity moves
-away and grows them as it comes closer, so a panel keeps its proportion to the
-nameplate above it instead of staying a fixed pixel size at every range.
+**Scale With Distance** (on) shrinks panels as their entity moves away and grows
+them as it comes closer, so a panel keeps its proportion to the nameplate above
+it instead of staying a fixed pixel size at every range. Turn it off for a fixed
+pixel size at every range.
 
 The curve is the perspective divide itself — the same one the game applies to
 the nameplate — so the two track each other for free rather than being tuned to
@@ -178,10 +186,11 @@ least one *enabled* gate's condition is true, and is hidden otherwise. Several
 on is a union, so being engaged is enough on its own even when the battle-target
 check disagrees.
 
-All three off therefore means the panel never draws — **Show While Engaged** and
-**Show While Idle** are on by default. (Earlier versions fell back to "always
-show" with no gate enabled, which made a single ticked gate look broken: it
-could never hide anything until you ticked a second one.)
+All three off therefore means the panel never draws — all three are on by
+default, which shows the panel in normal play and still hides it while dead,
+zoning or resting, since those match no gate. (Earlier versions fell back to
+"always show" with no gate enabled, which made a single ticked gate look broken:
+it could never hide anything until you ticked a second one.)
 
 | Setting | Shows when | Notes |
 |---|---|---|
@@ -262,6 +271,12 @@ Every visual property is configurable via `/newui config` and persists across
 sessions — per-panel widths and bar heights (see **Panel sizes**), and shared
 padding/rounding/colors/border/text color.
 
+The default panel is black at `100/255` alpha with a fully transparent **Panel
+Border Color**: the frame reads as its own shape against the world rather than an
+outlined box. **Border Visible** stays on regardless — it also controls the bar
+outlines, which do use theirs (black at `150/255`). To get a panel outline back,
+raise the border color's alpha rather than looking for a second toggle.
+
 Labels carry a separate outline color from their fill: **Text Outline Color**
 draws the number a second time one pixel out in each direction, underneath, so a
 white digit stays readable over a light bar. Setting its alpha to `0` skips the
@@ -269,23 +284,25 @@ outline pass — there is no separate toggle.
 
 ### Label size
 
-Text size is not configurable, and deliberately so: a label is drawn at the
+Bar label size is not configurable, and deliberately so: a label is drawn at the
 height of the bar it sits in, so it can never be taller than that bar — at any
 configured bar height and at any distance scale, since the drawn height already
-carries the scale.
+carries the scale. (The slot tag is the one exception, and has its own size —
+see **Party slot indicator**.)
 
 A bar that cannot hold a legible digit drops its label instead of drawing mush.
 That happens when the size the bar would give works out under **Min Text Size**
-(`9`), or when the value is too wide for the bar. Both are decided per bar, not
+(`12`), or when the value is too wide for the bar. Both are decided per bar, not
 per panel: a short TP row can go quiet while the HP row above it still prints.
 Raise **Min Text Size** to drop labels sooner, lower it to keep them further
 out.
 
-The floor defaults to `9` because ImGui rasterizes its font at 13px and scales
-down from there: by 8px the digits have lost enough pixels to read as texture
-rather than numbers, and the 1px outline underneath is then wider than the
-strokes it is outlining. `6` printed a readable-looking 6px label on a 10px TP
-bar, which is what the floor exists to stop.
+The floor defaults to `12` because ImGui rasterizes its font at 13px and scales
+down from there: a label that prints at 12 or above is drawn at about the size
+the atlas actually holds, while below it the digits lose enough pixels to read as
+texture rather than numbers and the 1px outline underneath ends up wider than the
+strokes it is outlining. At the shipped bar heights it also means the labels fade
+out with distance a step before the bars themselves stop being readable.
 
 Label size and origin are both snapped to whole pixels, to stop the text
 shimmering while the camera moves: a glyph asked for at a fractional size or
@@ -302,8 +319,9 @@ over its bar's width and hide it.
 
 **Show HP / MP / TP Text** switch a bar's number off without touching its
 height, for the case where the bar itself is worth keeping and the digits on it
-are not. They are independent of the size rules above — a bar hides its label if
-either the toggle is off or the bar is too short for it.
+are not. HP ships on, MP and TP off. They are independent of the size rules above
+— a bar hides its label if either the toggle is off or the bar is too short for
+it.
 
 Sizing the text uses `ImDrawList`'s second `AddText`, the one taking a font and
 a size.
@@ -313,14 +331,15 @@ a size.
 | Command | Effect |
 |---|---|
 | `/newui` | Toggle on/off |
-| `/newui height <n>` | Your own vertical nudge from the nameplate anchor. Positive is downward. Default `0.0` |
+| `/newui height <n>` | Your own vertical nudge from the nameplate anchor. Positive is downward. Default `0.228` |
 | `/newui config` | Toggle the settings window |
 | `/newui bt` | Print the current gate state (in combat / engaged / idle, raw status, resolved `<bt>` and target, or why either was rejected) |
 
 `0.0` puts the panel's top edge level with the top of the model, i.e. directly under the
 nameplate; nudge from there. Self, party and target have separate offsets (`Self Height
 Offset` / `Party Height Offset` / `Target Height Offset` in `/newui config`); the command
-only touches your own.
+only touches your own. They default to `0.228` / `0.125` / `0.125` — everything hangs a
+little below the plate, your own taller panel slightly further.
 
 ## Nameplate anchor
 

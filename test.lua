@@ -136,8 +136,8 @@ print('stats.lua ok');
 
 -- config.lua: derived layout math must match the defaults' expected geometry.
 local SELF = config.defaults.sizes.self;
-assert(config.bar_width(config.defaults, SELF) == 92, 'bar width = size.width - 2*offset, got ' .. tostring(config.bar_width(config.defaults, SELF)));
-assert(config.panel_height(config.defaults, SELF) == 60, 'panel height = sum(bar heights) + 2*gap + 2*offset, got ' .. tostring(config.panel_height(config.defaults, SELF)));
+assert(config.bar_width(config.defaults, SELF) == 196, 'bar width = size.width - 2*offset, got ' .. tostring(config.bar_width(config.defaults, SELF)));
+assert(config.panel_height(config.defaults, SELF) == 50, 'panel height = sum(bar heights) + 2*gap + 2*offset, got ' .. tostring(config.panel_height(config.defaults, SELF)));
 
 local custom     = { panel = { offset = 10 }, gap = 5 };
 local customSize = { width = 200, hp = 20, mp = 30, tp = 40 };
@@ -151,10 +151,10 @@ local sizes = {
     party  = { width = 60,  hp = 8,  mp = 8,  tp = 8  },
     target = { width = 200, hp = 24 },
 };
-assert(config.bar_width(config.defaults, sizes.party) == 52, 'party width is its own, got ' .. tostring(config.bar_width(config.defaults, sizes.party)));
-assert(config.bar_width(config.defaults, sizes.target) == 192, 'target width is its own, got ' .. tostring(config.bar_width(config.defaults, sizes.target)));
-assert(config.panel_height(config.defaults, sizes.party) == 8 * 3 + 2 * 2 + 2 * 4, 'party heights are its own, got ' .. tostring(config.panel_height(config.defaults, sizes.party)));
-assert(config.panel_height(config.defaults, sizes.target, { 'hp' }) == 24 + 2 * 4, 'target height is its own, got ' .. tostring(config.panel_height(config.defaults, sizes.target, { 'hp' })));
+assert(config.bar_width(config.defaults, sizes.party) == 56, 'party width is its own, got ' .. tostring(config.bar_width(config.defaults, sizes.party)));
+assert(config.bar_width(config.defaults, sizes.target) == 196, 'target width is its own, got ' .. tostring(config.bar_width(config.defaults, sizes.target)));
+assert(config.panel_height(config.defaults, sizes.party) == 8 * 3 + 2 * 1 + 2 * 2, 'party heights are its own, got ' .. tostring(config.panel_height(config.defaults, sizes.party)));
+assert(config.panel_height(config.defaults, sizes.target, { 'hp' }) == 24 + 2 * 2, 'target height is its own, got ' .. tostring(config.panel_height(config.defaults, sizes.target, { 'hp' })));
 
 -- Every kind in size_order must actually lay out, target included -- a missing entry is a nil
 -- index inside panel_height, not a readable failure.
@@ -177,9 +177,15 @@ assert(config.slot_width(offcfg, true) == 0, 'the indicator off reserves nothing
 -- Exactly the old width when off, not merely close to it: switching the tag off must not nudge
 -- bars by a rounding remainder.
 assert(config.bar_width(offcfg, SELF, true) == config.bar_width(offcfg, SELF), 'off must match the no-slot width exactly');
-assert(config.bar_width(config.defaults, SELF, true) == 92, 'the default (off) leaves bar width alone');
-assert(config.bar_width(slotcfg, SELF, true) == 92 - 20, 'bars give up box + gap, got ' .. tostring(config.bar_width(slotcfg, SELF, true)));
+assert(config.bar_width(slotcfg, SELF, true) == 200 - 2 * 4 - 20, 'bars give up box + gap, got ' .. tostring(config.bar_width(slotcfg, SELF, true)));
 assert(config.bar_width(slotcfg, sizes.target, false) == 192, 'the target panel keeps its full bar width');
+
+-- The defaults ship with it on, so they are the case that has to lay out: box floor(1.5*21)=31
+-- plus the 1px gap, out of the bars only.
+assert(config.slot_width(config.defaults, true) == 32, 'default reserved width, got ' .. tostring(config.slot_width(config.defaults, true)));
+assert(config.bar_width(config.defaults, SELF, true) == 196 - 32, 'a default party panel gives up box + gap, got ' .. tostring(config.bar_width(config.defaults, SELF, true)));
+assert(config.bar_width(config.defaults, config.defaults.sizes.target, false) == 296, 'the default target panel reserves nothing');
+assert(config.label_size(config.defaults, config.defaults.slot.size) ~= nil, 'the default slot text must clear Min Text Size, or the tag never prints');
 
 -- The panel's own footprint is untouched -- the space is taken from the bars inside it.
 assert(config.panel_height(slotcfg, SELF) == config.panel_height(offcfg, SELF), 'the tag must not change panel height');
@@ -192,8 +198,8 @@ assert(#config.bars_for(22, 1) == 3, 'RUN/WAR keeps the mp bar (main has MP)');
 assert(#config.bars_for(1, 0) == 2, 'no subjob must not error');
 
 -- Hiding a bar shrinks the panel by that bar's height plus one gap.
-assert(config.panel_height(config.defaults, SELF, { 'hp', 'tp' }) == 42,
-    'two-bar panel = 16+16 + 1*2 + 2*4, got ' .. tostring(config.panel_height(config.defaults, SELF, { 'hp', 'tp' })));
+assert(config.panel_height(config.defaults, SELF, { 'hp', 'tp' }) == 39,
+    'two-bar panel = 18+16 + 1*1 + 2*2, got ' .. tostring(config.panel_height(config.defaults, SELF, { 'hp', 'tp' })));
 
 -- Label size comes from the bar, never from a setting of its own, so the text can never be taller
 -- than what it sits in -- at any bar height and at any distance scale.
@@ -246,6 +252,7 @@ assert(not vis(COMBAT, {}), 'a single enabled gate that is false must hide');
 -- the addon draws nothing until a box is ticked.
 assert(config.visible(config.defaults, IDLE), 'defaults show while idle');
 assert(config.visible(config.defaults, ENGAGED), 'defaults show while engaged');
+assert(config.visible(config.defaults, COMBAT), 'defaults show with a battle target');
 assert(not config.visible(config.defaults, {}), 'defaults hide while resting/dead/zoning');
 
 assert(vis(COMBAT, COMBAT), 'combat gate shows with a battle target');
@@ -286,10 +293,17 @@ nearly(config.panel_scale(scaling, 0), 1.0, 'zero depth yields no scaling');
 nearly(config.panel_scale(scaling, -5), 1.0, 'a point behind the camera yields no scaling');
 nearly(config.panel_scale(scaling, nil), 1.0, 'a missing depth yields no scaling');
 
--- Off must be exactly 1 at every depth -- anything else moves panels for people who never asked.
+-- Off must be exactly 1 at every depth -- the toggle has to leave panels exactly where they were,
+-- not near enough. Its own cfg: the defaults now ship with scaling on.
+local unscaled = { distance_scale = false, scale_ref = 6.0 };
 for _, d in ipairs({ 0.5, 6, 50, 500 }) do
-    assert(config.panel_scale(config.defaults, d) == 1, 'disabled scaling is exactly 1 at depth ' .. d);
+    assert(config.panel_scale(unscaled, d) == 1, 'disabled scaling is exactly 1 at depth ' .. d);
 end
+
+-- The defaults have it on, so they must actually scale -- an off-by-default value left in
+-- `distance_scale` would leave scale_ref doing nothing and look like a broken slider.
+nearly(config.panel_scale(config.defaults, config.defaults.scale_ref), 1.0, 'the defaults draw 1:1 at their own reference');
+nearly(config.panel_scale(config.defaults, config.defaults.scale_ref * 2), 0.5, 'the defaults shrink with depth');
 
 print('config.lua ok');
 
