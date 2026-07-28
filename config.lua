@@ -14,13 +14,15 @@ local M = {};
 
 M.defaults = {
     enabled            = true,
-    -- Gates are purely enabling (see M.visible), so all three off means the panel never
-    -- draws. All three on: visible in normal play, hidden while dead, zoning or resting.
+    -- Gates are purely enabling (see M.visible), so all three off means the self/party panels
+    -- never draw. All three on: visible in normal play, hidden while dead, zoning or resting.
+    -- They do not reach the target panel -- having a target is its own answer to whether it
+    -- should draw, so it hangs off show_target alone (see drawPanels).
     show_in_combat     = true,  -- show when a battle target is set (<bt>)
     show_while_engaged = true,  -- show when entity status is Engaged
     show_while_idle    = true,  -- show when entity status is Idle
     show_party         = true,  -- draw panels over party members too, not just self
-    show_target        = true,  -- draw a panel over whatever you have targeted
+    show_target        = true,  -- draw a panel over whatever you have targeted, ungated
 
     -- Vertical world nudge from the nameplate anchor (top of the model), positive = downward,
     -- since the height axis points down. 0 puts the panel's top edge level with the model's head,
@@ -148,7 +150,8 @@ end
 M.gates = { 'show_in_combat', 'show_while_engaged', 'show_while_idle' };
 
 --[[
-* Whether the panel should be drawn at all, from the visibility gates.
+* Whether the self and party panels should be drawn at all, from the visibility
+* gates. The target panel is not gated -- see drawPanels in NewUI.lua.
 *
 * Each gate purely *enables*: the panel shows when at least one enabled gate's
 * condition is currently true, and is hidden otherwise. Enabling several is a

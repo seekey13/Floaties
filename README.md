@@ -181,19 +181,29 @@ evidence; here a trust or pet you've targeted is a perfectly good thing to draw
 a panel over. Alliance members outside your own party get one too. Two small
 predicates, two different questions.
 
-**Gating.** The target panel obeys the same three visibility gates as everything
-else — one decision per frame, everything shows and hides together.
+**Ungated.** The target panel does *not* obey the visibility gates below; the
+self and party panels do. Having something targeted is already the answer to
+"should this draw", and running that through gates keyed on *your own* status
+meant a mob you had just clicked drew nothing until you engaged it — the moment
+the panel is most for. It answers to **Show Target** and a resolved target and
+nothing else, so it appears the frame a valid target is picked and goes the frame
+it is cleared, in any status, including while resting or dead.
 
-Three visibility gates. Each one only ever **enables**: the panel shows when at
-least one *enabled* gate's condition is true, and is hidden otherwise. Several
-on is a union, so being engaged is enough on its own even when the battle-target
-check disagrees.
+That leaves two independent decisions per frame instead of one, which is why the
+config window reports them on two lines (see **Reading the gate state**).
 
-All three off therefore means the panel never draws — all three are on by
-default, which shows the panel in normal play and still hides it while dead,
-zoning or resting, since those match no gate. (Earlier versions fell back to
-"always show" with no gate enabled, which made a single ticked gate look broken:
-it could never hide anything until you ticked a second one.)
+## Visibility gates
+
+Three visibility gates, covering the **self and party panels**. Each one only
+ever **enables**: those panels show when at least one *enabled* gate's condition
+is true, and are hidden otherwise. Several on is a union, so being engaged is
+enough on its own even when the battle-target check disagrees.
+
+All three off therefore means they never draw — all three are on by default,
+which shows them in normal play and still hides them while dead, zoning or
+resting, since those match no gate. (Earlier versions fell back to "always show"
+with no gate enabled, which made a single ticked gate look broken: it could never
+hide anything until you ticked a second one.)
 
 | Setting | Shows when | Notes |
 |---|---|---|
@@ -201,8 +211,9 @@ it could never hide anything until you ticked a second one.)
 | **Show While Engaged** | your entity status is `Engaged` (1) | Flips back to Idle the moment you disengage |
 | **Show While Idle** | your entity status is `Idle` (0) | Standing around, not fighting |
 
-Dead (2/3), Zoning (4) and Resting (33) match none of these, so with any gate
-on the panel is hidden in those states.
+Dead (2/3), Zoning (4) and Resting (33) match none of these, so with any gate on
+the self and party panels are hidden in those states. A target panel still draws
+in them, because it is not gated.
 
 ### On the battle-target gate
 
@@ -250,15 +261,23 @@ followed by the raw entity status and what `<bt>` currently resolves to:
 In Combat: true  Engaged: true  Idle: false  | status=1
 bt: Mandragora hp=63% status=1 flags=0x10
 target: Mandragora hp=63% status=1 flags=0x10
-Panel: shown
+Self/party panels: shown
+Target panel: shown
 ```
 
-`Panel:` is the resulting decision — **`Enabled` and the gates together**, not
-the gates alone — so a gate reading false while the panel is on screen is
-visible as a contradiction rather than something to infer. With no gate enabled
-it reads `hidden -- no gate enabled, so nothing can enable it`; with the addon
-switched off it reads `hidden -- addon switched off; tick Enabled below, or
+`Self/party panels:` is the resulting decision — **`Enabled` and the gates
+together**, not the gates alone — so a gate reading false while a panel is on
+screen is visible as a contradiction rather than something to infer. With no gate
+enabled it reads `hidden -- no gate enabled, so nothing can enable it`; with the
+addon switched off it reads `hidden -- addon switched off; tick Enabled below, or
 /newui`.
+
+`Target panel:` is the second decision, and it is deliberately a second line: the
+gates do not reach it, so folding both into one `Panel:` verdict would have it
+read `hidden` while a target panel was plainly on screen. It is `shown` when
+`Enabled` and **Show Target** are both on and the current target survived the
+filters above — which is exactly the `target:` line reading anything but `none`
+or ` REJECTED`.
 
 `Enabled` is the master switch `/newui` toggles, and it is persisted. It reports
 here and has its own checkbox because leaving it out of both is what let it be
@@ -266,8 +285,8 @@ off and invisible at the same time: the line meant to answer "is this a gate
 problem?" said `shown` over an empty screen for as long as the setting stayed
 off.
 
-**`Panel: shown` with nothing on screen means the drawing threw**, not that a
-gate is wrong — and a `draw error:` line under it says what. The panels are
+**Either line reading `shown` with nothing on screen means the drawing threw**,
+not that a gate is wrong — and a `draw error:` line under it says what. The panels are
 drawn inside a `pcall` for exactly this: the config window is drawn *first* in
 the frame, so an uncaught throw below it takes every panel with it and leaves
 the window truthfully reporting `shown` over an empty screen, with the reason

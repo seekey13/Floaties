@@ -770,12 +770,19 @@ local function drawTarget(mm, view, proj, vp)
            mobinfo.panel(res, config.settings.mob, jobName), view, proj, vp);
 end
 
--- Every panel for one frame. Split out of d3d_present so the pcall guarding it can take arguments
--- instead of a closure allocated per frame.
-local function drawPanels(mm, party, view, proj, vp)
-    -- Slot 0 is self; 1..5 are the rest of the party.
-    for i = 0, (config.settings.show_party and 5 or 0) do
-        drawMember(mm, party, i, view, proj, vp);
+--[[
+* Every panel for one frame. Split out of d3d_present so the pcall guarding it can take arguments
+* instead of a closure allocated per frame.
+*
+* @param {boolean} gated - whether the visibility gates currently pass. Self/party panels obey it;
+*                          the target panel does not (see d3d_present).
+--]]
+local function drawPanels(mm, party, view, proj, vp, gated)
+    if (gated) then
+        -- Slot 0 is self; 1..5 are the rest of the party.
+        for i = 0, (config.settings.show_party and 5 or 0) do
+            drawMember(mm, party, i, view, proj, vp);
+        end
     end
 
     if (config.settings.show_target) then
@@ -847,10 +854,14 @@ local function drawConfigWindow()
         -- command -- so an addon toggled off weeks ago read "Panel: shown" here forever while
         -- drawing nothing, and the one line meant to settle "is this a gate problem?" was the line
         -- lying. Both halves, or the status is worse than no status.
+        -- Self/party only: the gates do not reach the target panel, so one "Panel: shown" covering
+        -- both would be wrong half the time -- red while a target panel is plainly on screen.
         local shown = cfg.enabled and config.visible(cfg, gate_state);
         imgui.TextColored(shown and { 0.4, 1.0, 0.4, 1.0 } or { 1.0, 0.4, 0.4, 1.0 },
-                          ('Panel: %s'):fmt(shown and 'shown' or 'hidden'));
+                          ('Self/party panels: %s'):fmt(shown and 'shown' or 'hidden'));
 
+        -- Kept on the self/party line: both notes are about the gates, which is the decision that
+        -- line reports. The target panel below answers to neither.
         if (not cfg.enabled) then
             imgui.SameLine();
             imgui.Text('-- addon switched off; tick Enabled below, or /newui');
@@ -858,6 +869,11 @@ local function drawConfigWindow()
             imgui.SameLine();
             imgui.Text('-- no gate enabled, so nothing can enable it');
         end
+
+        -- The target panel's own decision, in the same two colors, since it is now a separate one.
+        local target_shown = cfg.enabled and cfg.show_target and target_index ~= 0;
+        imgui.TextColored(target_shown and { 0.4, 1.0, 0.4, 1.0 } or { 1.0, 0.4, 0.4, 1.0 },
+                          ('Target panel: %s'):fmt(target_shown and 'shown' or 'hidden'));
 
         -- "Panel: shown" over an empty screen means the draw threw, not that a gate is wrong. The
         -- message is the one thing that could tell them apart, and it used to be the thing that got
@@ -1003,7 +1019,14 @@ ashita.events.register('d3d_present', 'newui_present', function ()
     end
 
     -- Gated on your own status, not each member's, so the whole set shows/hides together.
-    if (not config.visible(config.settings, gate_state)) then
+    --
+    -- The target panel is deliberately outside this: having something targeted *is* the answer to
+    -- "should this draw", and running it through gates keyed on your own status meant a mob you
+    -- had just clicked drew nothing until you engaged it -- the one moment the panel is for. It
+    -- answers to `show_target` and a resolved target_index alone.
+    local gated  = config.visible(config.settings, gate_state);
+    local target = config.settings.show_target and target_index ~= 0;
+    if (not gated and not target) then
         return;
     end
 
@@ -1016,7 +1039,7 @@ ashita.events.register('d3d_present', 'newui_present', function ()
     -- it and reports nothing, because the config window has already drawn for this frame. The
     -- message goes to `draw_error`, which that window prints. Named function, not a closure, so the
     -- guard does not allocate once a frame.
-    local ok, err = pcall(drawPanels, mm, party, view, proj, vp);
+    local ok, err = pcall(drawPanels, mm, party, view, proj, vp, gated);
     draw_error = (not ok) and tostring(err) or nil;
 end);
 
