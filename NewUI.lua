@@ -217,6 +217,49 @@ local function loadZone(zone)
         or nil;
 end
 
+--[[
+* mobdb's own icon PNGs, by the name mobinfo puts in a segment.
+*
+* Loaded on first use rather than by scanning the directory at startup (what mobdb does): the ~20
+* icons a target panel can ask for are a fraction of what ships, and a miss has to be handled
+* anyway -- mobdb's data and its icons are separate installs, and either can be absent.
+*
+* The cached entry holds the cdata pointer alongside the integer handle AddImage wants, because
+* gc_safe_release ties the texture's lifetime to that pointer: caching the number alone would let
+* the collector release the texture out from under a handle still being drawn every frame. `false`
+* marks a load that failed, so a missing file is retried never rather than every frame.
+*
+* @return {number|nil} the texture handle, or nil when there is no icon by that name.
+--]]
+local icon_cache = {};
+
+local function iconHandle(name)
+    if (name == nil) then
+        return nil;
+    end
+
+    local hit = icon_cache[name];
+    if (hit ~= nil) then
+        return hit and hit.id or nil;
+    end
+
+    local out  = ffi.new('IDirect3DTexture8*[1]');
+    local path = ('%saddons/mobdb/icons/%s.png'):fmt(AshitaCore:GetInstallPath(), name);
+
+    if (C.D3DXCreateTextureFromFileA(dev, path, out) ~= C.S_OK) then
+        icon_cache[name] = false;
+        return nil;
+    end
+
+    local tex = d3d.gc_safe_release(ffi.cast('IDirect3DTexture8*', out[0]));
+    icon_cache[name] = { tex = tex, id = tonumber(ffi.cast('uint32_t', tex)) };
+    return icon_cache[name].id;
+end
+
+-- AddImage multiplies the texture by this, so opaque white is "draw the PNG as authored". The icons
+-- are already colored per element and per flag, and cfg.text.color has no business retinting them.
+local ICON_TINT = 0xFFFFFFFF;
+
 -- Ashita renamed the job resource between versions; mobdb carries the same fallback in its
 -- compatibility.lua. Resolved once at load -- the answer cannot change mid-session.
 local JOB_RESOURCE = AshitaCore:GetResourceManager():GetString('jobs.names_abbr', 1) == 'WAR'
@@ -391,6 +434,69 @@ end
 -- Panels with no reference lines pass this rather than nil, so #lines is always a number.
 local NO_LINES = {};
 
+--[[
+* Drawn width of one mob reference segment (see mobinfo.lua for the shape).
+*
+* The icon is square at the text size, not at the row height: the two differ by less than a pixel
+* (the size is the row floored) and one number keeps the measurement here and the layout in
+* drawInfoLine from ever disagreeing about where the next segment starts.
+*
+* @param {number} size - font size the line is drawn at, and the icon's side.
+--]]
+local function segmentWidth(seg, size, cfg)
+    -- Each piece measured exactly as drawText will lay it out -- separately, not as one
+    -- concatenation. textWidth adds bold's extra pixel per call, so measuring "Fire" .. "+25%" as
+    -- one string comes out a pixel short of the two stamps that actually draw, and the panel it
+    -- sized would be overflowed by a pixel per fallback segment.
+    local width = iconHandle(seg.icon) ~= nil and size
+        or (seg.alt ~= nil and textWidth(seg.alt, size, cfg) or 0);
+
+    return width + (seg.text ~= nil and textWidth(seg.text, size, cfg) or 0);
+end
+
+local function lineWidth(segments, size, gap, cfg)
+    local width = 0;
+    for _, seg in ipairs(segments) do
+        width = width + segmentWidth(seg, size, cfg);
+    end
+    return width + math.max(#segments - 1, 0) * gap;
+end
+
+--[[
+* Draws one reference line centered in (left, width), laid out left to right.
+*
+* Segments are placed at an explicit x rather than centered individually, so drawText is handed a
+* box exactly as wide as the text it holds -- its own centering then collapses to a no-op and the
+* outline/bold treatment stays in one place.
+*
+* @param {number} row - the row's height; the line is centered vertically in it.
+--]]
+local function drawInfoLine(draw_list, left, top, width, row, segments, size, gap, cfg)
+    local x = math.floor(left + (width - lineWidth(segments, size, gap, cfg)) / 2);
+    local y = math.floor(top + (row - size) / 2);
+
+    for _, seg in ipairs(segments) do
+        local handle = iconHandle(seg.icon);
+
+        if (handle ~= nil) then
+            draw_list:AddImage(handle, { x, y }, { x + size, y + size }, { 0, 0 }, { 1, 1 }, ICON_TINT);
+            x = x + size;
+        elseif (seg.alt ~= nil) then
+            local w = textWidth(seg.alt, size, cfg);
+            drawText(draw_list, x, top, w, row, seg.alt, size, cfg);
+            x = x + w;
+        end
+
+        if (seg.text ~= nil) then
+            local w = textWidth(seg.text, size, cfg);
+            drawText(draw_list, x, top, w, row, seg.text, size, cfg);
+            x = x + w;
+        end
+
+        x = x + gap;
+    end
+end
+
 -- `size` is the panel kind's own cfg.sizes entry; everything else about the panel is shared.
 -- `scale` multiplies every pixel dimension, padding and rounding included -- a shrunk panel with a
 -- full-size border swallows its own bars.
@@ -422,7 +528,7 @@ local function drawPanel(sx, sy, s, bars, size, scale, slot, lines)
             -- The spare pixel is not cosmetic: without it the width the line is measured at and
             -- the width it is later fit-checked against differ by a float rounding step, and the
             -- line the panel just grew for gets dropped for being one ULP too wide.
-            width = math.max(width, textWidth(line, info_size, cfg) + 2 * pad + 1);
+            width = math.max(width, lineWidth(line, info_size, gap, cfg) + 2 * pad + 1);
         end
     end
 
@@ -488,9 +594,11 @@ local function drawPanel(sx, sy, s, bars, size, scale, slot, lines)
     -- bar, which is exactly the separation the block wants. The row height passed in is the
     -- unfloored one, so the floored font size can never fail its own height check by a fraction.
     local row = cfg.mob.size * scale;
-    for _, line in ipairs(lines) do
-        drawText(draw_list, left + pad, bar_top, width - 2 * pad, row, line, info_size, cfg);
-        bar_top = bar_top + row + gap;
+    if (info_size ~= nil) then
+        for _, line in ipairs(lines) do
+            drawInfoLine(draw_list, left + pad, bar_top, width - 2 * pad, row, line, info_size, gap, cfg);
+            bar_top = bar_top + row + gap;
+        end
     end
 end
 

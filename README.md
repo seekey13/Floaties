@@ -332,14 +332,22 @@ a size.
 Three lines of mob reference data under the target panel's HP bar, each with its
 own toggle in `/newui config`:
 
-| Setting | Line | Example |
+| Setting | Line | Drawn as |
 |---|---|---|
 | **Show Level & Job** | level range, and the job when the entry names one | `[Lv14-17 WAR/MNK]` |
-| **Show Detection** | aggression, then what it notices you with | `NM Aggro TrueSight Sight Link` |
-| **Show Weakness/Resist** | every damage type it does not take normally | `Fire+25% Ice-50% Dark-50%` |
+| **Show Detection** | aggression, then what it notices you with | one icon each: aggro/passive, then TrueSight, Sight, Sound, Scent, Magic, JA, Blood, Link |
+| **Show Weakness/Resist** | every damage type it does not take normally | an icon and a percentage each: `<Fire>+25% <Ice>-50% <Dark>-50%` |
 
 All three ship on. They draw on the target panel only — party members are not
 mobs, and a PC you have targeted has no entry either.
+
+The detection and resistance lines are **mobdb's own icons** (see *Where the
+data comes from*) — a row of glyphs reads at a glance where `Aggro Sight Magic`
+has to be parsed, and it fits a panel that is a few dozen pixels wide. The level
+line stays text: mobdb ships no icon for a level range or a job.
+
+Notorious is not an icon of its own. mobdb has HQ variants of the aggro and
+passive icons — the same glyph in a gold frame — so an NM is one icon, not two.
 
 **A ticked box does not guarantee a row.** A line with nothing to say is skipped
 rather than drawn blank: a mob with no job prints its level range alone, and a
@@ -352,7 +360,13 @@ Resistances are sorted by potency, weaknesses first, so what to hit it with
 reads before what to avoid. Ties keep a fixed order (physical first, then the
 elements in the game's own order) rather than whatever `pairs` hands back — the
 line is rebuilt every frame, and an order that shuffled between frames would
-flicker. `Slashing`/`Piercing`/`Impact` print as `Slash`/`Pierce`/`Blunt`.
+flicker.
+
+Unlike mobdb, a run of equally-potent types keeps a percentage on every one
+rather than printing it once at the end of the run. mobdb lays its icons out on
+a window-wide row where that grouping reads; these sit on a panel only as wide
+as its widest line, where a number lining up under the wrong icon is the likelier
+reading.
 
 **The panel widens to fit the longest line**, rather than the text shrinking or
 being dropped. A resistance list is the one thing on the panel with no natural
@@ -392,9 +406,23 @@ mob data: zone 100, loaded
 Job abbreviations come from Ashita's own job resource, with the same
 `jobs.names_abbr` → `jobs_abbr` fallback mobdb carries for older versions.
 
-Unlike mobdb, the lines are text only — mobdb draws the detection and
-resistance flags as icons, which would mean shipping and loading a texture set
-for panels that are a few dozen pixels tall.
+The icons are mobdb's too, read from `Ashita/addons/mobdb/icons/<name>.png` —
+nothing is shipped or duplicated here, and mobdb still does not have to be
+loaded. They are loaded on first use, not by scanning the directory at startup:
+a target panel can only ask for about twenty of them, and a name that has no
+file has to be handled anyway, since mobdb's data and its icons are separate
+downloads and either can be absent.
+
+**A missing icon falls back to the word it stood for** — `Aggro`, `Sight`,
+`Fire+25%`, with `Slashing`/`Piercing`/`Impact` shortened to
+`Slash`/`Pierce`/`Blunt` for the width. That is not decoration: without it a
+resistance segment with no icon would print a bare `+25%` with nothing saying
+which element. A failed load is remembered, so a missing file is retried never
+rather than every frame.
+
+Icons draw at the **Info Text Size**, square and untinted — they are already
+colored per element and per flag, and the shared text color has no business
+retinting them.
 
 ## Commands
 
@@ -434,7 +462,7 @@ back to the entity's feet position for that frame.
 - `lib/targets.lua` — Ashita's target library, vendored unmodified (only `get_bt` is used)
 - `stats.lua` — HP/MP/TP normalization, TP segment math, and the target's entity read + targetability test (no Ashita dependencies)
 - `config.lua` — settings defaults, load/save, derived layout math (no Ashita dependencies except load/save)
-- `mobinfo.lua` — mobdb zone-data loader and the three reference lines' formatting (no Ashita dependencies)
+- `mobinfo.lua` — mobdb zone-data loader and the three reference lines, built as icon/text segments (no Ashita dependencies — it picks the icon names, `NewUI.lua` loads and draws them)
 - `test.lua` — self-check for `stats.lua`, `config.lua`, `nameplate.lua` and `mobinfo.lua`; run with `lua test.lua`
 - `docs/` — research notes this was built from (gitignored)
 

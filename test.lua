@@ -406,6 +406,27 @@ local BONES = { Name='Enchanted Bones', Notorious=false, Aggro=true, Link=false,
 local jobs = { [1] = 'WAR', [2] = 'MNK' };
 local function jobname(id) return jobs[id]; end
 
+-- Detection and resistance lines are segments, drawn as mobdb's icons. These two flatten a line to
+-- what NewUI draws when a texture is missing (alt in the icon's place) and to the icon names it
+-- asks for -- one assertion per line either way, and the fallback wording is exactly the text the
+-- lines used to be, so the readings below did not have to change with the shape.
+local function text(line)
+    if (line == nil) then return nil; end
+    local out = {};
+    for i, seg in ipairs(line) do
+        out[i] = (seg.alt or '') .. (seg.text or '');
+    end
+    return table.concat(out, ' ');
+end
+
+local function icons(line)
+    local out = {};
+    for i, seg in ipairs(line) do
+        out[i] = seg.icon or '-';
+    end
+    return table.concat(out, ' ');
+end
+
 -- Level and job. The job is dropped entirely at Job 0 rather than printing a placeholder -- most
 -- low-level fauna carries no job.
 assert(mobinfo.level_job(BOMB, jobname) == '[Lv8-10]', 'job 0 prints the range alone, got ' .. tostring(mobinfo.level_job(BOMB, jobname)));
@@ -420,31 +441,51 @@ assert(mobinfo.level_job(nil, jobname) == nil, 'an unknown mob has no level line
 
 -- Detection. Aggro/Passive always leads: "detects nothing" and "does not aggro" are different
 -- facts, and a vanishing line would read as missing data rather than as a safe mob.
-assert(mobinfo.detection(BOMB) == 'Aggro Sight Magic', 'got ' .. tostring(mobinfo.detection(BOMB)));
-assert(mobinfo.detection(BONES) == 'Aggro Sound Blood', 'got ' .. tostring(mobinfo.detection(BONES)));
-assert(mobinfo.detection({ Aggro=false }) == 'Passive', 'a passive mob with no flags still prints');
-assert(mobinfo.detection({ Aggro=true, Link=true, TrueSight=true, Sight=true }) == 'Aggro TrueSight Sight Link',
-    'link trails the detection flags, got ' .. tostring(mobinfo.detection({ Aggro=true, Link=true, TrueSight=true, Sight=true })));
-assert(mobinfo.detection({ Aggro=true, Notorious=true, Sound=true }) == 'NM Aggro Sound', 'NM leads the line');
+assert(text(mobinfo.detection(BOMB)) == 'Aggro Sight Magic', 'got ' .. tostring(text(mobinfo.detection(BOMB))));
+assert(text(mobinfo.detection(BONES)) == 'Aggro Sound Blood', 'got ' .. tostring(text(mobinfo.detection(BONES))));
+assert(text(mobinfo.detection({ Aggro=false })) == 'Passive', 'a passive mob with no flags still prints');
+assert(text(mobinfo.detection({ Aggro=true, Link=true, TrueSight=true, Sight=true })) == 'Aggro TrueSight Sight Link',
+    'link trails the detection flags, got ' .. tostring(text(mobinfo.detection({ Aggro=true, Link=true, TrueSight=true, Sight=true }))));
+assert(text(mobinfo.detection({ Aggro=true, Notorious=true, Sound=true })) == 'NM Aggro Sound', 'NM leads the line');
 assert(mobinfo.detection(nil) == nil, 'an unknown mob has no detection line');
 
+-- The icons those segments ask mobdb for. Names must match the PNGs in mobdb/icons exactly, or the
+-- line silently falls back to words -- which is why they are asserted rather than eyeballed.
+assert(icons(mobinfo.detection(BOMB)) == 'AggroNQ Sight Magic', 'got ' .. icons(mobinfo.detection(BOMB)));
+assert(icons(mobinfo.detection({ Aggro=false })) == 'PassiveNQ', 'a passive mob gets the passive icon');
+-- Notorious has no icon of its own: it is the HQ variant of the aggro/passive one, so an NM is one
+-- glyph, not two -- while the fallback above still spells "NM" out, having no frame to show.
+assert(icons(mobinfo.detection({ Aggro=true, Notorious=true, Sound=true })) == 'AggroHQ Sound', 'an NM takes the HQ frame');
+assert(icons(mobinfo.detection({ Aggro=false, Notorious=true })) == 'PassiveHQ', 'a passive NM too');
+
 -- Weakness/resistance, sorted by potency descending so what to hit it with reads first.
-assert(mobinfo.resist(BOMB) == 'Fire+25% Ice-50% Wind-50% Earth-50% Lightning-50% Water-50% Light-50% Dark-50%',
-    'got ' .. tostring(mobinfo.resist(BOMB)));
-assert(mobinfo.resist(BONES) == 'Blunt+25% Fire+25% Light+25% H2H+12.5% Slash-12.5% Ice-12.5% Pierce-50% Dark-50%',
-    'got ' .. tostring(mobinfo.resist(BONES)));
+assert(text(mobinfo.resist(BOMB)) == 'Fire+25% Ice-50% Wind-50% Earth-50% Lightning-50% Water-50% Light-50% Dark-50%',
+    'got ' .. tostring(text(mobinfo.resist(BOMB))));
+assert(text(mobinfo.resist(BONES)) == 'Blunt+25% Fire+25% Light+25% H2H+12.5% Slash-12.5% Ice-12.5% Pierce-50% Dark-50%',
+    'got ' .. tostring(text(mobinfo.resist(BONES))));
+
+-- The icon is the element's own name, so only the three renamed physical types can drift apart --
+-- Blunt is the icon Impact, and a segment carries both.
+assert(icons(mobinfo.resist(BONES)) == 'Impact Fire Light H2H Slashing Ice Piercing Dark',
+    'got ' .. icons(mobinfo.resist(BONES)));
 
 -- Eighths are what the data is made of, so the half-percent has to survive while a whole one must
 -- not print a trailing zero.
-assert(mobinfo.resist({ Modifiers={ Fire=1.125 } }) == 'Fire+12.5%', 'got ' .. tostring(mobinfo.resist({ Modifiers={ Fire=1.125 } })));
-assert(mobinfo.resist({ Modifiers={ Fire=1.25 } }) == 'Fire+25%', 'a whole percent drops its decimal');
-assert(mobinfo.resist({ Modifiers={ Fire=0.875 } }) == 'Fire-12.5%', 'a resistance is signed negative');
+assert(text(mobinfo.resist({ Modifiers={ Fire=1.125 } })) == 'Fire+12.5%', 'got ' .. tostring(text(mobinfo.resist({ Modifiers={ Fire=1.125 } }))));
+assert(text(mobinfo.resist({ Modifiers={ Fire=1.25 } })) == 'Fire+25%', 'a whole percent drops its decimal');
+assert(text(mobinfo.resist({ Modifiers={ Fire=0.875 } })) == 'Fire-12.5%', 'a resistance is signed negative');
+
+-- Every segment keeps its own percentage, unlike mobdb, which prints one for a run of equal
+-- potencies: a panel is only as wide as its widest line, and a number under the wrong icon is the
+-- likelier misreading there.
+assert(text(mobinfo.resist({ Modifiers={ Fire=0.5, Ice=0.5 } })) == 'Fire-50% Ice-50%', 'ties are not collapsed');
 
 -- Ties keep collection order (physical first, then the elements in game order) rather than falling
 -- out of `pairs`: this is rebuilt every frame, and a shuffling order would flicker the line.
 local tied = { Modifiers={ Dark=0.5, Fire=0.5, Slashing=0.5, Water=0.5 } };
-assert(mobinfo.resist(tied) == 'Slash-50% Fire-50% Water-50% Dark-50%', 'got ' .. tostring(mobinfo.resist(tied)));
-assert(mobinfo.resist(tied) == mobinfo.resist(tied), 'the same mob must format identically twice');
+assert(text(mobinfo.resist(tied)) == 'Slash-50% Fire-50% Water-50% Dark-50%', 'got ' .. tostring(text(mobinfo.resist(tied))));
+assert(text(mobinfo.resist(tied)) == text(mobinfo.resist(tied)), 'the same mob must format identically twice');
+assert(icons(mobinfo.resist(tied)) == icons(mobinfo.resist(tied)), 'and must ask for the same icons twice');
 
 assert(mobinfo.resist({ Modifiers={ Fire=1, Ice=1 } }) == nil, 'a mob that takes everything normally has no line');
 assert(mobinfo.resist({}) == nil, 'a row with no modifiers has no line');
@@ -467,8 +508,12 @@ local NO_LINES   = { level = false, detect = false, resist = false };
 local ONLY_LEVEL = { level = true, detect = false, resist = false };
 
 assert(#mobinfo.lines(BOMB, ALL_LINES, jobname) == 3, 'all three lines on');
-assert(mobinfo.lines(BOMB, ALL_LINES, jobname)[1] == '[Lv8-10]', 'level leads');
-assert(mobinfo.lines(BOMB, ALL_LINES, jobname)[2] == 'Aggro Sight Magic', 'detection second');
+assert(text(mobinfo.lines(BOMB, ALL_LINES, jobname)[1]) == '[Lv8-10]', 'level leads');
+assert(text(mobinfo.lines(BOMB, ALL_LINES, jobname)[2]) == 'Aggro Sight Magic', 'detection second');
+
+-- The level line is the one with no icon to draw: mobdb ships none for a level range or a job, so
+-- it stays a single run of text wrapped as a segment rather than becoming a special case upstream.
+assert(icons(mobinfo.lines(BOMB, ALL_LINES, jobname)[1]) == '-', 'the level line asks for no icon');
 assert(#mobinfo.lines(BOMB, NO_LINES, jobname) == 0, 'all three off draws nothing');
 assert(#mobinfo.lines(BOMB, ONLY_LEVEL, jobname) == 1, 'each toggle is independent');
 assert(#mobinfo.lines({ MinLevel=1, MaxLevel=1, Aggro=false }, ALL_LINES, jobname) == 2,

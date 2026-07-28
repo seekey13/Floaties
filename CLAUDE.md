@@ -52,7 +52,11 @@ Lua so `test.lua` can exercise it headless. Consequences to preserve:
   tests headless too. `NewUI.lua` supplies the path (`GetInstallPath`) and a
   job-id → abbreviation function; nothing here reads `AshitaCore`. mobdb is a
   data dependency, never a load-order one — a missing file is `nil` and the
-  reference lines just don't draw.
+  reference lines just don't draw. A line is an array of `{ icon, alt, text }`
+  segments: choosing *which* mobdb icon a flag means is a decision and lives
+  here, loading and drawing the PNG is `NewUI.lua`'s, and `alt` is the word to
+  print when the texture is missing (mobdb's data and its icons install
+  separately, so either can be absent on its own).
 - `lib/targets.lua` — Ashita's own target library, **vendored unmodified**. Do
   not edit it; it is diffable against upstream/Sidekick's `lib/core/targets.lua`.
   It hard-`error`s at load when its byte signatures miss, so it is `require`d
@@ -113,8 +117,8 @@ file for all characters, and `M.load` wraps defaults in `T(...)` for its
 `copy`/`merge` metatable.
 
 Bars are drawn straight onto ImGui's background draw list
-(`AddRectFilled`/`AddRect`/`AddText`) rather than Ashita's `primitives` library,
-which cannot do text or rounded corners. Label sizing uses the two-argument
+(`AddRectFilled`/`AddRect`/`AddText`/`AddImage`) rather than Ashita's
+`primitives` library, which cannot do text or rounded corners. Label sizing uses the two-argument
 `AddText` overload (font + size); ImGui takes a font, not a weight, so "bold" is
 the fill stamped a second time one pixel right.
 
