@@ -377,16 +377,18 @@ frame — reading left to right as one sentence: what it does to you, what it is
 what it sees you with.
 
 ```
+                            EP-DC
 <Passive> <Link>  [═══════ Lv.14-17 WAR/MNK ═══════]  <Sight> <Sound> <Scent>
                     <Fire>+25% <Ice>-50% <Dark>-50%
 ```
 
-Three toggles in `/newui config` feed it:
+Four toggles in `/newui config` feed it:
 
 | Setting | Contributes | Drawn as |
 |---|---|---|
 | **Show Detection** | the icon groups flanking the bar | left of it: aggro/passive, then Link. Right of it: TrueSight, Sight, Sound, Scent, Magic, JA, Blood |
 | **Show Level & Job** | the bar's own label | `Lv.14-17 WAR/MNK`, in place of the HP percent |
+| **Show Check** | a line above the panel | the `/check` tier, colored: `EP-DC` |
 | **Show Weakness/Resist** | a row under the panel | an icon and a percentage each: `<Fire>+25% <Ice>-50%` |
 
 **Show Detection** owns both groups because they answer the same question from
@@ -394,13 +396,14 @@ two sides — Link sits with the aggro flag rather than with the senses, since i
 is not one, and the two of them together are the pull decision. Each toggle
 still owns exactly what it names: **Show Detection** alone draws the icons and
 leaves the bar its percent, **Show Level & Job** alone relabels the bar and draws
-no icons.
+no icons, and **Show Check** draws its line whether or not the level itself is on
+the bar.
 
 Resistances stay on their own row under the panel. That list has no fixed
 length, so flanking with it would shove the bar off-center by however many
 damage types the mob happens to have.
 
-All three ship on. They draw on the target panel only — party members are not
+All four ship on. They draw on the target panel only — party members are not
 mobs, and a PC you have targeted has no entry either.
 
 ### The level on the bar
@@ -422,6 +425,50 @@ every label uses.
 A bar too *short* still drops its text rather than shrinking it to mush. That is
 the other failure — no glyph is legible at any width — and **Min Text Size**
 already owns it.
+
+### The check line
+
+**Show Check** puts the `/check` tier over the bar, in the color `/check` would
+print it in — your main job level against the mob's level from mobdb, so it is
+the one line here that is about *you* rather than about the mob.
+
+| | Abbreviation | Level difference at 1 | at 75 |
+|---|---|---|---|
+| Too Weak to be Worthwhile | `TW` | 7+ below | 20+ below |
+| Easy Prey | `EP` | 3–6 below | 8–19 below |
+| Decent Challenge | `DC` | 1–2 below | 1–7 below |
+| Even Match | `EM` | same level | same level |
+| Tough | `T` | 1–4 above | 1–3 above |
+| Very Tough | `VT` | 5 above | 4–7 above |
+| Incredibly Tough | `IT` | 6+ above | 8+ above |
+| Impossible to Gauge | `???` | any notorious monster | |
+
+It sits *above* the panel because it is read first: whether to engage at all is
+answered before anything else on the panel matters.
+
+**The bands are interpolated between the two published endpoints**, not looked
+up. The server derives the tier from the experience the kill would award and
+that curve flattens with level, which is why Too Weak is 7 levels down at 1 and
+20 down at 75. A straight line between the two reproduces it within a level
+across the whole range for one line of arithmetic instead of a 75×75 table.
+Above 75 the boundaries hold at their level-75 values rather than running off the
+end of the curve.
+
+**A level *range* prints both ends when they straddle a boundary** — `EP-DC` for
+a Lv.14-17 mob at level 20 — each end in its own color. mobdb gives most mobs a
+range, and picking one end would be wrong about the other half of the spawn.
+
+**A notorious monster reads `???` whatever its level says.** `/check` refuses to
+gauge an NM, and printing the tier mobdb's range implies would be inventing an
+answer the game withholds.
+
+The colors are Ashita's `checker` addon's, translated from the chat color
+indices it prints with, so a check you ran in the log and a panel you glanced at
+cannot disagree. **VT and IT share one color** for the same reason — `checker`
+prints both in Tomato, and re-tinting one would put a color on screen `/check`
+never produces. The abbreviations tell them apart. They are not settings: these
+are the game's colors, not a palette to retint. Opacity still comes from **Text
+Color**'s alpha, like every other string on a panel.
 
 ### Where the icons sit
 
@@ -463,10 +510,10 @@ a panel, where a number lining up under the wrong icon is the likelier reading.
 
 ### Placement
 
-The rows sit one **Bar Gap** under the panel's bottom edge, each centered on the
-same anchor the panel is, and **none of the reference costs the panel any height
-or width** — a target panel is exactly the same shape whether the mob has
-everything to say or nothing.
+The rows sit one **Bar Gap** under the panel's bottom edge and the check line one
+**Bar Gap** over its top edge, each centered on the same anchor the panel is, and
+**none of the reference costs the panel any height or width** — a target panel is
+exactly the same shape whether the mob has everything to say or nothing.
 
 That is the point of it all being outside. A resistance list has no natural
 width: a mob weak and resistant to eight damage types is a long line at any
@@ -584,7 +631,7 @@ back to the entity's feet position for that frame.
 - `lib/targets.lua` — Ashita's target library, vendored unmodified (only `get_bt` is used)
 - `stats.lua` — HP/MP/TP normalization, TP segment math, and the target's entity read + targetability test (no Ashita dependencies)
 - `config.lua` — settings defaults, load/save, derived layout math (no Ashita dependencies except load/save)
-- `mobinfo.lua` — mobdb zone-data loader and the reference rows, built as icon/text segments (no Ashita dependencies — it picks the icon names, `NewUI.lua` loads and draws them)
+- `mobinfo.lua` — mobdb zone-data loader, the reference rows, and the `/check` tier math, built as icon/text segments (no Ashita dependencies — it picks the icon names and the tier colors, `NewUI.lua` loads and draws them)
 - `test.lua` — self-check for `stats.lua`, `config.lua`, `nameplate.lua` and `mobinfo.lua`; run with `lua test.lua`
 - `docs/` — research notes this was built from (gitignored)
 

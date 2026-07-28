@@ -81,6 +81,7 @@ M.defaults = {
     -- party members are not mobs.
     mob = {
         level  = true,   -- Lv.14-17 WAR, labelling the HP bar until the mob is damaged
+        check  = true,   -- EP/DC/T..., colored by tier, on a row above the panel
         detect = true,   -- aggro/passive + Link flanking left, the senses flanking right
         resist = true,   -- element icon + percentage, on a row under the panel
         -- Row height in px: the text size, and the icons' side. The second piece of text with a

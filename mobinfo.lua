@@ -109,6 +109,117 @@ function M.level_job(res, jobname)
     return out;
 end
 
+--[[
+* /check tiers: the abbreviation drawn, and the color it is drawn in.
+*
+* Colors are Ashita's `checker` addon's, translated from the chat color indices it prints with
+* (checker.lua's `types` table) into the RGB of the name Ashita's chat lib gives each index --
+* 67 Grey, 2 LawnGreen, 8 Coral, 68 Salmon, 76 Tomato, 5 Magenta. Same ladder on the panel as in
+* the log, so a check you ran and a panel you glanced at cannot disagree.
+*
+* VT and IT deliberately share Tomato: checker prints both with index 76, and re-tinting one of
+* them here would put a color on screen that /check never produces. The abbreviations already tell
+* them apart.
+*
+* No alpha: like the bar colors in config.defaults these carry rgb only, and drawText takes the
+* opacity from cfg.text.color so the shared text alpha still governs them.
+*
+* ponytail: a constant, not seven color pickers in the config window -- these are the game's own
+* check colors, not a palette anyone is meant to retint. Promote to config.defaults if asked.
+--]]
+M.CHECK = {
+    TW  = { text = 'TW',  color = { r = 128/255, g = 128/255, b = 128/255 } },   -- 67 Grey
+    EP  = { text = 'EP',  color = { r = 124/255, g = 252/255, b = 0       } },   -- 2  LawnGreen
+    -- 102 is the one index Ashita's chat.colors does not name. It sits between the yellows and
+    -- the purples in that table, and the game draws Decent Challenge as a pale blue, so this is
+    -- LightSkyBlue: the closest reading of an index there is no published RGB for.
+    DC  = { text = 'DC',  color = { r = 135/255, g = 206/255, b = 250/255 } },   -- 102
+    EM  = { text = 'EM',  color = { r = 1,       g = 127/255, b = 80/255  } },   -- 8  Coral
+    T   = { text = 'T',   color = { r = 250/255, g = 128/255, b = 114/255 } },   -- 68 Salmon
+    VT  = { text = 'VT',  color = { r = 1,       g = 99/255,  b = 71/255  } },   -- 76 Tomato
+    IT  = { text = 'IT',  color = { r = 1,       g = 99/255,  b = 71/255  } },   -- 76 Tomato
+    -- No abbreviation was ever printed for Impossible to Gauge, so it borrows the game's own way
+    -- of saying "you are not being told": the level itself reads ??? on an NM.
+    ITG = { text = '???', color = { r = 1,       g = 0,       b = 1       } },   -- 5  Magenta
+};
+
+--[[
+* The level difference at which a tier boundary sits, for a player at `level`.
+*
+* The bands widen with level -- Too Weak is 7 levels down at 1 and 20 down at 75 -- because the
+* server derives the tier from the experience the kill would award, and the exp curve flattens.
+* Interpolating the two published endpoints linearly reproduces that within a level across the
+* range, at the cost of one line instead of the whole 75x75 exp table.
+*
+* ponytail: clamped at 75, the last level the boundaries are documented for. A higher-cap server
+* would read every boundary as its level-75 value; extend with the real endpoints if that matters.
+*
+* @param {number} lo - the boundary's diff at level 1.
+* @param {number} hi - its diff at level 75.
+--]]
+local function bound(lo, hi, level)
+    local t = (math.min(math.max(level, 1), 75) - 1) / 74;
+    return math.floor(lo + (hi - lo) * t + 0.5);
+end
+
+--[[
+* Which /check tier a mob of `mob_level` is to a player of `level`.
+*
+* Ordered from the bottom up, so each test only has to clear the band below it. Even Match is the
+* one exact case (a mob of your own level and no other), which is why it is `== 0` rather than a
+* band of its own.
+*
+* @return {string} a key into M.CHECK. Never nil -- every level difference is some tier.
+--]]
+function M.check_tier(level, mob_level)
+    local diff = mob_level - level;
+
+    if (diff < bound(-6, -19, level)) then return 'TW'; end
+    if (diff < bound(-2, -7,  level)) then return 'EP'; end
+    if (diff < 0)                     then return 'DC'; end
+    if (diff == 0)                    then return 'EM'; end
+    if (diff <= bound(4, 3, level))   then return 'T';  end
+    if (diff <= bound(5, 7, level))   then return 'VT'; end
+    return 'IT';
+end
+
+--[[
+* The check line: how the mob would read to a /check, from mobdb's level range.
+*
+* mobdb gives a *range* for most mobs, and a range can straddle a boundary -- a Lv.14-17 mob is a
+* different fight at each end. Both ends are printed when they differ ("EP-DC"), each in its own
+* color, rather than picking one and being wrong about the other half of the spawn. The dash rides
+* on the first segment so the pair is two draws, not three.
+*
+* A notorious monster is ITG regardless of level: /check refuses to gauge an NM, and printing a
+* tier mobdb's range implies would be inventing an answer the game withholds.
+*
+* @param {number|nil} level - the player's main job level. nil or 0 (not logged in yet) yields nil.
+* @return {table|nil} segments, or nil when there is nothing to check against.
+--]]
+function M.check(res, level)
+    if (res == nil or level == nil or level <= 0) then
+        return nil;
+    end
+
+    if (res.Notorious == true) then
+        return { M.CHECK.ITG };
+    end
+
+    local lo = res.Level or res.MinLevel;
+    local hi = res.Level or res.MaxLevel;
+    if (lo == nil or hi == nil) then
+        return nil;
+    end
+
+    local low, high = M.CHECK[M.check_tier(level, lo)], M.CHECK[M.check_tier(level, hi)];
+    if (low == high) then
+        return { low };
+    end
+
+    return { { text = low.text .. '-', color = low.color }, high };
+end
+
 -- What the mob notices you with, in the order it is worth reading. TrueSight leads Sight because
 -- it supersedes it -- invisible does not help. Link is deliberately not in here: it is not a sense,
 -- and it belongs with the aggro flag (see M.threat).
@@ -244,9 +355,13 @@ end
 * Everything the target panel draws from mobdb, split by where it goes rather than by which toggle
 * produced it -- the caller places each part and needs no idea which flag it came from:
 *
+*                                    EP-DC
 *     <Aggro> <Link>  [====== Lv.14-17 WAR/MNK ======]  <Sight> <Sound> <Scent>
 *                      <Fire>+25% <Ice>-50% <Dark>-50%
 *
+*   above - one line over the bar. The check tier, which is the one piece here that is about *you*
+*           rather than about the mob -- it belongs above the bar for the same reason it is read
+*           first, before deciding whether to look at anything else on the panel.
 *   label - text for the HP bar's own label. The level, in place of the HP percent, because a bar
 *           already *is* the percent -- the number on top of a full bar was saying "100%" over a
 *           full bar. (The caller switches back to the percent once the mob is damaged, which is
@@ -256,21 +371,28 @@ end
 *   rows  - full-width rows hung under the panel. The resistance list, in practice -- that one has
 *           no fixed length, so it cannot flank anything without shoving the bar off-center.
 *
-* All four are always present (label may be nil), so the caller indexes instead of guarding, and a
-* mob with nothing to say is empty groups rather than a missing table.
+* All of them are always present (label may be nil), so the caller indexes instead of guarding, and
+* a mob with nothing to say is empty groups rather than a missing table.
 *
 * @param {table|nil} res - M.find's result; nil (an unknown mob, or a PC) yields the empty shape.
-* @param {table|nil} mob - cfg.mob: the three toggles.
-* @return {table} { label, left, right, rows }.
+* @param {table|nil} mob - cfg.mob: the toggles.
+* @param {number|nil} level - the player's main job level, for the check line.
+* @return {table} { above, label, left, right, rows }.
 --]]
-function M.panel(res, mob, jobname)
-    local out = { left = {}, right = {}, rows = {} };
+function M.panel(res, mob, jobname, level)
+    local out = { above = {}, left = {}, right = {}, rows = {} };
     if (res == nil or mob == nil) then
         return out;
     end
 
     if (mob.level) then
         out.label = M.level_job(res, jobname);
+    end
+
+    -- nil (no level to compare against, or a row with no level in it) leaves the group empty
+    -- rather than putting a blank line over the bar.
+    if (mob.check) then
+        out.above = M.check(res, level) or {};
     end
 
     -- Neither returns nil past the res check above, so there is nothing to fall back to.

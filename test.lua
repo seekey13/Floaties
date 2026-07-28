@@ -501,6 +501,80 @@ assert(mobinfo.resist({ Modifiers={ Fire=1, Ice=1 } }) == nil, 'a mob that takes
 assert(mobinfo.resist({}) == nil, 'a row with no modifiers has no line');
 assert(mobinfo.resist(nil) == nil, 'an unknown mob has no resist line');
 
+-- Check tiers. Both published endpoints are asserted on every boundary, in both directions -- the
+-- bands are interpolated between level 1 and level 75, so a sign or an off-by-one in the
+-- interpolation shows up as one side of a boundary landing in the neighbouring tier.
+local function tier(level, mob) return mobinfo.check_tier(level, mob); end
+
+-- Level 1: EM 0, T +1..+4, VT +5, IT +6. Only the upper bands are asserted here -- the lower ones
+-- at level 1 sit at mob levels below 1, which no mob has.
+assert(tier(1, 1) == 'EM', 'your own level is the even match, and only it');
+assert(tier(1, 2) == 'T',  'one up at level 1 is tough');
+assert(tier(1, 5) == 'T',  'four up is still tough at level 1, got ' .. tier(1, 5));
+assert(tier(1, 6) == 'VT', 'five up is very tough at level 1, got ' .. tier(1, 6));
+assert(tier(1, 7) == 'IT', 'six up is incredibly tough at level 1, got ' .. tier(1, 7));
+
+-- Level 75: TW at -20, EP -19..-8, DC -7..-1, EM 0, T +1..+3, VT +4..+7, IT +8. The bands widen
+-- downward and narrow upward, which is the whole reason this is interpolated rather than fixed.
+assert(tier(75, 55) == 'TW', 'twenty down at 75 is too weak, got ' .. tier(75, 55));
+assert(tier(75, 56) == 'EP', 'nineteen down is easy prey, got ' .. tier(75, 56));
+assert(tier(75, 67) == 'EP', 'eight down is still easy prey, got ' .. tier(75, 67));
+assert(tier(75, 68) == 'DC', 'seven down is a decent challenge at 75, got ' .. tier(75, 68));
+assert(tier(75, 74) == 'DC', 'one down too');
+assert(tier(75, 75) == 'EM', 'even match is exact at every level');
+assert(tier(75, 76) == 'T',  'one up is tough');
+assert(tier(75, 78) == 'T',  'three up is still tough, got ' .. tier(75, 78));
+assert(tier(75, 79) == 'VT', 'four up is very tough at 75 and merely tough at 1, got ' .. tier(75, 79));
+assert(tier(75, 82) == 'VT', 'seven up is still very tough, got ' .. tier(75, 82));
+assert(tier(75, 83) == 'IT', 'eight up is incredibly tough, got ' .. tier(75, 83));
+
+-- Level 20, where every boundary is interpolated rather than an endpoint: TW at -10, EP -9..-4,
+-- DC -3..-1, T +1..+4, VT +5..+6, IT +7. A sign error in the interpolation lands these in the
+-- neighbouring tier while both endpoints above still pass.
+assert(tier(20, 10) == 'TW', 'ten down at 20 is too weak, got ' .. tier(20, 10));
+assert(tier(20, 11) == 'EP', 'nine down is easy prey, got ' .. tier(20, 11));
+assert(tier(20, 16) == 'EP', 'four down is still easy prey, got ' .. tier(20, 16));
+assert(tier(20, 17) == 'DC', 'three down is a decent challenge, got ' .. tier(20, 17));
+assert(tier(20, 24) == 'T',  'four up is tough, got ' .. tier(20, 24));
+assert(tier(20, 26) == 'VT', 'six up is very tough, got ' .. tier(20, 26));
+assert(tier(20, 27) == 'IT', 'seven up is incredibly tough, got ' .. tier(20, 27));
+
+-- Past the cap the boundaries hold at their level-75 values rather than running off the curve.
+assert(tier(99, 79) == 'TW' and tier(99, 80) == 'EP', 'above 75 the bands stop widening');
+
+-- The line itself. mobdb gives a range, and a range that straddles a boundary prints both ends --
+-- one tier for a Lv.14-17 mob would be wrong about half the spawn.
+local function checkline(level, res)
+    local line = mobinfo.check(res, level);
+    if (line == nil) then return nil; end
+    local out = {};
+    for i, seg in ipairs(line) do out[i] = seg.text; end
+    return table.concat(out);
+end
+
+assert(checkline(20, { MinLevel=14, MaxLevel=16 }) == 'EP', 'a range inside one tier prints once');
+assert(checkline(20, { MinLevel=14, MaxLevel=17 }) == 'EP-DC',
+    'a straddling range prints both ends, got ' .. tostring(checkline(20, { MinLevel=14, MaxLevel=17 })));
+assert(checkline(20, { Level=20 }) == 'EM', 'a fixed level is its own range');
+assert(checkline(20, { Level=20, MinLevel=1, MaxLevel=99 }) == 'EM', 'a fixed level wins over the range');
+assert(checkline(20, { MinLevel=14, MaxLevel=17, Notorious=true }) == '???',
+    'an NM is never gauged, whatever its range says');
+assert(mobinfo.check({ MinLevel=1, MaxLevel=2 }, nil) == nil, 'no player level, nothing to compare');
+assert(mobinfo.check({ MinLevel=1, MaxLevel=2 }, 0) == nil, 'level 0 is not logged in yet');
+assert(mobinfo.check({ Job=1 }, 20) == nil, 'a row with no level in it has no check line');
+assert(mobinfo.check(nil, 20) == nil, 'an unknown mob has no check line');
+
+-- Each tier draws in its own color, and the abbreviations are the ones /check prints.
+for key, want in pairs({ TW='TW', EP='EP', DC='DC', EM='EM', T='T', VT='VT', IT='IT', ITG='???' }) do
+    local t = mobinfo.CHECK[key];
+    assert(t ~= nil and t.text == want, key .. ' abbreviates as ' .. want);
+    assert(t.color ~= nil and t.color.r ~= nil and t.color.a == nil,
+        key .. ' carries rgb and no alpha -- drawText takes the opacity from cfg.text.color');
+end
+local vt, it = mobinfo.CHECK.VT.color, mobinfo.CHECK.IT.color;
+assert(vt.r == it.r and vt.g == it.g and vt.b == it.b,
+    'VT and IT share checker\'s Tomato: re-tinting one would put a color on screen /check never gives');
+
 -- Lookup: index first (dynamic spawns are keyed by it), then name.
 local db = { Indices = { [382] = BONES }, Names = { ['Bomb'] = BOMB } };
 assert(mobinfo.find(db, 382, 'Bomb') == BONES, 'the index entry wins over the name');
@@ -512,22 +586,29 @@ assert(mobinfo.find(nil, 17, 'Bomb') == nil, 'no zone data yields nothing');
 
 -- Panel assembly: each part keyed by where it draws, not by which toggle made it -- the bar's own
 -- label, the two groups flanking the bar, and the rows hung underneath.
-local ALL_LINES   = { level = true, detect = true, resist = true };
-local NO_LINES    = { level = false, detect = false, resist = false };
-local ONLY_LEVEL  = { level = true, detect = false, resist = false };
-local ONLY_DETECT = { level = false, detect = true, resist = false };
+local ALL_LINES   = { level = true, check = true, detect = true, resist = true };
+local NO_LINES    = { level = false, check = false, detect = false, resist = false };
+local ONLY_LEVEL  = { level = true, check = false, detect = false, resist = false };
+local ONLY_DETECT = { level = false, check = false, detect = true, resist = false };
+local ONLY_CHECK  = { level = false, check = true, detect = false, resist = false };
 
 local LINKER = { MinLevel=14, MaxLevel=17, Job=1, Aggro=false, Notorious=true, Link=true,
                  Sight=true, Sound=true, Scent=true };
 
-local full = mobinfo.panel(LINKER, ALL_LINES, jobname);
+local full = mobinfo.panel(LINKER, ALL_LINES, jobname, 20);
 assert(full.label == 'Lv.14-17 WAR', 'the level is the bar label, got ' .. tostring(full.label));
+assert(text(full.above) == '???', 'the check line sits above the bar, got ' .. tostring(text(full.above)));
 assert(icons(full.left) == 'PassiveHQ Link', 'threat flanks left, got ' .. icons(full.left));
 assert(icons(full.right) == 'Sight Sound Scent', 'senses flank right, got ' .. icons(full.right));
 assert(#full.rows == 0, 'a mob with no modifiers hangs no rows');
 
-local bomb = mobinfo.panel(BOMB, ALL_LINES, jobname);
+local bomb = mobinfo.panel(BOMB, ALL_LINES, jobname, 12);
 assert(bomb.label == 'Lv.8-10', 'got ' .. tostring(bomb.label));
+-- 'EP- DC' and not 'EP-DC': the dash rides on the first segment so the pair is two draws, and
+-- test.lua's `text` puts a space between segments.
+assert(text(bomb.above) == 'EP- DC', 'the range straddles a boundary, got ' .. tostring(text(bomb.above)));
+assert(#mobinfo.panel(BOMB, ALL_LINES, jobname, nil).above == 0,
+    'no player level leaves the check line empty rather than nil');
 assert(icons(bomb.left) == 'AggroNQ', 'no link, so the left group is the aggro icon alone');
 assert(icons(bomb.right) == 'Sight Magic', 'got ' .. icons(bomb.right));
 assert(#bomb.rows == 1, 'the resistance list is the row under the panel');
@@ -535,25 +616,30 @@ assert(text(bomb.rows[1]) == 'Fire+25% Ice-50% Wind-50% Earth-50% Lightning-50% 
     'got ' .. tostring(text(bomb.rows[1])));
 
 -- Each toggle still owns exactly what it names, and nothing else moves when one is off.
-local lvl = mobinfo.panel(BOMB, ONLY_LEVEL, jobname);
-assert(lvl.label == 'Lv.8-10' and #lvl.left == 0 and #lvl.right == 0 and #lvl.rows == 0,
+local lvl = mobinfo.panel(BOMB, ONLY_LEVEL, jobname, 12);
+assert(lvl.label == 'Lv.8-10' and #lvl.above == 0 and #lvl.left == 0 and #lvl.right == 0 and #lvl.rows == 0,
     'level alone is the label and nothing else');
 
-local det = mobinfo.panel(BOMB, ONLY_DETECT, jobname);
+local det = mobinfo.panel(BOMB, ONLY_DETECT, jobname, 12);
 assert(det.label == nil and icons(det.left) == 'AggroNQ' and icons(det.right) == 'Sight Magic',
     'detect alone is the icons, and the bar keeps its own label');
 
--- The empty shape is always the full shape: every caller indexes these three, so none of them may
+local chk = mobinfo.panel(BOMB, ONLY_CHECK, jobname, 12);
+assert(chk.label == nil and #chk.above == 2 and #chk.left == 0 and #chk.rows == 0,
+    'check alone is the line above the bar -- it does not borrow the level toggle');
+
+-- The empty shape is always the full shape: every caller indexes these four, so none of them may
 -- ever be nil, whatever went missing upstream.
-for _, empty in ipairs({ mobinfo.panel(BOMB, NO_LINES, jobname),
-                         mobinfo.panel(nil, ALL_LINES, jobname),
-                         mobinfo.panel(BOMB, nil, jobname) }) do
+for _, empty in ipairs({ mobinfo.panel(BOMB, NO_LINES, jobname, 12),
+                         mobinfo.panel(nil, ALL_LINES, jobname, 12),
+                         mobinfo.panel(BOMB, nil, jobname, 12) }) do
     assert(empty.label == nil, 'nothing to say means no label');
-    assert(#empty.left == 0 and #empty.right == 0 and #empty.rows == 0, 'and no groups');
+    assert(#empty.above == 0 and #empty.left == 0 and #empty.right == 0 and #empty.rows == 0, 'and no groups');
 end
 
-local shipped = mobinfo.panel(BOMB, config.defaults.mob, jobname);
-assert(shipped.label ~= nil and #shipped.left > 0 and #shipped.rows == 1, 'the defaults ship every toggle on');
+local shipped = mobinfo.panel(BOMB, config.defaults.mob, jobname, 12);
+assert(shipped.label ~= nil and #shipped.above > 0 and #shipped.left > 0 and #shipped.rows == 1,
+    'the defaults ship every toggle on');
 
 -- The loader. A missing file is the normal case -- mobdb ships ~245 zones and may not be
 -- installed at all -- so it must land on nil rather than throwing.

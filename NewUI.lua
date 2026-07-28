@@ -394,7 +394,9 @@ end
 -- Draws `text` centered in the box (left, top, width, height) at `size` px, with the shared
 -- outline and bold treatment. `size` nil (config.label_size' answer for a box too short to hold a
 -- legible glyph) draws nothing, as does text too big for the box it was given.
-local function drawText(draw_list, left, top, width, height, text, size, cfg)
+-- `color` overrides the fill's rgb (the check tiers, which carry a meaning in their color); the
+-- alpha still comes from cfg.text.color, so the shared text opacity governs every string alike.
+local function drawText(draw_list, left, top, width, height, text, size, cfg, color)
     if (size == nil) then return; end
 
     local font = imgui.GetFont();
@@ -432,7 +434,7 @@ local function drawText(draw_list, left, top, width, height, text, size, cfg)
         draw_list:AddText(font, size, { x, y + 1 }, col, text);
     end
 
-    local fill = packColor(cfg.text.color);
+    local fill = packColor(color or cfg.text.color, cfg.text.color.a);
     draw_list:AddText(font, size, { x, y }, fill, text);
     if (cfg.text.bold) then
         draw_list:AddText(font, size, { x + bx, y }, fill, text);
@@ -482,8 +484,8 @@ local function drawLabel(draw_list, left, top, width, height, text, cfg)
 end
 
 -- Panels with no mob reference (everything but a target) land on this rather than nil, so drawPanel
--- indexes the three groups instead of guarding each one. Shared and never written to.
-local NO_INFO = { left = {}, right = {}, rows = {} };
+-- indexes the groups instead of guarding each one. Shared and never written to.
+local NO_INFO = { above = {}, left = {}, right = {}, rows = {} };
 
 --[[
 * Drawn width of one mob reference segment (see mobinfo.lua for the shape).
@@ -534,13 +536,13 @@ local function drawInfoLine(draw_list, left, top, width, row, segments, size, ga
             x = x + size;
         elseif (seg.alt ~= nil) then
             local w = textWidth(seg.alt, size, cfg);
-            drawText(draw_list, x, top, w, row, seg.alt, size, cfg);
+            drawText(draw_list, x, top, w, row, seg.alt, size, cfg, seg.color);
             x = x + w;
         end
 
         if (seg.text ~= nil) then
             local w = textWidth(seg.text, size, cfg);
-            drawText(draw_list, x, top, w, row, seg.text, size, cfg);
+            drawText(draw_list, x, top, w, row, seg.text, size, cfg, seg.color);
             x = x + w;
         end
 
@@ -640,6 +642,13 @@ local function drawPanel(sx, sy, s, bars, size, scale, slot, info)
     -- height check by a fraction.
     local row       = config.info_row(cfg, scale);
     local info_size = math.floor(row);
+
+    -- The check line sits over the bar, one gap clear of the top edge -- the mirror of the rows
+    -- under it, and above rather than below because it is the first thing read: whether to engage
+    -- at all is answered before anything the rest of the panel says.
+    if (#info.above > 0) then
+        drawInfoLine(draw_list, left, top - gap - row, width, row, info.above, info_size, gap, cfg);
+    end
 
     -- The two icon groups flank the bar, one gap clear of each edge and centered on the panel's
     -- height: they are what you read *with* the bar, not under it, and beside it they cost the bar
@@ -765,9 +774,13 @@ local function drawTarget(mm, view, proj, vp)
     end
 
     -- nil slot: an arbitrary entity has no party slot, so the panel reserves no box for one.
+    -- Main job level, not the sub's and not a level-synced display value: /check is decided by the
+    -- level you fight at, which is what GetMainJobLevel reports (it already reads as the synced
+    -- level while level sync is up).
     drawAt(mm, target_index, s, TARGET_BARS, config.settings.sizes.target,
            config.settings.target_height_offset, nil,
-           mobinfo.panel(res, config.settings.mob, jobName), view, proj, vp);
+           mobinfo.panel(res, config.settings.mob, jobName, mm:GetPlayer():GetMainJobLevel()),
+           view, proj, vp);
 end
 
 --[[
@@ -922,6 +935,7 @@ local function drawConfigWindow()
         imgui.Text('Target Info Lines');
         checkbox('Show Detection', cfg.mob, 'detect');
         checkbox('Show Level & Job', cfg.mob, 'level');
+        checkbox('Show Check (TW/EP/DC/EM/T/VT/IT)', cfg.mob, 'check');
         checkbox('Show Weakness/Resist', cfg.mob, 'resist');
         slider(imgui.SliderInt, 'Info Text Size', cfg.mob, 'size', 8, 40);
         imgui.Text(('mob data: zone %d, %s'):fmt(mob_zone, mob_db ~= nil and 'loaded' or 'none'));
