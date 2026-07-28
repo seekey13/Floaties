@@ -251,9 +251,26 @@ target: Mandragora hp=63% status=1 flags=0x10
 Panel: shown
 ```
 
-`Panel:` is the resulting decision, so a gate reading false while the panel is
-on screen is visible as a contradiction rather than something to infer. With no
-gate enabled it reads `hidden -- no gate enabled, so nothing can enable it`.
+`Panel:` is the resulting decision — **`Enabled` and the gates together**, not
+the gates alone — so a gate reading false while the panel is on screen is
+visible as a contradiction rather than something to infer. With no gate enabled
+it reads `hidden -- no gate enabled, so nothing can enable it`; with the addon
+switched off it reads `hidden -- addon switched off; tick Enabled below, or
+/newui`.
+
+`Enabled` is the master switch `/newui` toggles, and it is persisted. It reports
+here and has its own checkbox because leaving it out of both is what let it be
+off and invisible at the same time: the line meant to answer "is this a gate
+problem?" said `shown` over an empty screen for as long as the setting stayed
+off.
+
+**`Panel: shown` with nothing on screen means the drawing threw**, not that a
+gate is wrong — and a `draw error:` line under it says what. The panels are
+drawn inside a `pcall` for exactly this: the config window is drawn *first* in
+the frame, so an uncaught throw below it takes every panel with it and leaves
+the window truthfully reporting `shown` over an empty screen, with the reason
+only in Ashita's own log. Trapped, one bad frame costs the panels and prints
+why. The line clears itself on the first frame that draws cleanly.
 
 `status=` before the pipe is *your* entity status; the one inside `bt:` is the
 battle target's, so a corpse still being handed back by `get_bt` is visible as
@@ -415,7 +432,13 @@ apart from "mobdb isn't installed":
 
 ```
 mob data: zone 100, loaded
+icons: 6 loaded, 0 missing
 ```
+
+`icons:` is the other half of it: data loaded but every line reading as words
+means the PNGs are missing (or `D3DXCreateTextureFromFileA` did not resolve on
+this Ashita build), not that the mob is absent from mobdb. It counts what has
+been asked for so far, so it fills in as you target things.
 
 Job abbreviations come from Ashita's own job resource, with the same
 `jobs.names_abbr` → `jobs_abbr` fallback mobdb carries for older versions.
@@ -442,7 +465,7 @@ retinting them.
 
 | Command | Effect |
 |---|---|
-| `/newui` | Toggle on/off |
+| `/newui` | Toggle on/off. Persisted, and the same setting as the **Enabled** checkbox in the config window |
 | `/newui height <n>` | Your own vertical nudge from the nameplate anchor. Positive is downward. Default `0.228` |
 | `/newui config` | Toggle the settings window |
 | `/newui bt` | Print the current gate state (in combat / engaged / idle, raw status, resolved `<bt>` and target, or why either was rejected) |

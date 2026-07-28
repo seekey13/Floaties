@@ -229,9 +229,29 @@ end
 * the collector release the texture out from under a handle still being drawn every frame. `false`
 * marks a load that failed, so a missing file is retried never rather than every frame.
 *
+* The load is pcall'd for the same reason lib.targets is, and the same reason mobdb pcalls its own
+* first D3DX call (compatibility.lua): whether `D3DXCreateTextureFromFileA` resolves at all depends
+* on the Ashita build, and an unresolved symbol *raises* rather than returning a failed HRESULT.
+* Unguarded that throw lands inside d3d_present, which draws the config window before the panels --
+* so the window would keep reporting the panel as shown while every panel after the throw was gone.
+* Caught, a whole missing D3DX degrades to the text fallback, which is what a missing PNG already
+* does.
+*
 * @return {number|nil} the texture handle, or nil when there is no icon by that name.
 --]]
 local icon_cache = {};
+
+local function loadIcon(name)
+    local out  = ffi.new('IDirect3DTexture8*[1]');
+    local path = ('%saddons/mobdb/icons/%s.png'):fmt(AshitaCore:GetInstallPath(), name);
+
+    if (C.D3DXCreateTextureFromFileA(dev, path, out) ~= C.S_OK) then
+        return nil;
+    end
+
+    local tex = d3d.gc_safe_release(ffi.cast('IDirect3DTexture8*', out[0]));
+    return { tex = tex, id = tonumber(ffi.cast('uint32_t', tex)) };
+end
 
 local function iconHandle(name)
     if (name == nil) then
@@ -243,17 +263,9 @@ local function iconHandle(name)
         return hit and hit.id or nil;
     end
 
-    local out  = ffi.new('IDirect3DTexture8*[1]');
-    local path = ('%saddons/mobdb/icons/%s.png'):fmt(AshitaCore:GetInstallPath(), name);
-
-    if (C.D3DXCreateTextureFromFileA(dev, path, out) ~= C.S_OK) then
-        icon_cache[name] = false;
-        return nil;
-    end
-
-    local tex = d3d.gc_safe_release(ffi.cast('IDirect3DTexture8*', out[0]));
-    icon_cache[name] = { tex = tex, id = tonumber(ffi.cast('uint32_t', tex)) };
-    return icon_cache[name].id;
+    local ok, entry = pcall(loadIcon, name);
+    icon_cache[name] = (ok and entry) or false;
+    return icon_cache[name] and icon_cache[name].id or nil;
 end
 
 -- AddImage multiplies the texture by this, so opaque white is "draw the PNG as authored". The icons
@@ -273,6 +285,12 @@ end
 local BAR_ROUNDING = 3;
 
 local config_open = { false };
+
+-- Last error thrown out of the panel drawing, or nil. d3d_present draws the config window *before*
+-- the panels, so a throw below it left the window truthfully reporting "Panel: shown" over a screen
+-- with no panel on it, and Ashita's own log was the only place the reason existed. Kept here and
+-- printed in the window, so the addon says why it drew nothing.
+local draw_error = nil;
 
 -- Display names for config.size_order, matching the wording the height-offset sliders already use.
 local SIZE_LABELS = { self = 'Self', party = 'Party', target = 'Target' };
@@ -702,6 +720,19 @@ local function drawTarget(mm, view, proj, vp)
            mobinfo.lines(res, config.settings.mob, jobName), view, proj, vp);
 end
 
+-- Every panel for one frame. Split out of d3d_present so the pcall guarding it can take arguments
+-- instead of a closure allocated per frame.
+local function drawPanels(mm, party, view, proj, vp)
+    -- Slot 0 is self; 1..5 are the rest of the party.
+    for i = 0, (config.settings.show_party and 5 or 0) do
+        drawMember(mm, party, i, view, proj, vp);
+    end
+
+    if (config.settings.show_target) then
+        drawTarget(mm, view, proj, vp);
+    end
+end
+
 local function drawConfigWindow()
     if (not config_open[1]) then return; end
 
@@ -760,14 +791,37 @@ local function drawConfigWindow()
 
         -- The decision itself, so a gate that reads false while the panel is plainly on screen
         -- is impossible to miss. Hidden with every gate off is correct, not a bug -- say so.
-        local shown = config.visible(cfg, gate_state);
+        --
+        -- `enabled` is part of that decision and used to be left out of it: it short-circuits ahead
+        -- of the gates in d3d_present, is persisted, and its only switch is the bare `/newui`
+        -- command -- so an addon toggled off weeks ago read "Panel: shown" here forever while
+        -- drawing nothing, and the one line meant to settle "is this a gate problem?" was the line
+        -- lying. Both halves, or the status is worse than no status.
+        local shown = cfg.enabled and config.visible(cfg, gate_state);
         imgui.TextColored(shown and { 0.4, 1.0, 0.4, 1.0 } or { 1.0, 0.4, 0.4, 1.0 },
                           ('Panel: %s'):fmt(shown and 'shown' or 'hidden'));
-        if (not (cfg.show_in_combat or cfg.show_while_engaged or cfg.show_while_idle)) then
+
+        if (not cfg.enabled) then
+            imgui.SameLine();
+            imgui.Text('-- addon switched off; tick Enabled below, or /newui');
+        elseif (not (cfg.show_in_combat or cfg.show_while_engaged or cfg.show_while_idle)) then
             imgui.SameLine();
             imgui.Text('-- no gate enabled, so nothing can enable it');
         end
+
+        -- "Panel: shown" over an empty screen means the draw threw, not that a gate is wrong. The
+        -- message is the one thing that could tell them apart, and it used to be the thing that got
+        -- swallowed -- see the pcall in d3d_present.
+        if (draw_error ~= nil) then
+            imgui.TextColored({ 1.0, 0.4, 0.4, 1.0 }, ('draw error: %s'):fmt(draw_error));
+        end
+
         imgui.Separator();
+
+        -- The master switch, the same setting `/newui` flips. It had no widget at all, which is how
+        -- it managed to be off and invisible at once -- every other persisted setting is reachable
+        -- from this window, and this is the one that stops the addon drawing.
+        checkbox('Enabled', cfg, 'enabled');
 
         checkbox('Show In Combat', cfg, 'show_in_combat');
         checkbox('Show While Engaged', cfg, 'show_while_engaged');
@@ -802,6 +856,16 @@ local function drawConfigWindow()
         checkbox('Show Weakness/Resist', cfg.mob, 'resist');
         slider(imgui.SliderInt, 'Info Text Size', cfg.mob, 'size', 8, 40);
         imgui.Text(('mob data: zone %d, %s'):fmt(mob_zone, mob_db ~= nil and 'loaded' or 'none'));
+
+        -- Icon state beside the data state, for the other half of "the lines look wrong": data
+        -- loaded but every line reading as words means the PNGs (or D3DX itself) are missing, not
+        -- that the mob is absent from mobdb. Counted here rather than kept as a running total --
+        -- this only walks a table of ~20 entries, and only while the window is open.
+        local loaded, missing = 0, 0;
+        for _, entry in pairs(icon_cache) do
+            if (entry) then loaded = loaded + 1; else missing = missing + 1; end
+        end
+        imgui.Text(('icons: %d loaded, %d missing'):fmt(loaded, missing));
 
         -- The reference does nothing while the checkbox is off, so it is only drawn when it is on.
         imgui.Separator();
@@ -901,14 +965,12 @@ ashita.events.register('d3d_present', 'newui_present', function ()
     local _, view = dev:GetTransform(C.D3DTS_VIEW);
     local _, proj = dev:GetTransform(C.D3DTS_PROJECTION);
 
-    -- Slot 0 is self; 1..5 are the rest of the party.
-    for i = 0, (config.settings.show_party and 5 or 0) do
-        drawMember(mm, party, i, view, proj, vp);
-    end
-
-    if (config.settings.show_target) then
-        drawTarget(mm, view, proj, vp);
-    end
+    -- Trapped rather than left to propagate: an uncaught throw here takes every panel after it with
+    -- it and reports nothing, because the config window has already drawn for this frame. The
+    -- message goes to `draw_error`, which that window prints. Named function, not a closure, so the
+    -- guard does not allocate once a frame.
+    local ok, err = pcall(drawPanels, mm, party, view, proj, vp);
+    draw_error = (not ok) and tostring(err) or nil;
 end);
 
 ----------------------------------------------------------------------------------------------------
