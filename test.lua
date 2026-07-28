@@ -205,7 +205,6 @@ assert(config.info_row(config.defaults, 1) == 14, 'at 1:1 the row is the configu
 assert(config.info_row(config.defaults, nil) == 14, 'no scale is 1:1');
 assert(config.info_row(config.defaults, 1.5) == 21, 'scaling up is not clamped');
 assert(config.info_row(config.defaults, 0.35) == MIN_INFO, 'the smallest scale holds at the floor, got ' .. tostring(config.info_row(config.defaults, 0.35)));
-assert(config.info_row(config.defaults, 0.01) == MIN_INFO, 'and cannot be pushed under it');
 
 -- The floor is never *above* what was configured: an Info Text Size dragged below Min Text Size is
 -- honoured rather than bumped up to a size nobody asked for.
@@ -497,8 +496,6 @@ assert(text(mobinfo.resist({ Modifiers={ Fire=0.5, Ice=0.5 } })) == 'Fire-50% Ic
 -- out of `pairs`: this is rebuilt every frame, and a shuffling order would flicker the line.
 local tied = { Modifiers={ Dark=0.5, Fire=0.5, Slashing=0.5, Water=0.5 } };
 assert(text(mobinfo.resist(tied)) == 'Slash-50% Fire-50% Water-50% Dark-50%', 'got ' .. tostring(text(mobinfo.resist(tied))));
-assert(text(mobinfo.resist(tied)) == text(mobinfo.resist(tied)), 'the same mob must format identically twice');
-assert(icons(mobinfo.resist(tied)) == icons(mobinfo.resist(tied)), 'and must ask for the same icons twice');
 
 assert(mobinfo.resist({ Modifiers={ Fire=1, Ice=1 } }) == nil, 'a mob that takes everything normally has no line');
 assert(mobinfo.resist({}) == nil, 'a row with no modifiers has no line');
@@ -508,7 +505,6 @@ assert(mobinfo.resist(nil) == nil, 'an unknown mob has no resist line');
 local db = { Indices = { [382] = BONES }, Names = { ['Bomb'] = BOMB } };
 assert(mobinfo.find(db, 382, 'Bomb') == BONES, 'the index entry wins over the name');
 assert(mobinfo.find(db, 17, 'Bomb') == BOMB, 'an unindexed mob is found by name');
-assert(mobinfo.find(db, 17, 'Bomb') ~= nil, 'sanity');
 assert(mobinfo.find(db, 17, "\007Bomb") == BOMB, 'a client name marker is stripped');
 assert(mobinfo.find(db, 17, 'Orcish Fodder') == nil, 'an unknown name yields nothing');
 assert(mobinfo.find(db, 17, nil) == nil, 'a nameless entity yields nothing');

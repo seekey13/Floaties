@@ -264,8 +264,9 @@ local function iconHandle(name)
     end
 
     local ok, entry = pcall(loadIcon, name);
-    icon_cache[name] = (ok and entry) or false;
-    return icon_cache[name] and icon_cache[name].id or nil;
+    entry = (ok and entry) or false;
+    icon_cache[name] = entry;
+    return entry and entry.id or nil;
 end
 
 -- AddImage multiplies the texture by this, so opaque white is "draw the PNG as authored". The icons
@@ -909,15 +910,9 @@ local function drawConfigWindow()
         slider(imgui.SliderInt, 'Info Text Size', cfg.mob, 'size', 8, 40);
         imgui.Text(('mob data: zone %d, %s'):fmt(mob_zone, mob_db ~= nil and 'loaded' or 'none'));
 
-        -- Icon state beside the data state, for the other half of "the lines look wrong": data
-        -- loaded but every line reading as words means the PNGs (or D3DX itself) are missing, not
-        -- that the mob is absent from mobdb. Counted here rather than kept as a running total --
-        -- this only walks a table of ~20 entries, and only while the window is open.
-        local loaded, missing = 0, 0;
-        for _, entry in pairs(icon_cache) do
-            if (entry) then loaded = loaded + 1; else missing = missing + 1; end
-        end
-        imgui.Text(('icons: %d loaded, %d missing'):fmt(loaded, missing));
+        -- No icon state reported here: a missing PNG draws its `alt` word on the panel, so the
+        -- lines reading as words *is* the diagnostic, and a counter in this window would only
+        -- repeat what is already on screen.
 
         -- The reference does nothing while the checkbox is off, so it is only drawn when it is on.
         imgui.Separator();

@@ -499,13 +499,12 @@ apart from "mobdb isn't installed":
 
 ```
 mob data: zone 100, loaded
-icons: 6 loaded, 0 missing
 ```
 
-`icons:` is the other half of it: data loaded but every line reading as words
-means the PNGs are missing (or `D3DXCreateTextureFromFileA` did not resolve on
-this Ashita build), not that the mob is absent from mobdb. It counts what has
-been asked for so far, so it fills in as you target things.
+Missing icons need no line of their own: a segment whose PNG did not load draws
+its word instead, so data loaded but every line reading as words already says the
+icons are missing (or that `D3DXCreateTextureFromFileA` did not resolve on this
+Ashita build), as against the mob being absent from mobdb.
 
 Job abbreviations come from Ashita's own job resource, with the same
 `jobs.names_abbr` → `jobs_abbr` fallback mobdb carries for older versions.

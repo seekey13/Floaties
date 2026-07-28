@@ -79,7 +79,7 @@ function M.find(db, index, name)
 
     -- Names are stored unprefixed, but the client puts markers in front of some of them, so
     -- everything before the first letter is dropped -- same match mobdb's GetByName uses.
-    return db.Names[name:match('^[^%a]*(.*)') or name];
+    return db.Names[name:match('^[^%a]*(.*)')];
 end
 
 --[[
@@ -235,13 +235,9 @@ function M.resist(res)
         return a.rank < b.rank;
     end);
 
-    -- Rebuilt rather than returned as-is: potency/rank exist to sort by and have no business
-    -- reaching the renderer, which would then be free to start reading them.
-    local out = {};
-    for i, mod in ipairs(mods) do
-        out[i] = { icon = mod.icon, alt = mod.alt, text = mod.text };
-    end
-    return out;
+    -- potency/rank ride along on the segments: they exist to sort by, and the renderer reads
+    -- icon/alt/text and never goes looking for a fourth key.
+    return mods;
 end
 
 --[[
@@ -277,16 +273,15 @@ function M.panel(res, mob, jobname)
         out.label = M.level_job(res, jobname);
     end
 
+    -- Neither returns nil past the res check above, so there is nothing to fall back to.
     if (mob.detect) then
-        out.left  = M.threat(res) or out.left;
-        out.right = M.senses(res) or out.right;
+        out.left, out.right = M.threat(res), M.senses(res);
     end
 
+    -- nil is the whole of "nothing to say": M.resist never returns an empty list, and assigning
+    -- nil leaves rows empty rather than putting a blank row in it.
     if (mob.resist) then
-        local mods = M.resist(res);
-        if (mods ~= nil and #mods > 0) then
-            out.rows[1] = mods;
-        end
+        out.rows[1] = M.resist(res);
     end
 
     return out;
