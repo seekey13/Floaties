@@ -52,11 +52,15 @@ Lua so `test.lua` can exercise it headless. Consequences to preserve:
   tests headless too. `NewUI.lua` supplies the path (`GetInstallPath`) and a
   job-id → abbreviation function; nothing here reads `AshitaCore`. mobdb is a
   data dependency, never a load-order one — a missing file is `nil` and the
-  reference lines just don't draw. A line is an array of `{ icon, alt, text }`
+  reference just doesn't draw. A line is an array of `{ icon, alt, text }`
   segments: choosing *which* mobdb icon a flag means is a decision and lives
   here, loading and drawing the PNG is `NewUI.lua`'s, and `alt` is the word to
   print when the texture is missing (mobdb's data and its icons install
-  separately, so either can be absent on its own).
+  separately, so either can be absent on its own). `M.panel` keys its result by
+  *where* each piece draws (`label`, `left`, `right`, `rows`) rather than by
+  which toggle produced it, so `drawPanel` places them without knowing which
+  flag any of them came from — and all four keys are always present, so it
+  indexes instead of guarding.
 - `lib/targets.lua` — Ashita's own target library, **vendored unmodified**. Do
   not edit it; it is diffable against upstream/Sidekick's `lib/core/targets.lua`.
   It hard-`error`s at load when its byte signatures miss, so it is `require`d
@@ -102,10 +106,11 @@ throw.
 Geometry is derived, never stored: `config.bar_width`, `config.panel_height` and
 `config.label_size` are pure functions of the settings table, so distance
 scaling multiplies their *results* in `drawPanel` rather than threading a scale
-factor through them. `config.info_row`/`config.info_height` are the exception
-and take the scale, because the mob reference rows hold at `text.min_size`
-instead of shrinking with the panel — they and the bars no longer share one
-factor, so `drawPanel` adds two terms rather than scaling one sum.
+factor through them. `config.info_row` is the exception and takes the scale,
+because the mob reference holds at `text.min_size` instead of shrinking with the
+panel — it and the bars no longer share one factor. It is also the whole of that
+block's geometry: every piece is drawn *outside* the frame (icon groups flanking
+the bar, rows under it), so nothing reserves height or width for any of it.
 
 `sizes.self` / `sizes.party` / `sizes.target` are the only per-panel-kind
 settings (width + per-bar heights); everything else — padding, rounding, colors,

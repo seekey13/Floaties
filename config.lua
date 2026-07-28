@@ -72,14 +72,15 @@ M.defaults = {
         size    = 21,   -- text height in px; the box's width is derived from it (M.slot_box)
     },
 
-    -- Reference lines under the target panel's bar, read out of mobdb's zone data. Each is
-    -- independently switchable, and a line with nothing to say (an unknown mob, a mob that takes
-    -- every damage type normally) is skipped rather than drawn blank -- so switching one on does
-    -- not guarantee a row. Target panels only: party members are not mobs.
+    -- Mob reference drawn around the target panel, read out of mobdb's zone data -- see
+    -- mobinfo.panel for where each piece lands. Each is independently switchable, and anything
+    -- with nothing to say (an unknown mob, a mob that takes every damage type normally) is skipped
+    -- rather than drawn blank, so switching one on does not guarantee content. Target panels only:
+    -- party members are not mobs.
     mob = {
-        level  = true,   -- Lv14-17 WAR
-        detect = true,   -- aggro/passive + detection icons
-        resist = true,   -- element icon + percentage
+        level  = true,   -- Lv.14-17 WAR, labelling the HP bar until the mob is damaged
+        detect = true,   -- aggro/passive + Link flanking left, the senses flanking right
+        resist = true,   -- element icon + percentage, on a row under the panel
         -- Row height in px: the text size, and the icons' side. The second piece of text with a
         -- size of its own (see slot.size), but unlike the others it holds at text.min_size instead
         -- of dropping out below it (M.info_row) -- the panel widens to hold whatever the lines come
@@ -263,8 +264,9 @@ end
 * The floor never rises above the configured size, so Info Text Size dragged below Min Text Size is
 * honoured rather than bumped up to a size nobody asked for.
 *
-* This is why info_height takes a scale, and panel_height no longer counts the lines at all: the
-* block stops shrinking while the bars above it keep going, so the two cannot share one factor.
+* This is the whole of the reference block's geometry: the lines hang *below* the panel, so nothing
+* reserves height for them and there is no info_height to keep in step with this -- drawPanel steps
+* one row at a time from the panel's bottom edge.
 *
 * @param {number|nil} scale - distance scale; nil is 1:1.
 --]]
@@ -272,26 +274,7 @@ function M.info_row(cfg, scale)
     return math.max(cfg.mob.size * (scale or 1), math.min(cfg.mob.size, cfg.text.min_size));
 end
 
---[[
-* Panel height for `count` mob reference lines: each row plus the gap above it. That puts one gap
-* between the block and the last bar and one between the lines, with none trailing the bottom --
-* the same spacing the bars already have.
-*
-* Returns the *drawn* height, scale already applied (see M.info_row), so callers add it to a scaled
-* panel height rather than multiplying it again.
-*
-* @param {number} count - number of lines actually being drawn.
-* @return {number} 0 for no lines, without reading cfg.mob at all, so a panel kind that never has
-*                  them (and every test fixture) needs no `mob` table.
---]]
-function M.info_height(cfg, count, scale)
-    if (count == 0) then
-        return 0;
-    end
-    return count * (M.info_row(cfg, scale) + cfg.gap * (scale or 1));
-end
-
--- Bars only. The reference block is added by the caller, at its own scale (see M.info_row).
+-- Bars only -- the reference lines are drawn under the panel, not inside it, and cost it no height.
 function M.panel_height(cfg, size, bars)
     bars = bars or M.bar_order;
     local sum = 0;

@@ -13,7 +13,7 @@
 *
 * A line is an array of *segments*, not a string, because the detection and resistance lines draw
 * as mobdb's own icons rather than as words -- a row of glyphs reads at a glance where "Aggro Sight
-* Magic" has to be parsed. A segment is:
+* Magic" has to be parsed, and it lets icons and text share one run (see M.panel). A segment is:
 *
 *   icon - mobdb icon name (Ashita/addons/mobdb/icons/<icon>.png), or nil for a text-only segment.
 *   alt  - the word the icon stands for, drawn instead of it when the texture is missing.
@@ -96,7 +96,7 @@ function M.level_job(res, jobname)
         return nil;
     end
 
-    local out = 'Lv' .. (res.Level and tostring(res.Level)
+    local out = 'Lv.' .. (res.Level and tostring(res.Level)
         or string.format('%d-%d', res.MinLevel or 0, res.MaxLevel or 0));
 
     if (jobname ~= nil and res.Job ~= nil and res.Job > 0) then
@@ -110,15 +110,19 @@ function M.level_job(res, jobname)
 end
 
 -- What the mob notices you with, in the order it is worth reading. TrueSight leads Sight because
--- it supersedes it (invisible does not help), and Link trails the lot -- it is not detection, but
--- it is the other thing you want to know before pulling.
-local DETECTION = { 'TrueSight', 'Sight', 'Sound', 'Scent', 'Magic', 'JA', 'Blood', 'Link' };
+-- it supersedes it -- invisible does not help. Link is deliberately not in here: it is not a sense,
+-- and it belongs with the aggro flag (see M.threat).
+local SENSES = { 'TrueSight', 'Sight', 'Sound', 'Scent', 'Magic', 'JA', 'Blood' };
 
 --[[
-* Aggression, then what it detects with -- one icon each.
+* What happens when you walk up to it: aggro or passive, and whether it links.
+*
+* These two are the pull decision, so they lead the line, left of the level -- the senses on the
+* other side answer a different question (how to approach), and splitting them puts each group
+* where it is looked for instead of running eight glyphs together.
 *
 * Aggro/Passive always draws: "no detection flags" and "does not aggro" are different facts, and a
-* line that vanished for a passive mob would read as missing data rather than as a safe mob.
+* group that vanished for a passive mob would read as missing data rather than as a safe mob.
 *
 * Notorious is not a segment of its own, because mobdb has no NM icon: it has HQ variants of the
 * aggro/passive one (a gold frame), which is one glyph carrying both facts. The text fallback still
@@ -126,7 +130,7 @@ local DETECTION = { 'TrueSight', 'Sight', 'Sound', 'Scent', 'Magic', 'JA', 'Bloo
 *
 * @return {table|nil} segments.
 --]]
-function M.detection(res)
+function M.threat(res)
     if (res == nil) then
         return nil;
     end
@@ -139,7 +143,26 @@ function M.detection(res)
         },
     };
 
-    for _, flag in ipairs(DETECTION) do
+    if (res.Link == true) then
+        out[#out + 1] = { icon = 'Link', alt = 'Link' };
+    end
+
+    return out;
+end
+
+--[[
+* What it notices you with, one icon each, drawn right of the level.
+*
+* @return {table|nil} segments -- empty for a mob that senses nothing, which is a real answer and
+*                     not a missing one. M.lines simply has nothing to append.
+--]]
+function M.senses(res)
+    if (res == nil) then
+        return nil;
+    end
+
+    local out = {};
+    for _, flag in ipairs(SENSES) do
         if (res[flag] == true) then
             out[#out + 1] = { icon = flag, alt = flag };
         end
@@ -222,36 +245,49 @@ function M.resist(res)
 end
 
 --[[
-* The enabled, non-empty reference lines for one mob, top to bottom.
+* Everything the target panel draws from mobdb, split by where it goes rather than by which toggle
+* produced it -- the caller places each part and needs no idea which flag it came from:
 *
-* @param {table|nil} res - M.find's result; nil (an unknown mob, or a PC) yields no lines.
-* @param {table|nil} mob - cfg.mob: the three per-line toggles.
-* @return {table} array of segment arrays, possibly empty. Never nil -- callers take #lines as the
-*                 row count for the panel's height, so there is nothing to guard.
+*     <Aggro> <Link>  [====== Lv.14-17 WAR/MNK ======]  <Sight> <Sound> <Scent>
+*                      <Fire>+25% <Ice>-50% <Dark>-50%
+*
+*   label - text for the HP bar's own label. The level, in place of the HP percent, because a bar
+*           already *is* the percent -- the number on top of a full bar was saying "100%" over a
+*           full bar. (The caller switches back to the percent once the mob is damaged, which is
+*           the point at which the percent starts saying something the fill does not.)
+*   left  - segments flanking the bar on its left: aggro/passive and Link, the pull decision.
+*   right - segments flanking it on its right: what it senses you with.
+*   rows  - full-width rows hung under the panel. The resistance list, in practice -- that one has
+*           no fixed length, so it cannot flank anything without shoving the bar off-center.
+*
+* All four are always present (label may be nil), so the caller indexes instead of guarding, and a
+* mob with nothing to say is empty groups rather than a missing table.
+*
+* @param {table|nil} res - M.find's result; nil (an unknown mob, or a PC) yields the empty shape.
+* @param {table|nil} mob - cfg.mob: the three toggles.
+* @return {table} { label, left, right, rows }.
 --]]
-function M.lines(res, mob, jobname)
-    local out = {};
+function M.panel(res, mob, jobname)
+    local out = { left = {}, right = {}, rows = {} };
     if (res == nil or mob == nil) then
         return out;
     end
 
-    local function add(segments)
-        if (segments ~= nil and #segments > 0) then
-            out[#out + 1] = segments;
-        end
-    end
-
-    -- The level line has no icon to draw -- mobdb ships none for a level range or a job -- so it
-    -- stays the one line that is a single run of text, wrapped as a segment to keep the shape.
     if (mob.level) then
-        local text = M.level_job(res, jobname);
-        if (text ~= nil) then
-            add({ { text = text } });
-        end
+        out.label = M.level_job(res, jobname);
     end
 
-    if (mob.detect) then add(M.detection(res)); end
-    if (mob.resist) then add(M.resist(res)); end
+    if (mob.detect) then
+        out.left  = M.threat(res) or out.left;
+        out.right = M.senses(res) or out.right;
+    end
+
+    if (mob.resist) then
+        local mods = M.resist(res);
+        if (mods ~= nil and #mods > 0) then
+            out.rows[1] = mods;
+        end
+    end
 
     return out;
 end

@@ -153,9 +153,11 @@ ones. **Show Target** in the config window turns it off; it has its own
 carry them. For an arbitrary entity the client is told a single number — an HP
 percent — and nothing else, so there is no MP or TP to draw. The label is that
 percent, via the same `hp_raw == 0` fallback party members' labels already use,
-and prints with a trailing `%` for exactly that reason. The panel shrinks to fit
-the one bar — and grows again for the reference lines under it, if those are on
-(see **Target reference lines**).
+and prints with a trailing `%` for exactly that reason — except while the mob is
+at full health, when the bar carries its level instead (see **Target reference
+lines**). The panel shrinks to fit the one bar and stays that shape: every piece
+of mob reference is drawn *around* it, never inside, so none of it changes the
+panel's geometry.
 
 **Which target.** The cursor target (`<t>`) first; when nothing is selected, the
 battle target (`<bt>`) instead, so clearing your target mid-fight doesn't blank
@@ -310,10 +312,15 @@ see **Party slot indicator**.)
 
 A bar that cannot hold a legible digit drops its label instead of drawing mush.
 That happens when the size the bar would give works out under **Min Text Size**
-(`12`), or when the value is too wide for the bar. Both are decided per bar, not
-per panel: a short TP row can go quiet while the HP row above it still prints.
-Raise **Min Text Size** to drop labels sooner, lower it to keep them further
-out.
+(`12`). It is decided per bar, not per panel: a short TP row can go quiet while
+the HP row above it still prints. Raise **Min Text Size** to drop labels sooner,
+lower it to keep them further out.
+
+Too *narrow* a bar is handled the other way: the label shrinks until it fits,
+rather than being dropped. Height and width are different failures — no legible
+glyph at all versus a long string in a bar that is tall enough for it — and only
+the first is worth going quiet over. See **The level on the bar**, which is what
+made the distinction matter.
 
 The floor defaults to `12` because ImGui rasterizes its font at 13px and scales
 down from there: a label that prints at 12 or above is drawn at about the size
@@ -346,32 +353,83 @@ a size.
 
 ## Target reference lines
 
-Three lines of mob reference data under the target panel's HP bar, each with its
-own toggle in `/newui config`:
+Mob reference data drawn **around** the target panel — none of it inside the
+frame — reading left to right as one sentence: what it does to you, what it is,
+what it sees you with.
 
-| Setting | Line | Drawn as |
+```
+<Passive> <Link>  [═══════ Lv.14-17 WAR/MNK ═══════]  <Sight> <Sound> <Scent>
+                    <Fire>+25% <Ice>-50% <Dark>-50%
+```
+
+Three toggles in `/newui config` feed it:
+
+| Setting | Contributes | Drawn as |
 |---|---|---|
-| **Show Level & Job** | level range, and the job when the entry names one | `Lv14-17 WAR/MNK` |
-| **Show Detection** | aggression, then what it notices you with | one icon each: aggro/passive, then TrueSight, Sight, Sound, Scent, Magic, JA, Blood, Link |
-| **Show Weakness/Resist** | every damage type it does not take normally | an icon and a percentage each: `<Fire>+25% <Ice>-50% <Dark>-50%` |
+| **Show Detection** | the icon groups flanking the bar | left of it: aggro/passive, then Link. Right of it: TrueSight, Sight, Sound, Scent, Magic, JA, Blood |
+| **Show Level & Job** | the bar's own label | `Lv.14-17 WAR/MNK`, in place of the HP percent |
+| **Show Weakness/Resist** | a row under the panel | an icon and a percentage each: `<Fire>+25% <Ice>-50%` |
+
+**Show Detection** owns both groups because they answer the same question from
+two sides — Link sits with the aggro flag rather than with the senses, since it
+is not one, and the two of them together are the pull decision. Each toggle
+still owns exactly what it names: **Show Detection** alone draws the icons and
+leaves the bar its percent, **Show Level & Job** alone relabels the bar and draws
+no icons.
+
+Resistances stay on their own row under the panel. That list has no fixed
+length, so flanking with it would shove the bar off-center by however many
+damage types the mob happens to have.
 
 All three ship on. They draw on the target panel only — party members are not
 mobs, and a PC you have targeted has no entry either.
 
-The detection and resistance lines are **mobdb's own icons** (see *Where the
-data comes from*) — a row of glyphs reads at a glance where `Aggro Sight Magic`
-has to be parsed, and it fits a panel that is a few dozen pixels wide. The level
-line stays text: mobdb ships no icon for a level range or a job.
+### The level on the bar
+
+**A full-health mob shows its level where the `100%` used to be, and switches to
+the percent the moment it takes damage.**
+
+`100%` over a full bar is the bar repeating itself — the fill already says it —
+while the level is shown nowhere else on screen. Once there is damage on it that
+stops being true: the fill no longer resolves 71% from 64%, and the percent is
+the number being read. So the swap happens on the first hit and stays.
+
+**The label shrinks to fit rather than being dropped.** A number always fitted
+the bar; `Lv.14-17 WAR/MNK` is as long as the mob's job pairing makes it, and a
+label that vanished would leave the bar saying nothing at all. The size solves
+directly out of the width — no iteration — starting from the bar-height size
+every label uses.
+
+A bar too *short* still drops its text rather than shrinking it to mush. That is
+the other failure — no glyph is legible at any width — and **Min Text Size**
+already owns it.
+
+### Where the icons sit
+
+Flanking the bar, one **Bar Gap** clear of each edge and centered on the panel's
+height, growing outward: the left group leftward, the right group rightward.
+Neither shifts the other, the bar between them, or the panel.
+
+They are outside the frame because they cannot fit inside it. Seven sense icons
+at the default size are wider than the whole target panel, so a mob that happens
+to notice everything would squeeze the bar they were meant to annotate down to
+nothing.
+
+Everything but the level is **mobdb's own icons** (see *Where the data comes
+from*) — a row of glyphs reads at a glance where `Aggro Sight Magic` has to be
+parsed. The level stays text because mobdb ships no icon for a level range or a
+job, and it is the only text on that row.
 
 Notorious is not an icon of its own. mobdb has HQ variants of the aggro and
 passive icons — the same glyph in a gold frame — so an NM is one icon, not two.
 
-**A ticked box does not guarantee a row.** A line with nothing to say is skipped
-rather than drawn blank: a mob with no job prints its level range alone, and a
-mob that takes every damage type normally has no resistance line at all. Only
-the detection line always prints when it is on, because "detects nothing" and
-"does not aggro" are different facts and a vanished line would read as missing
-data rather than as a safe mob.
+**A ticked box does not guarantee content.** Anything with nothing to say is
+skipped rather than drawn blank: a mob with no job prints its level range alone,
+a mob that senses nothing contributes no icons to the right of it, and a mob
+that takes every damage type normally has no resistance row at all. The
+aggro/passive icon is the one thing that always draws when **Show Detection** is
+on, because "detects nothing" and "does not aggro" are different facts and a
+vanished icon would read as missing data rather than as a safe mob.
 
 Resistances are sorted by potency, weaknesses first, so what to hit it with
 reads before what to avoid. Ties keep a fixed order (physical first, then the
@@ -381,33 +439,42 @@ flicker.
 
 Unlike mobdb, a run of equally-potent types keeps a percentage on every one
 rather than printing it once at the end of the run. mobdb lays its icons out on
-a window-wide row where that grouping reads; these sit on a panel only as wide
-as its widest line, where a number lining up under the wrong icon is the likelier
-reading.
+a window-wide row where that grouping reads; these are a free-standing row under
+a panel, where a number lining up under the wrong icon is the likelier reading.
 
-**The panel widens to fit the longest line**, rather than the text shrinking or
-being dropped. A resistance list is the one thing on the panel with no natural
-width — a mob weak and resistant to eight damage types is a long line at any
-font size that stays legible. The bars keep the width they were configured with
-and stay centered on the anchor, so a panel that widens leaves everything that
-was already on it exactly where it was.
+### Placement
+
+The rows sit one **Bar Gap** under the panel's bottom edge, each centered on the
+same anchor the panel is, and **none of the reference costs the panel any height
+or width** — a target panel is exactly the same shape whether the mob has
+everything to say or nothing.
+
+That is the point of it all being outside. A resistance list has no natural
+width: a mob weak and resistant to eight damage types is a long line at any
+legible font size. Inside the frame it forced the panel to stretch to hold it, so
+the frame changed size every time you switched targets. Outside, a long line
+simply overhangs both sides evenly and nothing else moves.
+
+Nothing clips any of it, either — icons and text are drawn straight onto the
+world, not into a box, and the shared text outline is what keeps them readable
+over it.
 
 **Info Text Size** (`14`) is the row height — the text size and the icons' side
 alike. Unlike a bar label, **the rows do not drop out at distance — they hold at
 Min Text Size and stop shrinking there.** A label that goes quiet still
-leaves a bar behind it that reads at any size, while these lines are the only
-thing on the panel carrying facts nothing else shows — a mob's level and what it
-aggros to is exactly what you want at the range where the panel has gone small,
-and blanking it there reads as missing data rather than as distance.
+leaves a bar behind it that reads at any size, while these lines carry facts
+nothing else shows — a mob's level and what it aggros to is exactly what you want
+at the range where the panel has gone small, and blanking it there reads as
+missing data rather than as distance.
 
 The floor never rises *above* what you configured, so **Info Text Size** dragged
 under **Min Text Size** is honoured rather than bumped back up to a size you did
 not ask for.
 
-Because the block stops shrinking while the bars above it keep going, a far-away
-target panel grows proportionally taller: the reference rows are reserved at the
-size they will actually draw at, so the block always lands inside the panel it
-was measured for.
+The block therefore stops shrinking while the panel above it keeps going, and at
+range it reads large next to a small panel. Nothing has to be reconciled for
+that: it is drawn below the frame, so it can outgrow it without overlapping
+anything.
 
 ### Where the data comes from
 
@@ -499,7 +566,7 @@ back to the entity's feet position for that frame.
 - `lib/targets.lua` — Ashita's target library, vendored unmodified (only `get_bt` is used)
 - `stats.lua` — HP/MP/TP normalization, TP segment math, and the target's entity read + targetability test (no Ashita dependencies)
 - `config.lua` — settings defaults, load/save, derived layout math (no Ashita dependencies except load/save)
-- `mobinfo.lua` — mobdb zone-data loader and the three reference lines, built as icon/text segments (no Ashita dependencies — it picks the icon names, `NewUI.lua` loads and draws them)
+- `mobinfo.lua` — mobdb zone-data loader and the reference rows, built as icon/text segments (no Ashita dependencies — it picks the icon names, `NewUI.lua` loads and draws them)
 - `test.lua` — self-check for `stats.lua`, `config.lua`, `nameplate.lua` and `mobinfo.lua`; run with `lua test.lua`
 - `docs/` — research notes this was built from (gitignored)
 
