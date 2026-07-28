@@ -377,7 +377,7 @@ frame — reading left to right as one sentence: what it does to you, what it is
 what it sees you with.
 
 ```
-                            EP-DC
+                    EP-DC
 <Passive> <Link>  [═══════ Lv.14-17 WAR/MNK ═══════]  <Sight> <Sound> <Scent>
                     <Fire>+25% <Ice>-50% <Dark>-50%
 ```
@@ -388,7 +388,7 @@ Four toggles in `/newui config` feed it:
 |---|---|---|
 | **Show Detection** | the icon groups flanking the bar | left of it: aggro/passive, then Link. Right of it: TrueSight, Sight, Sound, Scent, Magic, JA, Blood |
 | **Show Level & Job** | the bar's own label | `Lv.14-17 WAR/MNK`, in place of the HP percent |
-| **Show Check** | a line above the panel | the `/check` tier, colored: `EP-DC` |
+| **Show Check** | a line at the bar's top-left corner | the `/check` tier, colored: `EP-DC` |
 | **Show Weakness/Resist** | a row under the panel | an icon and a percentage each: `<Fire>+25% <Ice>-50%` |
 
 **Show Detection** owns both groups because they answer the same question from
@@ -443,8 +443,12 @@ the one line here that is about *you* rather than about the mob.
 | Incredibly Tough | `IT` | 6+ above | 8+ above |
 | Impossible to Gauge | `???` | any notorious monster | |
 
-It sits *above* the panel because it is read first: whether to engage at all is
-answered before anything else on the panel matters.
+It sits at the **bar's top-left corner** — one **Bar Gap** over the panel's top
+edge, flush with the bar's left edge. Above, because it is read first: whether to
+engage at all is answered before anything else on the panel matters. Left rather
+than centered, because a centered line slides sideways as `EM` grows into
+`EP-DC`, and the one thing you re-read on every new target should be in the same
+place every time.
 
 **The bands are interpolated between the two published endpoints**, not looked
 up. The server derives the tier from the experience the kill would award and
@@ -510,10 +514,11 @@ a panel, where a number lining up under the wrong icon is the likelier reading.
 
 ### Placement
 
-The rows sit one **Bar Gap** under the panel's bottom edge and the check line one
-**Bar Gap** over its top edge, each centered on the same anchor the panel is, and
-**none of the reference costs the panel any height or width** — a target panel is
-exactly the same shape whether the mob has everything to say or nothing.
+The rows sit one **Bar Gap** under the panel's bottom edge, each centered on the
+same anchor the panel is; the check line sits one **Bar Gap** over the top edge,
+left-aligned to the bar. **None of the reference costs the panel any height or
+width** — a target panel is exactly the same shape whether the mob has everything
+to say or nothing.
 
 That is the point of it all being outside. A resistance list has no natural
 width: a mob weak and resistant to eight damage types is a long line at any

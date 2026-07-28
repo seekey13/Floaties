@@ -643,11 +643,17 @@ local function drawPanel(sx, sy, s, bars, size, scale, slot, info)
     local row       = config.info_row(cfg, scale);
     local info_size = math.floor(row);
 
-    -- The check line sits over the bar, one gap clear of the top edge -- the mirror of the rows
-    -- under it, and above rather than below because it is the first thing read: whether to engage
-    -- at all is answered before anything the rest of the panel says.
+    -- The check line sits at the bar's top-left corner: one gap clear of the panel's top edge, and
+    -- flush with the bar's left edge rather than centered on the panel. Above rather than below
+    -- because it is the first thing read -- whether to engage at all is answered before anything
+    -- the rest of the panel says -- and left rather than centered so it holds still between targets
+    -- instead of sliding as "EM" grows into "EP-DC".
+    --
+    -- Handed a box exactly its own width, so drawInfoLine's centering collapses to a no-op and the
+    -- line starts at bar_left. Same trick the flanking groups use.
     if (#info.above > 0) then
-        drawInfoLine(draw_list, left, top - gap - row, width, row, info.above, info_size, gap, cfg);
+        local w = lineWidth(info.above, info_size, gap, cfg);
+        drawInfoLine(draw_list, bar_left, top - gap - row, w, row, info.above, info_size, gap, cfg);
     end
 
     -- The two icon groups flank the bar, one gap clear of each edge and centered on the panel's
