@@ -291,13 +291,10 @@ local function drawBar(draw_list, left, top, width, height, frac, state, bar_col
     end
 end
 
--- `percent` (from stats.label) prints a % sign: a target at "42" reads as 42 HP left, not 42%.
---
--- Sized off `height`, the bar's drawn height, so it tracks the configured height and the distance
--- scale alike. Too short for a legible digit, or too narrow for the value, drops the label -- per
--- bar, so a 4px TP row can go quiet while HP above it still prints.
-local function drawLabel(draw_list, left, top, width, height, value, percent, cfg)
-    local size = config.label_size(cfg, height);
+-- Draws `text` centered in the box (left, top, width, height) at `size` px, with the shared
+-- outline and bold treatment. `size` nil (config.label_size' answer for a box too short to hold a
+-- legible glyph) draws nothing, as does text too big for the box it was given.
+local function drawText(draw_list, left, top, width, height, text, size, cfg)
     if (size == nil) then return; end
 
     local font = imgui.GetFont();
@@ -307,10 +304,9 @@ local function drawLabel(draw_list, left, top, width, height, value, percent, cf
     -- ImGui takes a font, not a weight. `bx` is 0 when bold is off, so it drops out of the metrics.
     local bx = cfg.text.bold and 1 or 0;
 
-    local label  = percent and ('%d%%'):fmt(value) or ('%d'):fmt(value);
     -- CalcTextSize measures at the UI font, so the metrics need the same ratio the glyphs get.
     local k      = size / base;
-    local tw, th = imgui.CalcTextSize(label);
+    local tw, th = imgui.CalcTextSize(text);
     tw, th = tw * k + bx, th * k;
 
     -- Height is near enough a no-op (the size was derived to fit); width is what catches a 4 digit
@@ -330,27 +326,41 @@ local function drawLabel(draw_list, left, top, width, height, value, percent, cf
     local outline = cfg.text.outline_color;
     if (outline.a > 0) then
         local col = packColor(outline);
-        draw_list:AddText(font, size, { x - 1, y }, col, label);
-        draw_list:AddText(font, size, { x + 1 + bx, y }, col, label);
-        draw_list:AddText(font, size, { x, y - 1 }, col, label);
-        draw_list:AddText(font, size, { x, y + 1 }, col, label);
+        draw_list:AddText(font, size, { x - 1, y }, col, text);
+        draw_list:AddText(font, size, { x + 1 + bx, y }, col, text);
+        draw_list:AddText(font, size, { x, y - 1 }, col, text);
+        draw_list:AddText(font, size, { x, y + 1 }, col, text);
     end
 
     local fill = packColor(cfg.text.color);
-    draw_list:AddText(font, size, { x, y }, fill, label);
+    draw_list:AddText(font, size, { x, y }, fill, text);
     if (cfg.text.bold) then
-        draw_list:AddText(font, size, { x + bx, y }, fill, label);
+        draw_list:AddText(font, size, { x + bx, y }, fill, text);
     end
+end
+
+-- `percent` (from stats.label) prints a % sign: a target at "42" reads as 42 HP left, not 42%.
+--
+-- Sized off `height`, the bar's drawn height, so it tracks the configured height and the distance
+-- scale alike. Too short for a legible digit, or too narrow for the value, drops the label -- per
+-- bar, so a 4px TP row can go quiet while HP above it still prints.
+local function drawLabel(draw_list, left, top, width, height, value, percent, cfg)
+    drawText(draw_list, left, top, width, height,
+             percent and ('%d%%'):fmt(value) or ('%d'):fmt(value),
+             config.label_size(cfg, height), cfg);
 end
 
 -- `size` is the panel kind's own cfg.sizes entry; everything else about the panel is shared.
 -- `scale` multiplies every pixel dimension, padding and rounding included -- a shrunk panel with a
 -- full-size border swallows its own bars.
-local function drawPanel(sx, sy, s, bars, size, scale)
+-- `slot` is the party slot index for the tag on the left, or nil for a panel that has none.
+local function drawPanel(sx, sy, s, bars, size, scale, slot)
     local cfg    = config.settings;
     local width  = size.width * scale;
     local height = config.panel_height(cfg, size, bars) * scale;
-    local bw     = config.bar_width(cfg, size) * scale;
+    -- The slot box comes out of the bars, not out of the panel: `width` is what was configured,
+    -- so switching the tag on shifts the bars right and shortens them instead of growing the frame.
+    local bw     = config.bar_width(cfg, size, slot ~= nil) * scale;
     local pad    = cfg.panel.offset * scale;
     local gap    = cfg.gap * scale;
 
@@ -365,9 +375,17 @@ local function drawPanel(sx, sy, s, bars, size, scale)
         draw_list:AddRect({ left, top }, { left + width, top + height }, packColor(cfg.panel.border_color), rounding);
     end
 
-    local bar_left     = left + pad;
+    local bar_left     = left + pad + config.slot_width(cfg, slot ~= nil) * scale;
     local bar_top      = top + pad;
     local bar_rounding = cfg.bars.rounded and BAR_ROUNDING * scale or 0;
+
+    -- The tag spans the full content height rather than the top bar's, so it reads as one label
+    -- against the whole stack. Sized from its own setting (not from a bar), but through the same
+    -- label_size, so it snaps to whole pixels and drops out when the distance scale makes it mush.
+    if (slot ~= nil and cfg.slot.enabled) then
+        drawText(draw_list, left + pad, bar_top, config.slot_box(cfg) * scale, height - 2 * pad,
+                 ('P%d'):fmt(slot), config.label_size(cfg, cfg.slot.size * scale), cfg);
+    end
 
     -- Labels need no scale gate of their own: each is sized from the drawn height of its own bar
     -- and hides itself when that height stops fitting a digit (see drawLabel).
@@ -405,8 +423,9 @@ end
 *
 * @param {table} size - the panel kind's cfg.sizes entry (width + per-bar heights).
 * @param {number} offset - world height nudge from the nameplate anchor, positive = down.
+* @param {number|nil} slot - party slot index for the slot tag; nil for a panel with no slot.
 --]]
-local function drawAt(mm, index, s, bars, size, offset, view, proj, vp)
+local function drawAt(mm, index, s, bars, size, offset, slot, view, proj, vp)
     if (index == 0) then
         return;
     end
@@ -427,7 +446,7 @@ local function drawAt(mm, index, s, bars, size, offset, view, proj, vp)
     if (sz >= 0 and sz <= 1 and sx >= 0 and sx <= vp.Width and sy >= 0 and sy <= vp.Height) then
         -- Scale comes from the anchor point, so the panel keeps its top edge pinned under the
         -- nameplate and grows or shrinks downward from there.
-        drawPanel(sx, sy, s, bars, size, config.panel_scale(config.settings, depth));
+        drawPanel(sx, sy, s, bars, size, config.panel_scale(config.settings, depth), slot);
     end
 end
 
@@ -444,11 +463,21 @@ local function drawMember(mm, party, i, view, proj, vp)
     -- job reads 0, which bars_for treats as "no MP pool".
     local cfg  = config.settings;
     local mine = i == 0;
+
+    -- No slot tag on your own panel: the panel over your own head is the one you never need told
+    -- apart from the others. nil rather than 0, so the box is not reserved either -- your bars keep
+    -- the full width instead of sitting beside a blank space. Written out rather than
+    -- `mine and nil or i`, which collapses to `i` in lua.
+    local slot = nil;
+    if (not mine) then
+        slot = i;
+    end
+
     drawAt(mm, party:GetMemberTargetIndex(i), s,
            config.bars_for(party:GetMemberMainJob(i), party:GetMemberSubJob(i)),
            mine and cfg.sizes.self or cfg.sizes.party,
            mine and cfg.height_offset or cfg.party_height_offset,
-           view, proj, vp);
+           slot, view, proj, vp);
 end
 
 -- HP is the only stat the client is told about an arbitrary entity, so the target panel is always
@@ -465,8 +494,9 @@ local function drawTarget(mm, view, proj, vp)
         return;
     end
 
+    -- nil slot: an arbitrary entity has no party slot, so the panel reserves no box for one.
     drawAt(mm, target_index, s, TARGET_BARS, config.settings.sizes.target,
-           config.settings.target_height_offset, view, proj, vp);
+           config.settings.target_height_offset, nil, view, proj, vp);
 end
 
 local function drawConfigWindow()
@@ -551,6 +581,13 @@ local function drawConfigWindow()
         colorEdit('Panel Border Color', cfg.panel.border_color);
         slider(imgui.SliderInt, 'Bar Gap', cfg, 'gap', 0, 10);
         checkbox('Border Visible', cfg, 'border_visible');
+
+        -- Size does nothing while the tag is off, so it only appears with it -- same as the
+        -- distance-scale reference below.
+        checkbox('Party Slot Indicator', cfg.slot, 'enabled');
+        if (cfg.slot.enabled) then
+            slider(imgui.SliderInt, 'Slot Text Size', cfg.slot, 'size', 8, 40);
+        end
 
         -- The reference does nothing while the checkbox is off, so it is only drawn when it is on.
         imgui.Separator();

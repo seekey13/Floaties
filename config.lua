@@ -15,9 +15,8 @@ local M = {};
 M.defaults = {
     enabled            = true,
     -- Gates are purely enabling (see M.visible), so all three off means the panel never
-    -- draws. Engaged+idle is on by default: visible in normal play, hidden while dead,
-    -- zoning or resting.
-    show_in_combat     = false, -- show when a battle target is set (<bt>)
+    -- draws. All three on: visible in normal play, hidden while dead, zoning or resting.
+    show_in_combat     = true,  -- show when a battle target is set (<bt>)
     show_while_engaged = true,  -- show when entity status is Engaged
     show_while_idle    = true,  -- show when entity status is Idle
     show_party         = true,  -- draw panels over party members too, not just self
@@ -26,44 +25,64 @@ M.defaults = {
     -- Vertical world nudge from the nameplate anchor (top of the model), positive = downward,
     -- since the height axis points down. 0 puts the panel's top edge level with the model's head,
     -- i.e. directly under the nameplate. Split self from party so your own panel can sit clear of
-    -- the ones over everyone else.
-    height_offset        = 0.0,  -- self (party slot 0)
-    party_height_offset  = 0.0,  -- everyone else (slots 1..5)
-    target_height_offset = 0.0,  -- current target
+    -- the ones over everyone else -- self hangs slightly lower, since its taller bars would
+    -- otherwise crowd the plate.
+    height_offset        = 0.228,  -- self (party slot 0)
+    party_height_offset  = 0.125,  -- everyone else (slots 1..5)
+    target_height_offset = 0.125,  -- current target
 
-    -- Distance scaling. Off by default: on, every panel changes size with range, a large enough
-    -- visual change that it should be asked for rather than arrive with an update.
-    distance_scale  = false,
+    -- Distance scaling, on: panels keep their proportion to the nameplate above them instead of
+    -- staying a fixed pixel size at every range.
+    distance_scale  = true,
     scale_ref       = 6.0,   -- view depth (yalms) at which a panel draws at 1:1
 
+    -- Colors are 0..1 floats; the config window edits them as 0..255, so the ones that came from
+    -- it are written as that integer over 255 rather than a rounded decimal that would show up
+    -- one off what was picked.
     panel = {
-        offset       = 4,           -- padding: panel edge -> bar edge, all sides
-        rounding     = 8,
+        offset       = 2,           -- padding: panel edge -> bar edge, all sides
+        rounding     = 6,
         rounded      = true,        -- corner rounding on/off (magnitude stays in `rounding`)
-        bg           = { r = 0.08, g = 0.12, b = 0.30, a = 0.7 },
-        border_color = { r = 0.08, g = 0.12, b = 0.30, a = 0.4 },
+        -- Black at 100/255: a scrim dark enough to hold the bars off the world behind them
+        -- without becoming a solid slab over it. The border is fully transparent -- the panel
+        -- reads as its own shape, and `border_visible` is left on for the bar outlines.
+        bg           = { r = 0, g = 0, b = 0, a = 100/255 },
+        border_color = { r = 0, g = 0, b = 0, a = 0 },
     },
 
     -- The one thing *not* shared between panel kinds: width, and each bar's height. Target
     -- carries `hp` only -- the only bar an arbitrary entity can fill (see stats.read_entity).
+    -- Sized by importance: target widest (it is the thing being read at a glance), then self,
+    -- then the five party panels, which are on screen all at once and are mostly glanced at.
     sizes = {
-        self   = { width = 100, hp = 16, mp = 16, tp = 16 },
-        party  = { width = 100, hp = 16, mp = 16, tp = 16 },
-        target = { width = 100, hp = 16 },
+        self   = { width = 200, hp = 18, mp = 10, tp = 16 },
+        party  = { width = 150, hp = 14, mp = 7,  tp = 10 },
+        target = { width = 300, hp = 20 },
     },
 
-    gap            = 2,      -- vertical gap between the 3 bars
+    gap            = 1,      -- vertical gap between the 3 bars
     border_visible = true,   -- shared toggle for panel border + bar borders
+
+    -- Party slot tag ("P1".."P5") in a box left of the bars, inside the panel. The panel keeps its
+    -- configured width, so this takes its space out of the bars. Your own panel and target panels
+    -- get no tag and reserve no box -- slot 0 needs no telling apart, and an arbitrary entity has
+    -- no party slot.
+    slot = {
+        enabled = true,
+        size    = 21,   -- text height in px; the box's width is derived from it (M.slot_box)
+    },
 
     bars = {
         rounded      = true,   -- corner rounding on/off for all 3 bars (magnitude is the fixed BAR_ROUNDING constant)
-        border_color = { r = 0.08, g = 0.12, b = 0.30, a = 0.2 },   -- shared across hp/mp/tp outlines
+        border_color = { r = 0, g = 0, b = 0, a = 150/255 },   -- shared across hp/mp/tp outlines
 
         -- Each bar has one color, shared by all three panel kinds; opacity comes from `states`
         -- below, height from `sizes` above. `label` silences that bar's number, height untouched.
-        hp = { color = { r = 0.95, g = 0.45, b = 0.45 }, label = true },
-        mp = { color = { r = 0.95, g = 0.90, b = 0.45 }, label = true },
-        tp = { color = { r = 0.55, g = 0.75, b = 0.95 }, label = true },
+        -- Only HP is labelled: its number is the one being read, and MP/TP keep their (shorter)
+        -- bars without digits crowding them.
+        hp = { color = { r = 1, g = 140/255, b = 140/255 }, label = true },
+        mp = { color = { r = 1, g = 1, b = 140/255 }, label = false },
+        tp = { color = { r = 141/255, g = 1, b = 1 }, label = false },
     },
 
     -- Shared fill-alpha per state, applied to whichever bar color is drawing.
@@ -75,12 +94,13 @@ M.defaults = {
     -- Outline alpha 0 skips the outline pass; `bold` is a second fill stamped a pixel right, not
     -- a bold face (the atlas is Ashita's, built before any addon loads). Size is not configured --
     -- it comes from the bar (M.label_size); `min_size` is the floor under which it is dropped.
-    -- 9 because ImGui rasterizes at 13px: by 8 the digits read as texture and the 1px outline is
-    -- wider than the strokes it is outlining.
+    -- 12 sits just under the 13px ImGui rasterizes at, so a label that does print is drawn at or
+    -- near the atlas size instead of being downsampled into texture -- and a bar too short to
+    -- carry a crisp digit goes quiet rather than printing mush. It also gates the slot tag.
     text = {
         color         = { r = 1, g = 1, b = 1, a = 1 },
         outline_color = { r = 0, g = 0, b = 0, a = 1 },
-        min_size      = 9,
+        min_size      = 12,
         bold          = true,
     },
 };
@@ -140,8 +160,35 @@ end
 -- never be laid out with another's dimensions. Both are linear in every input, which is why
 -- distance scaling multiplies their *results* in drawPanel instead of threading a factor here.
 
-function M.bar_width(cfg, size)
-    return size.width - 2 * cfg.panel.offset;
+-- Box width per unit of text height. "P1" measures ~1.1-1.25x its own height in both Ashita's
+-- font and ImGui's built-in one, so 1.5 leaves room either side at every size -- and the ratio is
+-- size-independent, so one constant covers the whole slider range.
+-- ponytail: a fixed aspect instead of a second slider; add a width setting if a font overflows it.
+local SLOT_ASPECT = 1.5;
+
+-- Width of the slot box itself, without the gap that separates it from the bars.
+function M.slot_box(cfg)
+    return math.floor(cfg.slot.size * SLOT_ASPECT);
+end
+
+--[[
+* Horizontal space the slot indicator takes out of a panel's content: the box plus one bar gap
+* beside it, so the box sits off the bars by the same distance the bars sit off each other.
+*
+* @param {boolean} has_slot - whether this panel kind has a slot at all (false for target).
+* @return {number} 0 when there is no slot or the indicator is off, so bar_width lands back on
+*                  exactly its old value rather than near it.
+--]]
+function M.slot_width(cfg, has_slot)
+    -- has_slot first: callers that never show one (and test fixtures) need no `slot` table.
+    if (not has_slot or not cfg.slot.enabled) then
+        return 0;
+    end
+    return M.slot_box(cfg) + cfg.gap;
+end
+
+function M.bar_width(cfg, size, has_slot)
+    return size.width - 2 * cfg.panel.offset - M.slot_width(cfg, has_slot);
 end
 
 -- Clamps on the scale curve. Fixed, not settings: they stop a far panel vanishing and a near one
