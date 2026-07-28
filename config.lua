@@ -77,12 +77,13 @@ M.defaults = {
     -- every damage type normally) is skipped rather than drawn blank -- so switching one on does
     -- not guarantee a row. Target panels only: party members are not mobs.
     mob = {
-        level  = true,   -- [Lv14-17 WAR]
-        detect = true,   -- Aggro Sight Sound Link
-        resist = true,   -- Fire+25% Ice-50%
-        -- Text height in px, the second piece of text with a size of its own (see slot.size).
-        -- 14 sits above text.min_size so the lines print at the shipped default, and the panel
-        -- widens to hold whatever they come out as rather than the text shrinking to fit.
+        level  = true,   -- Lv14-17 WAR
+        detect = true,   -- aggro/passive + detection icons
+        resist = true,   -- element icon + percentage
+        -- Row height in px: the text size, and the icons' side. The second piece of text with a
+        -- size of its own (see slot.size), but unlike the others it holds at text.min_size instead
+        -- of dropping out below it (M.info_row) -- the panel widens to hold whatever the lines come
+        -- out as rather than the text shrinking to fit.
         size   = 14,
     },
 
@@ -251,31 +252,53 @@ function M.label_size(cfg, bar_height)
 end
 
 --[[
-* Extra panel height for `count` mob reference lines: each line plus the gap above it. That puts
-* one gap between the block and the last bar and one between the lines, with none trailing the
-* bottom -- the same spacing the bars already have.
+* Drawn height of one mob reference row at a distance scale -- which is also its text size and its
+* icons' side.
+*
+* Unlike a bar label, this does *not* drop out below text.min_size: it holds there instead. A label
+* that goes quiet still leaves a bar behind it that reads at any size, while these lines are the
+* only thing on the panel carrying facts nothing else shows -- what a mob aggros to is exactly what
+* you want at the range where the panel has shrunk, and blanking it there reads as broken data.
+*
+* The floor never rises above the configured size, so Info Text Size dragged below Min Text Size is
+* honoured rather than bumped up to a size nobody asked for.
+*
+* This is why info_height takes a scale, and panel_height no longer counts the lines at all: the
+* block stops shrinking while the bars above it keep going, so the two cannot share one factor.
+*
+* @param {number|nil} scale - distance scale; nil is 1:1.
+--]]
+function M.info_row(cfg, scale)
+    return math.max(cfg.mob.size * (scale or 1), math.min(cfg.mob.size, cfg.text.min_size));
+end
+
+--[[
+* Panel height for `count` mob reference lines: each row plus the gap above it. That puts one gap
+* between the block and the last bar and one between the lines, with none trailing the bottom --
+* the same spacing the bars already have.
+*
+* Returns the *drawn* height, scale already applied (see M.info_row), so callers add it to a scaled
+* panel height rather than multiplying it again.
 *
 * @param {number} count - number of lines actually being drawn.
 * @return {number} 0 for no lines, without reading cfg.mob at all, so a panel kind that never has
 *                  them (and every test fixture) needs no `mob` table.
 --]]
-function M.info_height(cfg, count)
+function M.info_height(cfg, count, scale)
     if (count == 0) then
         return 0;
     end
-    return count * (cfg.mob.size + cfg.gap);
+    return count * (M.info_row(cfg, scale) + cfg.gap * (scale or 1));
 end
 
---[[
-* @param {number|nil} info_count - mob reference lines below the bars; nil is none.
---]]
-function M.panel_height(cfg, size, bars, info_count)
+-- Bars only. The reference block is added by the caller, at its own scale (see M.info_row).
+function M.panel_height(cfg, size, bars)
     bars = bars or M.bar_order;
     local sum = 0;
     for _, key in ipairs(bars) do
         sum = sum + size[key];
     end
-    return sum + (#bars - 1) * cfg.gap + 2 * cfg.panel.offset + M.info_height(cfg, info_count or 0);
+    return sum + (#bars - 1) * cfg.gap + 2 * cfg.panel.offset;
 end
 
 function M.load()

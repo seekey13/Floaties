@@ -83,7 +83,7 @@ function M.find(db, index, name)
 end
 
 --[[
-* "[Lv14-17 WAR/MNK]" -- the level range, and the job when the mob has one.
+* "Lv14-17 WAR/MNK" -- the level range, and the job when the mob has one.
 *
 * A fixed-level mob carries `Level` instead of a range; most carry the range. Job 0 means the
 * entry does not name a job, which is most of the low-level fauna, and prints nothing rather than
@@ -106,7 +106,7 @@ function M.level_job(res, jobname)
         end
     end
 
-    return '[' .. out .. ']';
+    return out;
 end
 
 -- What the mob notices you with, in the order it is worth reading. TrueSight leads Sight because

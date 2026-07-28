@@ -506,7 +506,11 @@ local function drawPanel(sx, sy, s, bars, size, scale, slot, lines)
     local cfg = config.settings;
     lines     = lines or NO_LINES;
 
-    local height = config.panel_height(cfg, size, bars, #lines) * scale;
+    -- Two terms, not one scaled sum: the reference block stops shrinking at its floor while the
+    -- bars above it keep going, so config.info_height applies the scale itself (see info_row).
+    local height = config.panel_height(cfg, size, bars) * scale
+                 + config.info_height(cfg, #lines, scale);
+
     -- The slot box comes out of the bars, not out of the panel: `width` is what was configured,
     -- so switching the tag on shifts the bars right and shortens them instead of growing the frame.
     local bw     = config.bar_width(cfg, size, slot ~= nil) * scale;
@@ -519,17 +523,21 @@ local function drawPanel(sx, sy, s, bars, size, scale, slot, lines)
     -- thing here that has no natural width. The bars keep the width they were configured with and
     -- stay centered on the anchor, so widening moves nothing that was already there; with no lines
     -- this lands on exactly the old geometry (content = width - 2*pad, so content_left = left+pad).
-    local info_size = config.label_size(cfg, cfg.mob.size * scale);
+    --
+    -- The row never goes away: it bottoms out at a legible size instead of dropping the way a bar
+    -- label does (config.info_row), so there is no nil to guard here. Floored for the font and the
+    -- icon side, for the same reason label_size floors -- a size drifting by fractions as the
+    -- camera moves resamples the same glyph every frame.
+    local row       = config.info_row(cfg, scale);
+    local info_size = math.floor(row);
     local content   = bw + slot_w;
     local width     = size.width * scale;
 
-    if (info_size ~= nil) then
-        for _, line in ipairs(lines) do
-            -- The spare pixel is not cosmetic: without it the width the line is measured at and
-            -- the width it is later fit-checked against differ by a float rounding step, and the
-            -- line the panel just grew for gets dropped for being one ULP too wide.
-            width = math.max(width, lineWidth(line, info_size, gap, cfg) + 2 * pad + 1);
-        end
+    for _, line in ipairs(lines) do
+        -- The spare pixel is not cosmetic: without it the width the line is measured at and
+        -- the width it is later fit-checked against differ by a float rounding step, and the
+        -- line the panel just grew for gets dropped for being one ULP too wide.
+        width = math.max(width, lineWidth(line, info_size, gap, cfg) + 2 * pad + 1);
     end
 
     local left     = sx - width / 2;
@@ -556,7 +564,7 @@ local function drawPanel(sx, sy, s, bars, size, scale, slot, lines)
     -- whole pixels and drops out when the distance scale makes it mush.
     if (slot ~= nil and cfg.slot.enabled) then
         drawText(draw_list, content_left, bar_top, config.slot_box(cfg) * scale,
-                 height - 2 * pad - config.info_height(cfg, #lines) * scale,
+                 height - 2 * pad - config.info_height(cfg, #lines, scale),
                  ('P%d'):fmt(slot), config.label_size(cfg, cfg.slot.size * scale), cfg);
     end
 
@@ -591,14 +599,12 @@ local function drawPanel(sx, sy, s, bars, size, scale, slot, lines)
 
     -- Reference lines, centered on the whole panel rather than on the bars: they are what the
     -- panel was widened for, so they get its full width. bar_top is already one gap past the last
-    -- bar, which is exactly the separation the block wants. The row height passed in is the
-    -- unfloored one, so the floored font size can never fail its own height check by a fraction.
-    local row = cfg.mob.size * scale;
-    if (info_size ~= nil) then
-        for _, line in ipairs(lines) do
-            drawInfoLine(draw_list, left + pad, bar_top, width - 2 * pad, row, line, info_size, gap, cfg);
-            bar_top = bar_top + row + gap;
-        end
+    -- bar, which is exactly the separation the block wants. `row` is the unfloored height (the same
+    -- one config.info_height reserved), so the floored font size can never fail its own height
+    -- check by a fraction, and the block always lands inside the panel it was measured for.
+    for _, line in ipairs(lines) do
+        drawInfoLine(draw_list, left + pad, bar_top, width - 2 * pad, row, line, info_size, gap, cfg);
+        bar_top = bar_top + row + gap;
     end
 end
 

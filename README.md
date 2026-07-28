@@ -334,7 +334,7 @@ own toggle in `/newui config`:
 
 | Setting | Line | Drawn as |
 |---|---|---|
-| **Show Level & Job** | level range, and the job when the entry names one | `[Lv14-17 WAR/MNK]` |
+| **Show Level & Job** | level range, and the job when the entry names one | `Lv14-17 WAR/MNK` |
 | **Show Detection** | aggression, then what it notices you with | one icon each: aggro/passive, then TrueSight, Sight, Sound, Scent, Magic, JA, Blood, Link |
 | **Show Weakness/Resist** | every damage type it does not take normally | an icon and a percentage each: `<Fire>+25% <Ice>-50% <Dark>-50%` |
 
@@ -373,10 +373,24 @@ being dropped. A resistance list is the one thing on the panel with no natural
 width — a mob weak and resistant to eight damage types is a long line at any
 font size that stays legible. The bars keep the width they were configured with
 and stay centered on the anchor, so a panel that widens leaves everything that
-was already on it exactly where it was. **Info Text Size** (`14`) is the line
-height; below **Min Text Size**, including once the distance scale has shrunk it
-there, the lines drop out the way bar labels do, and the reserved height stays so
-the panel doesn't change shape as you walk away.
+was already on it exactly where it was.
+
+**Info Text Size** (`14`) is the row height — the text size and the icons' side
+alike. Unlike a bar label, **the rows do not drop out at distance — they hold at
+Min Text Size and stop shrinking there.** A label that goes quiet still
+leaves a bar behind it that reads at any size, while these lines are the only
+thing on the panel carrying facts nothing else shows — a mob's level and what it
+aggros to is exactly what you want at the range where the panel has gone small,
+and blanking it there reads as missing data rather than as distance.
+
+The floor never rises *above* what you configured, so **Info Text Size** dragged
+under **Min Text Size** is honoured rather than bumped back up to a size you did
+not ask for.
+
+Because the block stops shrinking while the bars above it keep going, a far-away
+target panel grows proportionally taller: the reference rows are reserved at the
+size they will actually draw at, so the block always lands inside the panel it
+was measured for.
 
 ### Where the data comes from
 

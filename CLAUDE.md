@@ -102,7 +102,10 @@ throw.
 Geometry is derived, never stored: `config.bar_width`, `config.panel_height` and
 `config.label_size` are pure functions of the settings table, so distance
 scaling multiplies their *results* in `drawPanel` rather than threading a scale
-factor through them.
+factor through them. `config.info_row`/`config.info_height` are the exception
+and take the scale, because the mob reference rows hold at `text.min_size`
+instead of shrinking with the panel — they and the bars no longer share one
+factor, so `drawPanel` adds two terms rather than scaling one sum.
 
 `sizes.self` / `sizes.party` / `sizes.target` are the only per-panel-kind
 settings (width + per-bar heights); everything else — padding, rounding, colors,

@@ -191,28 +191,37 @@ assert(config.label_size(config.defaults, config.defaults.slot.size) ~= nil, 'th
 -- The panel's own footprint is untouched -- the space is taken from the bars inside it.
 assert(config.panel_height(slotcfg, SELF) == config.panel_height(offcfg, SELF), 'the tag must not change panel height');
 
--- Mob reference lines add a row each below the bars: the line plus one gap above it, so the block
--- is separated from the last bar and nothing trails the bottom.
+-- Mob reference lines add a row each below the bars: the row plus one gap above it, so the block
+-- is separated from the last bar and nothing trails the bottom. panel_height counts bars only --
+-- the block scales on its own (see below), so drawPanel adds the two rather than scaling one sum.
 local TARGET = config.defaults.sizes.target;
 assert(config.info_height(config.defaults, 0) == 0, 'no lines adds no height');
-assert(config.info_height(config.defaults, 3) == 3 * (14 + 1), 'each line costs its height plus a gap, got ' .. tostring(config.info_height(config.defaults, 3)));
-
-assert(config.panel_height(config.defaults, TARGET, { 'hp' }, 3) == 20 + 2 * 2 + 45,
-    'three lines on the target panel, got ' .. tostring(config.panel_height(config.defaults, TARGET, { 'hp' }, 3)));
-
--- Exactly the bar-only height with no lines, not merely close: every existing panel has to keep
--- the geometry it had. Omitting the argument must match passing 0.
-assert(config.panel_height(config.defaults, TARGET, { 'hp' }, 0) == config.panel_height(config.defaults, TARGET, { 'hp' }),
-    'zero lines must match the old height exactly');
+assert(config.info_height(config.defaults, 3) == 3 * (14 + 1), 'each line costs its row plus a gap, got ' .. tostring(config.info_height(config.defaults, 3)));
 
 -- info_height must not touch cfg.mob when there is nothing to draw -- panel kinds that never have
 -- lines, and every fixture above, ship no `mob` table.
 assert(config.info_height(custom, 0) == 0, 'no lines must not read cfg.mob');
-assert(config.panel_height(custom, customSize, nil, 0) == config.panel_height(custom, customSize), 'a mob-less config still lays out');
 
--- The default line height must clear Min Text Size, or the lines never print at the shipped
--- settings -- the same trap the slot tag has.
-assert(config.label_size(config.defaults, config.defaults.mob.size) ~= nil, 'the default info text must clear Min Text Size');
+-- The row holds at Min Text Size instead of dropping out below it, the way a bar label does: a
+-- label leaves a bar behind it that still reads, while a blanked reference line reads as missing
+-- data at exactly the range the panel is smallest.
+local MIN_INFO = config.defaults.text.min_size;
+assert(config.info_row(config.defaults, 1) == 14, 'at 1:1 the row is the configured size');
+assert(config.info_row(config.defaults, nil) == 14, 'no scale is 1:1');
+assert(config.info_row(config.defaults, 1.5) == 21, 'scaling up is not clamped');
+assert(config.info_row(config.defaults, 0.35) == MIN_INFO, 'the smallest scale holds at the floor, got ' .. tostring(config.info_row(config.defaults, 0.35)));
+assert(config.info_row(config.defaults, 0.01) == MIN_INFO, 'and cannot be pushed under it');
+
+-- The floor is never *above* what was configured: an Info Text Size dragged below Min Text Size is
+-- honoured rather than bumped up to a size nobody asked for.
+local tiny = { mob = { size = 8 }, gap = 1, text = { min_size = 12 } };
+assert(config.info_row(tiny, 1) == 8, 'a size under the floor still draws at that size');
+assert(config.info_row(tiny, 0.35) == 8, 'and is its own floor');
+
+-- Whichever way the row was clamped, the reserved height uses that same number, or the block would
+-- draw past the panel it was measured for.
+assert(config.info_height(config.defaults, 2, 0.35) == 2 * (MIN_INFO + 1 * 0.35),
+    'the reserved height clamps with the row, got ' .. tostring(config.info_height(config.defaults, 2, 0.35)));
 
 -- MP bar only shows when main or sub has an MP pool.
 assert(#config.bars_for(1, 2) == 2, 'WAR/MNK must drop the mp bar');
@@ -429,14 +438,14 @@ end
 
 -- Level and job. The job is dropped entirely at Job 0 rather than printing a placeholder -- most
 -- low-level fauna carries no job.
-assert(mobinfo.level_job(BOMB, jobname) == '[Lv8-10]', 'job 0 prints the range alone, got ' .. tostring(mobinfo.level_job(BOMB, jobname)));
-assert(mobinfo.level_job({ MinLevel=14, MaxLevel=17, Job=1 }, jobname) == '[Lv14-17 WAR]',
+assert(mobinfo.level_job(BOMB, jobname) == 'Lv8-10', 'job 0 prints the range alone, got ' .. tostring(mobinfo.level_job(BOMB, jobname)));
+assert(mobinfo.level_job({ MinLevel=14, MaxLevel=17, Job=1 }, jobname) == 'Lv14-17 WAR',
     'range + main job, got ' .. tostring(mobinfo.level_job({ MinLevel=14, MaxLevel=17, Job=1 }, jobname)));
-assert(mobinfo.level_job({ MinLevel=14, MaxLevel=17, Job=1, SubJob=2 }, jobname) == '[Lv14-17 WAR/MNK]', 'sub job is appended');
-assert(mobinfo.level_job({ MinLevel=14, MaxLevel=17, Job=1, SubJob=0 }, jobname) == '[Lv14-17 WAR]', 'sub job 0 is not a job');
-assert(mobinfo.level_job({ Level=75, MinLevel=75, MaxLevel=75, Job=1 }, jobname) == '[Lv75 WAR]', 'a fixed level prints once, not as a range');
-assert(mobinfo.level_job({ MinLevel=1, MaxLevel=2, Job=1 }, nil) == '[Lv1-2]', 'no job lookup means no job');
-assert(mobinfo.level_job({ MinLevel=1, MaxLevel=2, Job=99 }, jobname) == '[Lv1-2 ?]', 'an unknown job id must not error');
+assert(mobinfo.level_job({ MinLevel=14, MaxLevel=17, Job=1, SubJob=2 }, jobname) == 'Lv14-17 WAR/MNK', 'sub job is appended');
+assert(mobinfo.level_job({ MinLevel=14, MaxLevel=17, Job=1, SubJob=0 }, jobname) == 'Lv14-17 WAR', 'sub job 0 is not a job');
+assert(mobinfo.level_job({ Level=75, MinLevel=75, MaxLevel=75, Job=1 }, jobname) == 'Lv75 WAR', 'a fixed level prints once, not as a range');
+assert(mobinfo.level_job({ MinLevel=1, MaxLevel=2, Job=1 }, nil) == 'Lv1-2', 'no job lookup means no job');
+assert(mobinfo.level_job({ MinLevel=1, MaxLevel=2, Job=99 }, jobname) == 'Lv1-2 ?', 'an unknown job id must not error');
 assert(mobinfo.level_job(nil, jobname) == nil, 'an unknown mob has no level line');
 
 -- Detection. Aggro/Passive always leads: "detects nothing" and "does not aggro" are different
@@ -508,7 +517,7 @@ local NO_LINES   = { level = false, detect = false, resist = false };
 local ONLY_LEVEL = { level = true, detect = false, resist = false };
 
 assert(#mobinfo.lines(BOMB, ALL_LINES, jobname) == 3, 'all three lines on');
-assert(text(mobinfo.lines(BOMB, ALL_LINES, jobname)[1]) == '[Lv8-10]', 'level leads');
+assert(text(mobinfo.lines(BOMB, ALL_LINES, jobname)[1]) == 'Lv8-10', 'level leads');
 assert(text(mobinfo.lines(BOMB, ALL_LINES, jobname)[2]) == 'Aggro Sight Magic', 'detection second');
 
 -- The level line is the one with no icon to draw: mobdb ships none for a level range or a job, so
@@ -532,8 +541,8 @@ fh:write("return { Names = { ['Bomb'] = { MinLevel = 8, MaxLevel = 10 } }, Indic
 fh:close();
 local loaded = mobinfo.load(tmp);
 assert(loaded ~= nil, 'a mobdb zone file must load under stock lua');
-assert(mobinfo.level_job(mobinfo.find(loaded, 1, 'Bomb')) == '[Lv8-10]', 'names survive the round trip');
-assert(mobinfo.level_job(mobinfo.find(loaded, 382, 'Bomb')) == '[Lv5-8]', 'indices survive the round trip');
+assert(mobinfo.level_job(mobinfo.find(loaded, 1, 'Bomb')) == 'Lv8-10', 'names survive the round trip');
+assert(mobinfo.level_job(mobinfo.find(loaded, 382, 'Bomb')) == 'Lv5-8', 'indices survive the round trip');
 
 fh = io.open(tmp, 'w');
 fh:write('this is not lua');
