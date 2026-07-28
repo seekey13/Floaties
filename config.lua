@@ -55,10 +55,10 @@ M.defaults = {
     gap            = 2,      -- vertical gap between the 3 bars
     border_visible = true,   -- shared toggle for panel border + bar borders
 
-    -- Party slot tag ("P0".."P5") in a box left of the bars, inside the panel. Off by default:
+    -- Party slot tag ("P1".."P5") in a box left of the bars, inside the panel. Off by default:
     -- the panel keeps its configured width, so switching it on takes the space out of the bars,
-    -- which is a visible resize nobody asked for. Target panels never get one -- an arbitrary
-    -- entity has no party slot.
+    -- which is a visible resize nobody asked for. Your own panel and target panels get no tag and
+    -- reserve no box -- slot 0 needs no telling apart, and an arbitrary entity has no party slot.
     slot = {
         enabled = false,
         size    = 12,   -- text height in px; the box's width is derived from it (M.slot_box)

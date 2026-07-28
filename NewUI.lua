@@ -463,11 +463,21 @@ local function drawMember(mm, party, i, view, proj, vp)
     -- job reads 0, which bars_for treats as "no MP pool".
     local cfg  = config.settings;
     local mine = i == 0;
+
+    -- No slot tag on your own panel: the panel over your own head is the one you never need told
+    -- apart from the others. nil rather than 0, so the box is not reserved either -- your bars keep
+    -- the full width instead of sitting beside a blank space. Written out rather than
+    -- `mine and nil or i`, which collapses to `i` in lua.
+    local slot = nil;
+    if (not mine) then
+        slot = i;
+    end
+
     drawAt(mm, party:GetMemberTargetIndex(i), s,
            config.bars_for(party:GetMemberMainJob(i), party:GetMemberSubJob(i)),
            mine and cfg.sizes.self or cfg.sizes.party,
            mine and cfg.height_offset or cfg.party_height_offset,
-           i, view, proj, vp);
+           slot, view, proj, vp);
 end
 
 -- HP is the only stat the client is told about an arbitrary entity, so the target panel is always

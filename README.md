@@ -70,9 +70,13 @@ shorter panel at whatever heights that kind is set to.
 
 ## Party slot indicator
 
-**Party Slot Indicator** (off by default) draws that member's party slot — `P0`
-for yourself through `P5` — in a box on the left of the panel, and shifts the
-bars right to make room. `P1` is the same slot `<p1>` addresses.
+**Party Slot Indicator** (off by default) draws that member's party slot — `P1`
+through `P5`, the same slots `<p1>`..`<p5>` address — in a box on the left of the
+panel, and shifts the bars right to make room.
+
+**Your own panel never gets one.** The panel over your own head is the one you
+never need told apart from the others, and it reserves no box either, so your
+bars keep the full width rather than sitting beside a blank space.
 
 The box takes its space **out of the bars, not out of the panel**: `width` stays
 what you set it to, so the bars shift right and shorten by the box plus one gap.
@@ -92,8 +96,8 @@ Text Size**, including once the distance scale has shrunk it there, the tag drop
 out the same way a bar label does; the reserved space stays, so the bars don't
 jump as you walk away.
 
-Target panels never get one — an arbitrary entity has no party slot, so that
-panel reserves no space and keeps its full bar width.
+Target panels never get one either — an arbitrary entity has no party slot — so
+that panel also reserves no space and keeps its full bar width.
 
 ## Distance scaling
 
