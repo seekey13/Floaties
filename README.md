@@ -154,7 +154,8 @@ carry them. For an arbitrary entity the client is told a single number — an HP
 percent — and nothing else, so there is no MP or TP to draw. The label is that
 percent, via the same `hp_raw == 0` fallback party members' labels already use,
 and prints with a trailing `%` for exactly that reason. The panel shrinks to fit
-the one bar.
+the one bar — and grows again for the reference lines under it, if those are on
+(see **Target reference lines**).
 
 **Which target.** The cursor target (`<t>`) first; when nothing is selected, the
 battle target (`<bt>`) instead, so clearing your target mid-fight doesn't blank
@@ -326,6 +327,75 @@ it.
 Sizing the text uses `ImDrawList`'s second `AddText`, the one taking a font and
 a size.
 
+## Target reference lines
+
+Three lines of mob reference data under the target panel's HP bar, each with its
+own toggle in `/newui config`:
+
+| Setting | Line | Example |
+|---|---|---|
+| **Show Level & Job** | level range, and the job when the entry names one | `[Lv14-17 WAR/MNK]` |
+| **Show Detection** | aggression, then what it notices you with | `NM Aggro TrueSight Sight Link` |
+| **Show Weakness/Resist** | every damage type it does not take normally | `Fire+25% Ice-50% Dark-50%` |
+
+All three ship on. They draw on the target panel only — party members are not
+mobs, and a PC you have targeted has no entry either.
+
+**A ticked box does not guarantee a row.** A line with nothing to say is skipped
+rather than drawn blank: a mob with no job prints its level range alone, and a
+mob that takes every damage type normally has no resistance line at all. Only
+the detection line always prints when it is on, because "detects nothing" and
+"does not aggro" are different facts and a vanished line would read as missing
+data rather than as a safe mob.
+
+Resistances are sorted by potency, weaknesses first, so what to hit it with
+reads before what to avoid. Ties keep a fixed order (physical first, then the
+elements in the game's own order) rather than whatever `pairs` hands back — the
+line is rebuilt every frame, and an order that shuffled between frames would
+flicker. `Slashing`/`Piercing`/`Impact` print as `Slash`/`Pierce`/`Blunt`.
+
+**The panel widens to fit the longest line**, rather than the text shrinking or
+being dropped. A resistance list is the one thing on the panel with no natural
+width — a mob weak and resistant to eight damage types is a long line at any
+font size that stays legible. The bars keep the width they were configured with
+and stay centered on the anchor, so a panel that widens leaves everything that
+was already on it exactly where it was. **Info Text Size** (`14`) is the line
+height; below **Min Text Size**, including once the distance scale has shrunk it
+there, the lines drop out the way bar labels do, and the reserved height stays so
+the panel doesn't change shape as you walk away.
+
+### Where the data comes from
+
+[mobdb](https://ashitaxi.com/)'s zone files, read straight off disk from
+`Ashita/addons/mobdb/data/<zone>.lua` — reloaded on zone-in (packet `0x00A`),
+the same hook mobdb reloads its own on.
+
+**mobdb does not have to be loaded, or even installed.** Those files are plain
+`return { Names = {...}, Indices = {...} }` tables with no globals and no
+`require`s in them, so `loadfile` is the whole dependency. A zone with no file,
+or no mobdb at all, reads as no data and the lines simply don't draw — which is
+also why the loader is testable headless along with everything else.
+
+Entries are looked up by entity index first and by name second, matching mobdb:
+dynamic spawns (the `0x700`+ range) differ per zone instance and are keyed by
+index, everything else by name. Client name markers are stripped before the name
+lookup.
+
+The config window's `mob data:` line reports the loaded zone and whether a file
+was found, so "every line ticked and still nothing under the bar" can be told
+apart from "mobdb isn't installed":
+
+```
+mob data: zone 100, loaded
+```
+
+Job abbreviations come from Ashita's own job resource, with the same
+`jobs.names_abbr` → `jobs_abbr` fallback mobdb carries for older versions.
+
+Unlike mobdb, the lines are text only — mobdb draws the detection and
+resistance flags as icons, which would mean shipping and loading a texture set
+for panels that are a few dozen pixels tall.
+
 ## Commands
 
 | Command | Effect |
@@ -364,7 +434,8 @@ back to the entity's feet position for that frame.
 - `lib/targets.lua` — Ashita's target library, vendored unmodified (only `get_bt` is used)
 - `stats.lua` — HP/MP/TP normalization, TP segment math, and the target's entity read + targetability test (no Ashita dependencies)
 - `config.lua` — settings defaults, load/save, derived layout math (no Ashita dependencies except load/save)
-- `test.lua` — self-check for `stats.lua`, `config.lua` and `nameplate.lua`; run with `lua test.lua`
+- `mobinfo.lua` — mobdb zone-data loader and the three reference lines' formatting (no Ashita dependencies)
+- `test.lua` — self-check for `stats.lua`, `config.lua`, `nameplate.lua` and `mobinfo.lua`; run with `lua test.lua`
 - `docs/` — research notes this was built from (gitignored)
 
 ## Notes

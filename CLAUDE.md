@@ -47,6 +47,12 @@ Lua so `test.lua` can exercise it headless. Consequences to preserve:
 - `nameplate.lua` — takes the memory reader (`mem`) as an injected argument
   (`ashita.memory` in the addon, a fake table in tests), so the pointer walk is
   testable.
+- `mobinfo.lua` — pure, *including* its `loadfile` of mobdb's zone data: those
+  files are plain `return { ... }` tables with no globals in them, so the loader
+  tests headless too. `NewUI.lua` supplies the path (`GetInstallPath`) and a
+  job-id → abbreviation function; nothing here reads `AshitaCore`. mobdb is a
+  data dependency, never a load-order one — a missing file is `nil` and the
+  reference lines just don't draw.
 - `lib/targets.lua` — Ashita's own target library, **vendored unmodified**. Do
   not edit it; it is diffable against upstream/Sidekick's `lib/core/targets.lua`.
   It hard-`error`s at load when its byte signatures miss, so it is `require`d

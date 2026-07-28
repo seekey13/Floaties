@@ -16,6 +16,7 @@ local imgui     = require('imgui');
 local stats     = require('stats');
 local config    = require('config');
 local nameplate = require('nameplate');
+local mobinfo   = require('mobinfo');
 
 local C   = ffi.C;
 local dev = d3d.get_device();
@@ -196,6 +197,35 @@ local function updateGateState(mm, player, party)
                                                      tent.SpawnFlags, targetable and '' or ' REJECTED');
 end
 
+----------------------------------------------------------------------------------------------------
+-- Mob reference data. mobdb's zone files, loaded straight off disk -- see mobinfo.lua for why that
+-- works without mobdb itself being loaded. NewUI never requires mobdb to draw: no file (or no
+-- mobdb at all) is nil here, and the target panel just draws no reference lines.
+----------------------------------------------------------------------------------------------------
+
+local mob_db   = nil;
+local mob_zone = -1;   -- -1 rather than 0, so the first load still fires for a zoneless client
+
+local function loadZone(zone)
+    if (zone == mob_zone) then
+        return;
+    end
+
+    mob_zone = zone;
+    mob_db   = zone ~= 0
+        and mobinfo.load(('%saddons/mobdb/data/%u.lua'):fmt(AshitaCore:GetInstallPath(), zone))
+        or nil;
+end
+
+-- Ashita renamed the job resource between versions; mobdb carries the same fallback in its
+-- compatibility.lua. Resolved once at load -- the answer cannot change mid-session.
+local JOB_RESOURCE = AshitaCore:GetResourceManager():GetString('jobs.names_abbr', 1) == 'WAR'
+    and 'jobs.names_abbr' or 'jobs_abbr';
+
+local function jobName(id)
+    return AshitaCore:GetResourceManager():GetString(JOB_RESOURCE, id);
+end
+
 -- Fixed (non-configurable) drawing constant -- not requested as a setting.
 local BAR_ROUNDING = 3;
 
@@ -291,6 +321,14 @@ local function drawBar(draw_list, left, top, width, height, frac, state, bar_col
     end
 end
 
+-- Drawn width of `text` at `size` px, bold's extra pixel included. CalcTextSize measures at the UI
+-- font, so the metrics need the same ratio the glyphs get. Shared with drawText's own fit check,
+-- so a panel widened to hold a line (drawPanel) can never then have that line rejected as too wide.
+local function textWidth(text, size, cfg)
+    local tw = imgui.CalcTextSize(text);
+    return tw * (size / imgui.GetFontSize()) + (cfg.text.bold and 1 or 0);
+end
+
 -- Draws `text` centered in the box (left, top, width, height) at `size` px, with the shared
 -- outline and bold treatment. `size` nil (config.label_size' answer for a box too short to hold a
 -- legible glyph) draws nothing, as does text too big for the box it was given.
@@ -304,10 +342,10 @@ local function drawText(draw_list, left, top, width, height, text, size, cfg)
     -- ImGui takes a font, not a weight. `bx` is 0 when bold is off, so it drops out of the metrics.
     local bx = cfg.text.bold and 1 or 0;
 
-    -- CalcTextSize measures at the UI font, so the metrics need the same ratio the glyphs get.
-    local k      = size / base;
-    local tw, th = imgui.CalcTextSize(text);
-    tw, th = tw * k + bx, th * k;
+    local k     = size / base;
+    local _, th = imgui.CalcTextSize(text);
+    local tw    = textWidth(text, size, cfg);
+    th = th * k;
 
     -- Height is near enough a no-op (the size was derived to fit); width is what catches a 4 digit
     -- value in a narrow panel.
@@ -350,19 +388,43 @@ local function drawLabel(draw_list, left, top, width, height, value, percent, cf
              config.label_size(cfg, height), cfg);
 end
 
+-- Panels with no reference lines pass this rather than nil, so #lines is always a number.
+local NO_LINES = {};
+
 -- `size` is the panel kind's own cfg.sizes entry; everything else about the panel is shared.
 -- `scale` multiplies every pixel dimension, padding and rounding included -- a shrunk panel with a
 -- full-size border swallows its own bars.
 -- `slot` is the party slot index for the tag on the left, or nil for a panel that has none.
-local function drawPanel(sx, sy, s, bars, size, scale, slot)
-    local cfg    = config.settings;
-    local width  = size.width * scale;
-    local height = config.panel_height(cfg, size, bars) * scale;
+-- `lines` is the mob reference text drawn under the bars (mobinfo.lines), empty for most panels.
+local function drawPanel(sx, sy, s, bars, size, scale, slot, lines)
+    local cfg = config.settings;
+    lines     = lines or NO_LINES;
+
+    local height = config.panel_height(cfg, size, bars, #lines) * scale;
     -- The slot box comes out of the bars, not out of the panel: `width` is what was configured,
     -- so switching the tag on shifts the bars right and shortens them instead of growing the frame.
     local bw     = config.bar_width(cfg, size, slot ~= nil) * scale;
+    local slot_w = config.slot_width(cfg, slot ~= nil) * scale;
     local pad    = cfg.panel.offset * scale;
     local gap    = cfg.gap * scale;
+
+    -- Reference lines are as long as the mob's data makes them, so the panel widens to hold the
+    -- longest instead of the text being shrunk to mush or dropped -- a resistance list is the one
+    -- thing here that has no natural width. The bars keep the width they were configured with and
+    -- stay centered on the anchor, so widening moves nothing that was already there; with no lines
+    -- this lands on exactly the old geometry (content = width - 2*pad, so content_left = left+pad).
+    local info_size = config.label_size(cfg, cfg.mob.size * scale);
+    local content   = bw + slot_w;
+    local width     = size.width * scale;
+
+    if (info_size ~= nil) then
+        for _, line in ipairs(lines) do
+            -- The spare pixel is not cosmetic: without it the width the line is measured at and
+            -- the width it is later fit-checked against differ by a float rounding step, and the
+            -- line the panel just grew for gets dropped for being one ULP too wide.
+            width = math.max(width, textWidth(line, info_size, cfg) + 2 * pad + 1);
+        end
+    end
 
     local left     = sx - width / 2;
     local top      = sy;
@@ -375,15 +437,20 @@ local function drawPanel(sx, sy, s, bars, size, scale, slot)
         draw_list:AddRect({ left, top }, { left + width, top + height }, packColor(cfg.panel.border_color), rounding);
     end
 
-    local bar_left     = left + pad + config.slot_width(cfg, slot ~= nil) * scale;
+    local content_left = sx - content / 2;
+    local bar_left     = content_left + slot_w;
     local bar_top      = top + pad;
     local bar_rounding = cfg.bars.rounded and BAR_ROUNDING * scale or 0;
 
-    -- The tag spans the full content height rather than the top bar's, so it reads as one label
-    -- against the whole stack. Sized from its own setting (not from a bar), but through the same
-    -- label_size, so it snaps to whole pixels and drops out when the distance scale makes it mush.
+    -- The tag spans the bars' height rather than the top bar's, so it reads as one label against
+    -- the whole stack -- the reference lines below are not part of that stack and are excluded, or
+    -- a mob panel's tag would drift away from the bars it labels. (Target panels have no tag, so
+    -- today the two are never combined; excluding them costs nothing and stays right if they are.)
+    -- Sized from its own setting (not from a bar), but through the same label_size, so it snaps to
+    -- whole pixels and drops out when the distance scale makes it mush.
     if (slot ~= nil and cfg.slot.enabled) then
-        drawText(draw_list, left + pad, bar_top, config.slot_box(cfg) * scale, height - 2 * pad,
+        drawText(draw_list, content_left, bar_top, config.slot_box(cfg) * scale,
+                 height - 2 * pad - config.info_height(cfg, #lines) * scale,
                  ('P%d'):fmt(slot), config.label_size(cfg, cfg.slot.size * scale), cfg);
     end
 
@@ -415,6 +482,16 @@ local function drawPanel(sx, sy, s, bars, size, scale, slot)
 
         bar_top = bar_top + h + gap;
     end
+
+    -- Reference lines, centered on the whole panel rather than on the bars: they are what the
+    -- panel was widened for, so they get its full width. bar_top is already one gap past the last
+    -- bar, which is exactly the separation the block wants. The row height passed in is the
+    -- unfloored one, so the floored font size can never fail its own height check by a fraction.
+    local row = cfg.mob.size * scale;
+    for _, line in ipairs(lines) do
+        drawText(draw_list, left + pad, bar_top, width - 2 * pad, row, line, info_size, cfg);
+        bar_top = bar_top + row + gap;
+    end
 end
 
 --[[
@@ -424,8 +501,9 @@ end
 * @param {table} size - the panel kind's cfg.sizes entry (width + per-bar heights).
 * @param {number} offset - world height nudge from the nameplate anchor, positive = down.
 * @param {number|nil} slot - party slot index for the slot tag; nil for a panel with no slot.
+* @param {table|nil} lines - mob reference lines to draw under the bars; nil for none.
 --]]
-local function drawAt(mm, index, s, bars, size, offset, slot, view, proj, vp)
+local function drawAt(mm, index, s, bars, size, offset, slot, lines, view, proj, vp)
     if (index == 0) then
         return;
     end
@@ -446,7 +524,7 @@ local function drawAt(mm, index, s, bars, size, offset, slot, view, proj, vp)
     if (sz >= 0 and sz <= 1 and sx >= 0 and sx <= vp.Width and sy >= 0 and sy <= vp.Height) then
         -- Scale comes from the anchor point, so the panel keeps its top edge pinned under the
         -- nameplate and grows or shrinks downward from there.
-        drawPanel(sx, sy, s, bars, size, config.panel_scale(config.settings, depth), slot);
+        drawPanel(sx, sy, s, bars, size, config.panel_scale(config.settings, depth), slot, lines);
     end
 end
 
@@ -473,11 +551,12 @@ local function drawMember(mm, party, i, view, proj, vp)
         slot = i;
     end
 
+    -- nil lines: party members are not mobs, so there is nothing to look up for them.
     drawAt(mm, party:GetMemberTargetIndex(i), s,
            config.bars_for(party:GetMemberMainJob(i), party:GetMemberSubJob(i)),
            mine and cfg.sizes.self or cfg.sizes.party,
            mine and cfg.height_offset or cfg.party_height_offset,
-           slot, view, proj, vp);
+           slot, nil, view, proj, vp);
 end
 
 -- HP is the only stat the client is told about an arbitrary entity, so the target panel is always
@@ -489,14 +568,24 @@ local TARGET_BARS = { 'hp' };
 * updateGateState, so a rejected or absent target is just 0 here.
 --]]
 local function drawTarget(mm, view, proj, vp)
-    local s = stats.read_entity(target_index ~= 0 and GetEntity(target_index) or nil);
+    local ent = target_index ~= 0 and GetEntity(target_index) or nil;
+    local s   = stats.read_entity(ent);
     if (s == nil) then
         return;
     end
 
+    -- Reference lines are mob data, so they are looked up only for a mob -- a PC target passes the
+    -- flag test in stats.targetable but has no entry, and looking one up by their name could only
+    -- ever hit a mob that happens to share it.
+    local res = nil;
+    if (bit.band(ent.SpawnFlags, 0x10) ~= 0) then
+        res = mobinfo.find(mob_db, target_index, ent.Name);
+    end
+
     -- nil slot: an arbitrary entity has no party slot, so the panel reserves no box for one.
     drawAt(mm, target_index, s, TARGET_BARS, config.settings.sizes.target,
-           config.settings.target_height_offset, nil, view, proj, vp);
+           config.settings.target_height_offset, nil,
+           mobinfo.lines(res, config.settings.mob, jobName), view, proj, vp);
 end
 
 local function drawConfigWindow()
@@ -589,6 +678,17 @@ local function drawConfigWindow()
             slider(imgui.SliderInt, 'Slot Text Size', cfg.slot, 'size', 8, 40);
         end
 
+        -- Target panel reference lines. The data line is the diagnostic: "loaded" with every line
+        -- ticked and still nothing under the bar means this mob is not in mobdb's file, rather
+        -- than mobdb not being installed at all.
+        imgui.Separator();
+        imgui.Text('Target Info Lines');
+        checkbox('Show Level & Job', cfg.mob, 'level');
+        checkbox('Show Detection', cfg.mob, 'detect');
+        checkbox('Show Weakness/Resist', cfg.mob, 'resist');
+        slider(imgui.SliderInt, 'Info Text Size', cfg.mob, 'size', 8, 40);
+        imgui.Text(('mob data: zone %d, %s'):fmt(mob_zone, mob_db ~= nil and 'loaded' or 'none'));
+
         -- The reference does nothing while the checkbox is off, so it is only drawn when it is on.
         imgui.Separator();
         checkbox('Scale With Distance', cfg, 'distance_scale');
@@ -640,10 +740,20 @@ end
 ashita.events.register('load', 'newui_load', function ()
     config.load();
 
+    -- Loading mid-session has no zone packet to wait for.
+    loadZone(AshitaCore:GetMemoryManager():GetParty():GetMemberZone(0));
+
     -- FFXiMain.dll is packed on disk and only unpacked in memory, so targets.lua's signatures can
     -- only be confirmed at runtime. Say so loudly rather than letting the gate quietly never match.
     if (targets == nil) then
         print('[NewUI] lib/targets.lua failed to load -- "Show In Combat" will never match. Use "Show While Engaged" instead.');
+    end
+end);
+
+-- 0x00A is zone-in; the zone id sits at 0x30. Same hook and offset mobdb reloads its own data on.
+ashita.events.register('packet_in', 'newui_packet', function (e)
+    if (e.id == 0x00A) then
+        loadZone(struct.unpack('H', e.data, 0x30 + 1));
     end
 end);
 

@@ -5,6 +5,7 @@
 local stats     = require('stats');
 local config    = require('config');
 local nameplate = require('nameplate');
+local mobinfo   = require('mobinfo');
 
 local function fakeParty(active, hpp, mpp, tp, hp, mp)
     return {
@@ -190,6 +191,29 @@ assert(config.label_size(config.defaults, config.defaults.slot.size) ~= nil, 'th
 -- The panel's own footprint is untouched -- the space is taken from the bars inside it.
 assert(config.panel_height(slotcfg, SELF) == config.panel_height(offcfg, SELF), 'the tag must not change panel height');
 
+-- Mob reference lines add a row each below the bars: the line plus one gap above it, so the block
+-- is separated from the last bar and nothing trails the bottom.
+local TARGET = config.defaults.sizes.target;
+assert(config.info_height(config.defaults, 0) == 0, 'no lines adds no height');
+assert(config.info_height(config.defaults, 3) == 3 * (14 + 1), 'each line costs its height plus a gap, got ' .. tostring(config.info_height(config.defaults, 3)));
+
+assert(config.panel_height(config.defaults, TARGET, { 'hp' }, 3) == 20 + 2 * 2 + 45,
+    'three lines on the target panel, got ' .. tostring(config.panel_height(config.defaults, TARGET, { 'hp' }, 3)));
+
+-- Exactly the bar-only height with no lines, not merely close: every existing panel has to keep
+-- the geometry it had. Omitting the argument must match passing 0.
+assert(config.panel_height(config.defaults, TARGET, { 'hp' }, 0) == config.panel_height(config.defaults, TARGET, { 'hp' }),
+    'zero lines must match the old height exactly');
+
+-- info_height must not touch cfg.mob when there is nothing to draw -- panel kinds that never have
+-- lines, and every fixture above, ship no `mob` table.
+assert(config.info_height(custom, 0) == 0, 'no lines must not read cfg.mob');
+assert(config.panel_height(custom, customSize, nil, 0) == config.panel_height(custom, customSize), 'a mob-less config still lays out');
+
+-- The default line height must clear Min Text Size, or the lines never print at the shipped
+-- settings -- the same trap the slot tag has.
+assert(config.label_size(config.defaults, config.defaults.mob.size) ~= nil, 'the default info text must clear Min Text Size');
+
 -- MP bar only shows when main or sub has an MP pool.
 assert(#config.bars_for(1, 2) == 2, 'WAR/MNK must drop the mp bar');
 assert(config.bars_for(1, 2)[2] == 'tp', 'remaining bars stay in draw order');
@@ -365,3 +389,121 @@ assert(nameplate.top(skeleton({}, 257), ACTOR) == nil, 'an implausible bone coun
 assert(nameplate.top(skeleton({}, 256), ACTOR) ~= nil, '256 bones is still walked');
 
 print('nameplate.lua ok');
+
+-- mobinfo.lua: the three reference lines, formatted off real mobdb rows (West Ronfaure, zone 100).
+local BOMB = { Name='Bomb', Notorious=false, Aggro=true, Link=false, TrueSight=false, Job=0,
+               MinLevel=8, MaxLevel=10, Sight=true, Sound=false, Blood=false, Magic=true, JA=false,
+               Scent=false,
+               Modifiers={ Slashing=1, Piercing=1, H2H=1, Impact=1, Fire=1.25, Ice=0.5, Wind=0.5,
+                           Earth=0.5, Lightning=0.5, Water=0.5, Light=0.5, Dark=0.5 } };
+
+local BONES = { Name='Enchanted Bones', Notorious=false, Aggro=true, Link=false, TrueSight=false,
+                Job=0, MinLevel=5, MaxLevel=8, Sight=false, Sound=true, Blood=true, Magic=false,
+                JA=false, Scent=false,
+                Modifiers={ Slashing=0.875, Piercing=0.5, H2H=1.125, Impact=1.25, Fire=1.25,
+                            Ice=0.875, Wind=1, Earth=1, Lightning=1, Water=1, Light=1.25, Dark=0.5 } };
+
+local jobs = { [1] = 'WAR', [2] = 'MNK' };
+local function jobname(id) return jobs[id]; end
+
+-- Level and job. The job is dropped entirely at Job 0 rather than printing a placeholder -- most
+-- low-level fauna carries no job.
+assert(mobinfo.level_job(BOMB, jobname) == '[Lv8-10]', 'job 0 prints the range alone, got ' .. tostring(mobinfo.level_job(BOMB, jobname)));
+assert(mobinfo.level_job({ MinLevel=14, MaxLevel=17, Job=1 }, jobname) == '[Lv14-17 WAR]',
+    'range + main job, got ' .. tostring(mobinfo.level_job({ MinLevel=14, MaxLevel=17, Job=1 }, jobname)));
+assert(mobinfo.level_job({ MinLevel=14, MaxLevel=17, Job=1, SubJob=2 }, jobname) == '[Lv14-17 WAR/MNK]', 'sub job is appended');
+assert(mobinfo.level_job({ MinLevel=14, MaxLevel=17, Job=1, SubJob=0 }, jobname) == '[Lv14-17 WAR]', 'sub job 0 is not a job');
+assert(mobinfo.level_job({ Level=75, MinLevel=75, MaxLevel=75, Job=1 }, jobname) == '[Lv75 WAR]', 'a fixed level prints once, not as a range');
+assert(mobinfo.level_job({ MinLevel=1, MaxLevel=2, Job=1 }, nil) == '[Lv1-2]', 'no job lookup means no job');
+assert(mobinfo.level_job({ MinLevel=1, MaxLevel=2, Job=99 }, jobname) == '[Lv1-2 ?]', 'an unknown job id must not error');
+assert(mobinfo.level_job(nil, jobname) == nil, 'an unknown mob has no level line');
+
+-- Detection. Aggro/Passive always leads: "detects nothing" and "does not aggro" are different
+-- facts, and a vanishing line would read as missing data rather than as a safe mob.
+assert(mobinfo.detection(BOMB) == 'Aggro Sight Magic', 'got ' .. tostring(mobinfo.detection(BOMB)));
+assert(mobinfo.detection(BONES) == 'Aggro Sound Blood', 'got ' .. tostring(mobinfo.detection(BONES)));
+assert(mobinfo.detection({ Aggro=false }) == 'Passive', 'a passive mob with no flags still prints');
+assert(mobinfo.detection({ Aggro=true, Link=true, TrueSight=true, Sight=true }) == 'Aggro TrueSight Sight Link',
+    'link trails the detection flags, got ' .. tostring(mobinfo.detection({ Aggro=true, Link=true, TrueSight=true, Sight=true })));
+assert(mobinfo.detection({ Aggro=true, Notorious=true, Sound=true }) == 'NM Aggro Sound', 'NM leads the line');
+assert(mobinfo.detection(nil) == nil, 'an unknown mob has no detection line');
+
+-- Weakness/resistance, sorted by potency descending so what to hit it with reads first.
+assert(mobinfo.resist(BOMB) == 'Fire+25% Ice-50% Wind-50% Earth-50% Lightning-50% Water-50% Light-50% Dark-50%',
+    'got ' .. tostring(mobinfo.resist(BOMB)));
+assert(mobinfo.resist(BONES) == 'Blunt+25% Fire+25% Light+25% H2H+12.5% Slash-12.5% Ice-12.5% Pierce-50% Dark-50%',
+    'got ' .. tostring(mobinfo.resist(BONES)));
+
+-- Eighths are what the data is made of, so the half-percent has to survive while a whole one must
+-- not print a trailing zero.
+assert(mobinfo.resist({ Modifiers={ Fire=1.125 } }) == 'Fire+12.5%', 'got ' .. tostring(mobinfo.resist({ Modifiers={ Fire=1.125 } })));
+assert(mobinfo.resist({ Modifiers={ Fire=1.25 } }) == 'Fire+25%', 'a whole percent drops its decimal');
+assert(mobinfo.resist({ Modifiers={ Fire=0.875 } }) == 'Fire-12.5%', 'a resistance is signed negative');
+
+-- Ties keep collection order (physical first, then the elements in game order) rather than falling
+-- out of `pairs`: this is rebuilt every frame, and a shuffling order would flicker the line.
+local tied = { Modifiers={ Dark=0.5, Fire=0.5, Slashing=0.5, Water=0.5 } };
+assert(mobinfo.resist(tied) == 'Slash-50% Fire-50% Water-50% Dark-50%', 'got ' .. tostring(mobinfo.resist(tied)));
+assert(mobinfo.resist(tied) == mobinfo.resist(tied), 'the same mob must format identically twice');
+
+assert(mobinfo.resist({ Modifiers={ Fire=1, Ice=1 } }) == nil, 'a mob that takes everything normally has no line');
+assert(mobinfo.resist({}) == nil, 'a row with no modifiers has no line');
+assert(mobinfo.resist(nil) == nil, 'an unknown mob has no resist line');
+
+-- Lookup: index first (dynamic spawns are keyed by it), then name.
+local db = { Indices = { [382] = BONES }, Names = { ['Bomb'] = BOMB } };
+assert(mobinfo.find(db, 382, 'Bomb') == BONES, 'the index entry wins over the name');
+assert(mobinfo.find(db, 17, 'Bomb') == BOMB, 'an unindexed mob is found by name');
+assert(mobinfo.find(db, 17, 'Bomb') ~= nil, 'sanity');
+assert(mobinfo.find(db, 17, "\007Bomb") == BOMB, 'a client name marker is stripped');
+assert(mobinfo.find(db, 17, 'Orcish Fodder') == nil, 'an unknown name yields nothing');
+assert(mobinfo.find(db, 17, nil) == nil, 'a nameless entity yields nothing');
+assert(mobinfo.find(nil, 17, 'Bomb') == nil, 'no zone data yields nothing');
+
+-- Line assembly: each toggle owns one line, and a line with nothing to say is skipped rather than
+-- drawn blank -- so ticking all three does not guarantee three rows.
+local ALL_LINES  = { level = true, detect = true, resist = true };
+local NO_LINES   = { level = false, detect = false, resist = false };
+local ONLY_LEVEL = { level = true, detect = false, resist = false };
+
+assert(#mobinfo.lines(BOMB, ALL_LINES, jobname) == 3, 'all three lines on');
+assert(mobinfo.lines(BOMB, ALL_LINES, jobname)[1] == '[Lv8-10]', 'level leads');
+assert(mobinfo.lines(BOMB, ALL_LINES, jobname)[2] == 'Aggro Sight Magic', 'detection second');
+assert(#mobinfo.lines(BOMB, NO_LINES, jobname) == 0, 'all three off draws nothing');
+assert(#mobinfo.lines(BOMB, ONLY_LEVEL, jobname) == 1, 'each toggle is independent');
+assert(#mobinfo.lines({ MinLevel=1, MaxLevel=1, Aggro=false }, ALL_LINES, jobname) == 2,
+    'a mob with no modifiers drops that line and keeps the rest');
+assert(#mobinfo.lines(nil, ALL_LINES, jobname) == 0, 'an unknown mob draws no lines');
+assert(#mobinfo.lines(BOMB, nil, jobname) == 0, 'no settings draws no lines');
+assert(#mobinfo.lines(BOMB, config.defaults.mob, jobname) == 3, 'the defaults ship all three lines on');
+
+-- The loader. A missing file is the normal case -- mobdb ships ~245 zones and may not be
+-- installed at all -- so it must land on nil rather than throwing.
+assert(mobinfo.load('no-such-zone-file-12345.lua') == nil, 'a missing zone file yields no data');
+
+local tmp = os.tmpname();
+local fh  = io.open(tmp, 'w');
+fh:write("return { Names = { ['Bomb'] = { MinLevel = 8, MaxLevel = 10 } }, Indices = { [382] = { MinLevel = 5, MaxLevel = 8 } } };");
+fh:close();
+local loaded = mobinfo.load(tmp);
+assert(loaded ~= nil, 'a mobdb zone file must load under stock lua');
+assert(mobinfo.level_job(mobinfo.find(loaded, 1, 'Bomb')) == '[Lv8-10]', 'names survive the round trip');
+assert(mobinfo.level_job(mobinfo.find(loaded, 382, 'Bomb')) == '[Lv5-8]', 'indices survive the round trip');
+
+fh = io.open(tmp, 'w');
+fh:write('this is not lua');
+fh:close();
+assert(mobinfo.load(tmp) == nil, 'a corrupt zone file yields no data');
+
+fh = io.open(tmp, 'w');
+fh:write('return 7;');
+fh:close();
+assert(mobinfo.load(tmp) == nil, 'a file that does not return a table yields no data');
+
+fh = io.open(tmp, 'w');
+fh:write('return {};');
+fh:close();
+assert(mobinfo.load(tmp).Names ~= nil and mobinfo.load(tmp).Indices ~= nil, 'both tables are always present, so find never indexes nil');
+os.remove(tmp);
+
+print('mobinfo.lua ok');

@@ -72,6 +72,20 @@ M.defaults = {
         size    = 21,   -- text height in px; the box's width is derived from it (M.slot_box)
     },
 
+    -- Reference lines under the target panel's bar, read out of mobdb's zone data. Each is
+    -- independently switchable, and a line with nothing to say (an unknown mob, a mob that takes
+    -- every damage type normally) is skipped rather than drawn blank -- so switching one on does
+    -- not guarantee a row. Target panels only: party members are not mobs.
+    mob = {
+        level  = true,   -- [Lv14-17 WAR]
+        detect = true,   -- Aggro Sight Sound Link
+        resist = true,   -- Fire+25% Ice-50%
+        -- Text height in px, the second piece of text with a size of its own (see slot.size).
+        -- 14 sits above text.min_size so the lines print at the shipped default, and the panel
+        -- widens to hold whatever they come out as rather than the text shrinking to fit.
+        size   = 14,
+    },
+
     bars = {
         rounded      = true,   -- corner rounding on/off for all 3 bars (magnitude is the fixed BAR_ROUNDING constant)
         border_color = { r = 0, g = 0, b = 0, a = 150/255 },   -- shared across hp/mp/tp outlines
@@ -236,13 +250,32 @@ function M.label_size(cfg, bar_height)
     return size;
 end
 
-function M.panel_height(cfg, size, bars)
+--[[
+* Extra panel height for `count` mob reference lines: each line plus the gap above it. That puts
+* one gap between the block and the last bar and one between the lines, with none trailing the
+* bottom -- the same spacing the bars already have.
+*
+* @param {number} count - number of lines actually being drawn.
+* @return {number} 0 for no lines, without reading cfg.mob at all, so a panel kind that never has
+*                  them (and every test fixture) needs no `mob` table.
+--]]
+function M.info_height(cfg, count)
+    if (count == 0) then
+        return 0;
+    end
+    return count * (cfg.mob.size + cfg.gap);
+end
+
+--[[
+* @param {number|nil} info_count - mob reference lines below the bars; nil is none.
+--]]
+function M.panel_height(cfg, size, bars, info_count)
     bars = bars or M.bar_order;
     local sum = 0;
     for _, key in ipairs(bars) do
         sum = sum + size[key];
     end
-    return sum + (#bars - 1) * cfg.gap + 2 * cfg.panel.offset;
+    return sum + (#bars - 1) * cfg.gap + 2 * cfg.panel.offset + M.info_height(cfg, info_count or 0);
 end
 
 function M.load()
