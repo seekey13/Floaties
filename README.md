@@ -622,3 +622,15 @@ Bars are drawn directly with Ashita's bundled ImGui background draw list
 since `primitives` can't render text or rounded corners. Settings are
 persisted with Ashita's `settings` library, one shared file for all
 characters.
+
+## Credits
+
+**atom0s** — the Ashita v4 addon framework and its bundled ImGui/settings
+libraries underpin all of NewUI; two pieces of it are used directly:
+
+- `lib/targets.lua` — Ashita's own target library, vendored here unmodified
+  (see **On the battle-target gate**).
+- `checker` — the `/check` capture (`checkinfo.lua`, see **Check capture**)
+  listens for the same Message Basic packet (`0x0029`) and reuses the check
+  pair the `checker` addon uses to tell a check response apart from the rest
+  of that packet's traffic.
