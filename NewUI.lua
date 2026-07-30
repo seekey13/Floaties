@@ -17,6 +17,7 @@ local stats     = require('stats');
 local config    = require('config');
 local nameplate = require('nameplate');
 local mobinfo   = require('mobinfo');
+local checkinfo = require('checkinfo');
 
 local C   = ffi.C;
 local dev = d3d.get_device();
@@ -190,6 +191,11 @@ local function updateGateState(mm, player, party)
     local tent       = ti ~= 0 and GetEntity(ti) or nil;
     local targetable = stats.targetable(tent, party);
 
+    -- Opportunistic cleanup: this is already the one entity read every frame, so a checked mob
+    -- dying while targeted is caught here for free. One that dies off-target lingers until the
+    -- list is cleared at zone.
+    checkinfo.prune(check_list, tent);
+
     target_index = targetable and ti or 0;
 
     gate_state.target_text = tent == nil and 'none'
@@ -216,6 +222,14 @@ local function loadZone(zone)
         and mobinfo.load(('%saddons/mobdb/data/%u.lua'):fmt(AshitaCore:GetInstallPath(), zone))
         or nil;
 end
+
+----------------------------------------------------------------------------------------------------
+-- /check capture. What the last /check said about an entity, keyed by its server id, so a
+-- re-target does not need a re-check -- see checkinfo.lua. Not drawn anywhere yet; this is just the
+-- list a later branch reads from.
+----------------------------------------------------------------------------------------------------
+
+local check_list = {};
 
 --[[
 * mobdb's own icon PNGs, by the name mobinfo puts in a segment.
@@ -992,9 +1006,28 @@ ashita.events.register('load', 'newui_load', function ()
 end);
 
 -- 0x00A is zone-in; the zone id sits at 0x30. Same hook and offset mobdb reloads its own data on.
+-- 0x00B is zone-out. check_list is cleared on both, matching checker.lua's own zone handling: a
+-- server id is only unique within one zone instance, so nothing recorded under the old one can be
+-- trusted once that instance is gone.
 ashita.events.register('packet_in', 'newui_packet', function (e)
-    if (e.id == 0x00A) then
-        loadZone(struct.unpack('H', e.data, 0x30 + 1));
+    if (e.id == 0x00A or e.id == 0x00B) then
+        if (e.id == 0x00A) then
+            loadZone(struct.unpack('H', e.data, 0x30 + 1));
+        end
+        checkinfo.clear(check_list);
+        return;
+    end
+
+    -- Message Basic. Carries hundreds of unrelated client messages; checkinfo.record recognizes a
+    -- /check response by its message/type codes and silently ignores everything else, so every
+    -- field is unpacked unconditionally the same way checker.lua's own handler does.
+    if (e.id == 0x0029) then
+        local level   = struct.unpack('l', e.data, 0x0C + 1); -- Param 1 (Level)
+        local ptype   = struct.unpack('L', e.data, 0x10 + 1); -- Param 2 (Check Type)
+        local target  = struct.unpack('H', e.data, 0x16 + 1); -- Target index
+        local message = struct.unpack('H', e.data, 0x18 + 1); -- Message (Defense / Evasion)
+
+        checkinfo.record(check_list, GetEntity(target), level, ptype, message);
     end
 end);
 

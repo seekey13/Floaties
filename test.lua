@@ -6,6 +6,7 @@ local stats     = require('stats');
 local config    = require('config');
 local nameplate = require('nameplate');
 local mobinfo   = require('mobinfo');
+local checkinfo = require('checkinfo');
 
 local function fakeParty(active, hpp, mpp, tp, hp, mp)
     return {
@@ -585,3 +586,46 @@ assert(mobinfo.load(tmp).Names ~= nil and mobinfo.load(tmp).Indices ~= nil, 'bot
 os.remove(tmp);
 
 print('mobinfo.lua ok');
+
+-- checkinfo.lua: the /check capture list, keyed by server id.
+local list = {};
+
+checkinfo.record(list, nil, 20, 0x43, 0xAB);
+assert(next(list) == nil, 'no entity means nothing recorded');
+
+checkinfo.record(list, fakeEnt(0x10, 100, 0, 500), 20, 0x99, 0xAB);
+assert(next(list) == nil, 'an unrecognized type id is not a check response');
+
+checkinfo.record(list, fakeEnt(0x10, 100, 0, 500), 20, 0x43, 0x77);
+assert(next(list) == nil, 'an unrecognized message id is not a check response');
+
+checkinfo.record(list, fakeEnt(0x10, 100, 0, 500), 20, 0x43, 0xAB);
+assert(list[500].level == 20, 'level is recorded as given, got ' .. tostring(list[500].level));
+assert(list[500].type == 'like a decent challenge', 'type resolves through M.TYPES, got ' .. tostring(list[500].type));
+assert(list[500].message == 'High Evasion', 'message resolves through M.CONDITIONS, got ' .. tostring(list[500].message));
+
+-- 0xAE is a real condition id and reads as an empty string, not "unrecognized".
+checkinfo.record(list, fakeEnt(0x10, 100, 0, 501), 20, 0x44, 0xAE);
+assert(list[501] ~= nil and list[501].message == '', 'condition 0xAE is the empty string, not missing');
+
+-- Impossible to gauge: the server sends no usable type at all, so there is nothing to resolve.
+checkinfo.record(list, fakeEnt(0x10, 100, 0, 502), 0, 0xFF, 0xF9);
+assert(list[502].type == nil and list[502].message == 'Impossible to gauge!', 'an NM check has no type, only the ITG message');
+
+-- A re-check overwrites rather than stacking a second entry for the same server id.
+checkinfo.record(list, fakeEnt(0x10, 100, 0, 500), 25, 0x44, 0xAA);
+assert(list[500].level == 25 and list[500].type == 'like an even match', 're-checking overwrites the old entry');
+
+-- Pruning: only the entity that is now at 0% hp loses its entry; everything else survives.
+checkinfo.prune(list, nil);
+assert(list[500] ~= nil, 'a nil entity prunes nothing');
+checkinfo.prune(list, fakeEnt(0x10, 50, 0, 500));
+assert(list[500] ~= nil, 'a living entity is not pruned');
+checkinfo.prune(list, fakeEnt(0x10, 0, 0, 500));
+assert(list[500] == nil, 'an entity at 0% hp is pruned');
+assert(list[501] ~= nil and list[502] ~= nil, 'pruning one server id leaves the others alone');
+
+checkinfo.clear(list);
+assert(next(list) == nil, 'clear empties the whole list');
+
+print('checkinfo.lua ok');
