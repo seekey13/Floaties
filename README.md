@@ -598,6 +598,32 @@ Icons draw at the **Info Text Size**, square and untinted — they are already
 colored per element and per flag, and the shared text color has no business
 retinting them.
 
+## Check capture
+
+`/check`'s answer is captured off the wire and kept, keyed by the checked entity's server id, so
+re-targeting it later does not require a re-check to know what it already said. Not drawn anywhere
+yet — this is the list a target-panel branch reads from later; see `checkinfo.lua`.
+
+The client's Message Basic packet (`0x0029`) is what `/check` (and the `checker` addon) both read;
+NewUI listens for it too, alongside the check pair `checker.lua` uses to tell a check response from
+the hundreds of other messages that packet carries. A recognized response overwrites any existing
+entry for that server id — a re-check is the freshest truth, not a second opinion kept alongside the
+first — and records the level, the resolved difficulty (`"like a decent challenge"`, etc.) and the
+resolved condition (`"High Evasion"`, etc.). A notorious monster's response carries no difficulty at
+all — the server withholds it — so that entry's type is `nil` and its message reads `"Impossible to
+gauge!"` instead.
+
+**The whole list is discarded on zone** (packets `0x00A` and `0x00B`, the same pair `checker.lua`
+itself clears its widescan cache on): a server id is only unique within one zone instance, so
+nothing recorded under the old one can mean the same entity after a zone change.
+
+**One entry is discarded when that entity reaches 0% hp.** This piggybacks on the target-entity read
+`updateGateState` already does every frame for the gate diagnostics, rather than a separate scan —
+so a checked mob that dies while it is your target is pruned for free, but one that dies off-target
+lingers in the list until the next zone clears it. That gap is intentional for now: NewUI only ever
+knows what it is currently looking at, and a full-entity sweep to close it is easy to add later if
+the UI branch that reads this list needs it.
+
 ## Commands
 
 | Command | Effect |
@@ -637,7 +663,8 @@ back to the entity's feet position for that frame.
 - `stats.lua` — HP/MP/TP normalization, TP segment math, and the target's entity read + targetability test (no Ashita dependencies)
 - `config.lua` — settings defaults, load/save, derived layout math (no Ashita dependencies except load/save)
 - `mobinfo.lua` — mobdb zone-data loader, the reference rows, and the `/check` tier math, built as icon/text segments (no Ashita dependencies — it picks the icon names and the tier colors, `NewUI.lua` loads and draws them)
-- `test.lua` — self-check for `stats.lua`, `config.lua`, `nameplate.lua` and `mobinfo.lua`; run with `lua test.lua`
+- `checkinfo.lua` — the `/check` capture list keyed by server id: what counts as a check response, and its zone/death cleanup (no Ashita dependencies — `NewUI.lua` unpacks the packet and resolves the entity)
+- `test.lua` — self-check for `stats.lua`, `config.lua`, `nameplate.lua`, `mobinfo.lua` and `checkinfo.lua`; run with `lua test.lua`
 - `docs/` — research notes this was built from (gitignored)
 
 ## Notes
@@ -647,3 +674,15 @@ Bars are drawn directly with Ashita's bundled ImGui background draw list
 since `primitives` can't render text or rounded corners. Settings are
 persisted with Ashita's `settings` library, one shared file for all
 characters.
+
+## Credits
+
+**atom0s** — the Ashita v4 addon framework and its bundled ImGui/settings
+libraries underpin all of NewUI; two pieces of it are used directly:
+
+- `lib/targets.lua` — Ashita's own target library, vendored here unmodified
+  (see **On the battle-target gate**).
+- `checker` — the `/check` capture (`checkinfo.lua`, see **Check capture**)
+  listens for the same Message Basic packet (`0x0029`) and reuses the check
+  pair the `checker` addon uses to tell a check response apart from the rest
+  of that packet's traffic.
