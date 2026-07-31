@@ -498,8 +498,9 @@ local function drawLabel(draw_list, left, top, width, height, text, cfg)
 end
 
 -- Panels with no mob reference (everything but a target) land on this rather than nil, so drawPanel
--- indexes the groups instead of guarding each one. Shared and never written to.
-local NO_INFO = { above = {}, left = {}, right = {}, rows = {} };
+-- indexes left/right/rows instead of guarding each one. label/tag stay nil, same as mobinfo.panel's
+-- own empty shape. Shared and never written to.
+local NO_INFO = { left = {}, right = {}, rows = {} };
 
 --[[
 * Drawn width of one mob reference segment (see mobinfo.lua for the shape).
@@ -564,13 +565,55 @@ local function drawInfoLine(draw_list, left, top, width, row, segments, size, ga
     end
 end
 
+--[[
+* Multi-color sibling of drawLabel: the HP bar's own label, when it is the check-tier/name/job
+* segments mobinfo.panel builds rather than a single barText string. Same shrink-to-fit sizing as
+* drawLabel (derived from the bar's drawn height, shrunk again if the combined text overflows the
+* bar), but walks a list of segments left to right the way drawInfoLine lays out an icon group,
+* each drawn via drawText with its own optional color override.
+*
+* Solved, not iterated, same as drawLabel: textWidth is linear in size except for bold's fixed
+* extra pixel per segment, so two samples of lineWidth (at size 0, where only the fixed pixels
+* survive, and at the base font size) separate that fixed offset from the part that scales with
+* size, without walking the segments by hand.
+--]]
+local function drawBarSegments(draw_list, left, top, width, height, segments, cfg)
+    local size = config.label_size(cfg, height);
+    if (size == nil) then
+        return;
+    end
+
+    local base   = imgui.GetFontSize();
+    local fixed  = lineWidth(segments, 0, 0, cfg);
+    local scaled = lineWidth(segments, base, 0, cfg) - fixed;
+
+    if (scaled > 0) then
+        size = math.min(size, math.floor((width - fixed) * base / scaled));
+    end
+
+    if (size < 1) then
+        return;
+    end
+
+    local x = math.floor(left + (width - lineWidth(segments, size, 0, cfg)) / 2);
+
+    for _, seg in ipairs(segments) do
+        if (seg.text ~= nil) then
+            local w = textWidth(seg.text, size, cfg);
+            drawText(draw_list, x, top, w, height, seg.text, size, cfg, seg.color);
+            x = x + w;
+        end
+    end
+end
+
 -- `size` is the panel kind's own cfg.sizes entry; everything else about the panel is shared.
 -- `scale` multiplies every pixel dimension, padding and rounding included -- a shrunk panel with a
 -- full-size border swallows its own bars.
--- `slot` is the party slot index for the tag on the left, or nil for a panel that has none.
--- `info` is mobinfo.panel's result -- the HP label override, the two icon groups flanking the bar,
--- and any full-width rows under it. Empty for every panel that is not a target.
-local function drawPanel(sx, sy, s, bars, size, scale, slot, info)
+-- `tag` is the pre-formatted text for the box on the left ("P1".."P5", or a mob's level), or nil
+-- for a panel that has none -- decided entirely by the caller (drawMember/drawTarget), not here.
+-- `info` is mobinfo.panel's result -- the HP label segments, the two icon groups flanking the bar,
+-- and any full-width rows under it. NO_INFO for every panel that is not a target.
+local function drawPanel(sx, sy, s, bars, size, scale, tag, info)
     local cfg = config.settings;
     info      = info or NO_INFO;
 
@@ -578,14 +621,14 @@ local function drawPanel(sx, sy, s, bars, size, scale, slot, info)
     -- cost the panel no height and the panel is the same shape with them as without.
     local height = config.panel_height(cfg, size, bars) * scale;
 
-    -- The slot box comes out of the bars, not out of the panel: `width` is what was configured,
+    -- The tag box comes out of the bars, not out of the panel: `width` is what was configured,
     -- so switching the tag on shifts the bars right and shortens them instead of growing the frame.
-    local bw     = config.bar_width(cfg, size, slot ~= nil) * scale;
-    local slot_w = config.slot_width(cfg, slot ~= nil) * scale;
-    local pad    = cfg.panel.offset * scale;
-    local gap    = cfg.gap * scale;
+    local bw    = config.bar_width(cfg, size, tag ~= nil) * scale;
+    local tag_w = config.slot_width(cfg, tag ~= nil) * scale;
+    local pad   = cfg.panel.offset * scale;
+    local gap   = cfg.gap * scale;
 
-    local content  = bw + slot_w;
+    local content  = bw + tag_w;
     local width    = size.width * scale;
     local left     = sx - width / 2;
     local top      = sy;
@@ -599,7 +642,7 @@ local function drawPanel(sx, sy, s, bars, size, scale, slot, info)
     end
 
     local content_left = sx - content / 2;
-    local bar_left     = content_left + slot_w;
+    local bar_left     = content_left + tag_w;
     local bar_top      = top + pad;
     local bar_rounding = cfg.bars.rounded and BAR_ROUNDING * scale or 0;
 
@@ -608,9 +651,9 @@ local function drawPanel(sx, sy, s, bars, size, scale, slot, info)
     -- so it is simply the height less the padding -- no block to subtract.
     -- Sized from its own setting (not from a bar), but through the same label_size, so it snaps to
     -- whole pixels and drops out when the distance scale makes it mush.
-    if (slot ~= nil and cfg.slot.enabled) then
+    if (tag ~= nil) then
         drawText(draw_list, content_left, bar_top, config.slot_box(cfg) * scale, height - 2 * pad,
-                 ('P%d'):fmt(slot), config.label_size(cfg, cfg.slot.size * scale), cfg);
+                 tag, config.label_size(cfg, cfg.slot.size * scale), cfg);
     end
 
     -- Labels need no scale gate of their own: each is sized from the drawn height of its own bar
@@ -634,14 +677,23 @@ local function drawPanel(sx, sy, s, bars, size, scale, slot, info)
 
         -- Label stays centered across the whole row, so TP prints over the middle bar.
         --
-        -- The target panel's HP bar carries the mob's level while it is untouched, and switches to
-        -- the percent the moment it is not: "100%" over a full bar is the bar saying what it just
-        -- said, while the level is shown nowhere else. Once damage is on it the percent is the
-        -- number being read, and the fill alone no longer resolves 71% from 64%.
+        -- The target panel's HP bar carries the check tier, name, and job (mobinfo.panel's
+        -- `label`) instead of a plain percent, with the percent appended once the mob takes
+        -- damage: "100%" over a full bar is the bar saying what it just said, while once there is
+        -- damage on it the fill alone no longer resolves 71% from 64%.
         if (bar_cfg.label) then
-            local text = (key == 'hp' and info.label ~= nil and s.hp >= 1)
-                and info.label or barText(s, key);
-            drawLabel(draw_list, bar_left, bar_top, bw, h, text, cfg);
+            if (key == 'hp' and info.label ~= nil) then
+                local segments = info.label;
+                if (s.hp < 1) then
+                    local copy = {};
+                    for i, seg in ipairs(segments) do copy[i] = seg; end
+                    copy[#copy + 1] = { text = ' ' .. barText(s, 'hp') };
+                    segments = copy;
+                end
+                drawBarSegments(draw_list, bar_left, bar_top, bw, h, segments, cfg);
+            else
+                drawLabel(draw_list, bar_left, bar_top, bw, h, barText(s, key), cfg);
+            end
         end
 
         bar_top = bar_top + h + gap;
@@ -656,19 +708,6 @@ local function drawPanel(sx, sy, s, bars, size, scale, slot, info)
     -- height check by a fraction.
     local row       = config.info_row(cfg, scale);
     local info_size = math.floor(row);
-
-    -- The check line sits at the bar's top-left corner: one gap clear of the panel's top edge, and
-    -- flush with the bar's left edge rather than centered on the panel. Above rather than below
-    -- because it is the first thing read -- whether to engage at all is answered before anything
-    -- the rest of the panel says -- and left rather than centered so it holds still between targets
-    -- instead of sliding as "EM" grows into "EP-DC".
-    --
-    -- Handed a box exactly its own width, so drawInfoLine's centering collapses to a no-op and the
-    -- line starts at bar_left. Same trick the flanking groups use.
-    if (#info.above > 0) then
-        local w = lineWidth(info.above, info_size, gap, cfg);
-        drawInfoLine(draw_list, bar_left, top - gap - row, w, row, info.above, info_size, gap, cfg);
-    end
 
     -- The two icon groups flank the bar, one gap clear of each edge and centered on the panel's
     -- height: they are what you read *with* the bar, not under it, and beside it they cost the bar
@@ -710,10 +749,10 @@ end
 *
 * @param {table} size - the panel kind's cfg.sizes entry (width + per-bar heights).
 * @param {number} offset - world height nudge from the nameplate anchor, positive = down.
-* @param {number|nil} slot - party slot index for the slot tag; nil for a panel with no slot.
+* @param {string|nil} tag - pre-formatted text for the tag box; nil for a panel with no tag.
 * @param {table|nil} info - mobinfo.panel's result; nil for a panel with no mob reference.
 --]]
-local function drawAt(mm, index, s, bars, size, offset, slot, info, view, proj, vp)
+local function drawAt(mm, index, s, bars, size, offset, tag, info, view, proj, vp)
     if (index == 0) then
         return;
     end
@@ -734,7 +773,7 @@ local function drawAt(mm, index, s, bars, size, offset, slot, info, view, proj, 
     if (sz >= 0 and sz <= 1 and sx >= 0 and sx <= vp.Width and sy >= 0 and sy <= vp.Height) then
         -- Scale comes from the anchor point, so the panel keeps its top edge pinned under the
         -- nameplate and grows or shrinks downward from there.
-        drawPanel(sx, sy, s, bars, size, config.panel_scale(config.settings, depth), slot, info);
+        drawPanel(sx, sy, s, bars, size, config.panel_scale(config.settings, depth), tag, info);
     end
 end
 
@@ -752,13 +791,13 @@ local function drawMember(mm, party, i, view, proj, vp)
     local cfg  = config.settings;
     local mine = i == 0;
 
-    -- No slot tag on your own panel: the panel over your own head is the one you never need told
-    -- apart from the others. nil rather than 0, so the box is not reserved either -- your bars keep
-    -- the full width instead of sitting beside a blank space. Written out rather than
-    -- `mine and nil or i`, which collapses to `i` in lua.
-    local slot = nil;
-    if (not mine) then
-        slot = i;
+    -- No tag on your own panel: the panel over your own head is the one you never need told apart
+    -- from the others. nil rather than a formatted string, so the box is not reserved either --
+    -- your bars keep the full width instead of sitting beside a blank space. The enabled check
+    -- moves here from drawPanel: slot_width now trusts whatever tag it is handed (see config.lua).
+    local tag = nil;
+    if (not mine and cfg.slot.enabled) then
+        tag = ('P%d'):fmt(i);
     end
 
     -- nil info: party members are not mobs, so there is nothing to look up for them.
@@ -766,7 +805,7 @@ local function drawMember(mm, party, i, view, proj, vp)
            config.bars_for(party:GetMemberMainJob(i), party:GetMemberSubJob(i)),
            mine and cfg.sizes.self or cfg.sizes.party,
            mine and cfg.height_offset or cfg.party_height_offset,
-           slot, nil, view, proj, vp);
+           tag, nil, view, proj, vp);
 end
 
 -- HP is the only stat the client is told about an arbitrary entity, so the target panel is always
@@ -793,13 +832,14 @@ local function drawTarget(mm, view, proj, vp)
         res = mobinfo.find(mob_db, target_index, ent.Name);
     end
 
-    -- nil slot: an arbitrary entity has no party slot, so the panel reserves no box for one.
     -- Main job level, not the sub's and not a level-synced display value: /check is decided by the
     -- level you fight at, which is what GetMainJobLevel reports (it already reads as the synced
-    -- level while level sync is up).
+    -- level while level sync is up). ent.Name is always known -- unlike everything else mobinfo
+    -- draws, the label's name segment needs no mobdb entry.
+    local info = mobinfo.panel(res, config.settings.mob, jobName, mm:GetPlayer():GetMainJobLevel(), ent.Name);
+
     drawAt(mm, target_index, s, TARGET_BARS, config.settings.sizes.target,
-           config.settings.target_height_offset, nil,
-           mobinfo.panel(res, config.settings.mob, jobName, mm:GetPlayer():GetMainJobLevel()),
+           config.settings.target_height_offset, info.tag, info,
            view, proj, vp);
 end
 
