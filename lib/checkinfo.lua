@@ -80,10 +80,7 @@ local CHECK_TIER = {
 * @return {number} 0-2.
 --]]
 local function plus_count(condition)
-    local n = 0;
-    for _ in condition:gmatch('High') do
-        n = n + 1;
-    end
+    local _, n = condition:gsub('High', '');
     return n;
 end
 

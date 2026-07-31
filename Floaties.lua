@@ -298,6 +298,14 @@ end
 
 local config_open = { false };
 
+-- Sets the window's open state and persists it, so both the command toggle and ImGui's own close
+-- button (X) leave config_visible agreeing with what is actually on screen across a reload.
+local function setConfigOpen(open)
+    config_open[1] = open;
+    config.settings.config_visible = open;
+    config.save();
+end
+
 -- Last error thrown out of the panel drawing, or nil. d3d_present draws the config window *before*
 -- the panels, so a throw below it left the window truthfully reporting "Panel: shown" over a screen
 -- with no panel on it, and Ashita's own log was the only place the reason existed. Kept here and
@@ -1101,8 +1109,7 @@ local function drawConfigWindow()
     -- /floaties toggle below -- catch that case here so closing the window that way still sticks
     -- across a reload, not just closing it via the command.
     if (was_open ~= config_open[1]) then
-        config.settings.config_visible = config_open[1];
-        config.save();
+        setConfigOpen(config_open[1]);
     end
 end
 
@@ -1209,9 +1216,7 @@ ashita.events.register('command', 'floaties_command', function (e)
     -- window -- the **Enabled** checkbox inside it is the only on/off switch now, so there is no
     -- separate toggle command to keep in sync with it.
     if (sub == '' or sub == 'config') then
-        config_open[1] = not config_open[1];
-        config.settings.config_visible = config_open[1];
-        config.save();
+        setConfigOpen(not config_open[1]);
         return;
     end
 
