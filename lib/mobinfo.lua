@@ -83,30 +83,16 @@ function M.find(db, index, name)
 end
 
 --[[
-* "Lv14-17 WAR/MNK" -- the level range, and the job when the mob has one.
+* The bare level tag for the box left of the bar: just the number(s), no `Lv.` prefix and no job
+* -- those live in the HP bar's own label now (see M.panel), which is a different draw with its
+* own toggle and its own reason to include or drop the job.
 *
-* A fixed-level mob carries `Level` instead of a range; most carry the range. Job 0 means the
-* entry does not name a job, which is most of the low-level fauna, and prints nothing rather than
-* a placeholder.
-*
-* @param {function|nil} jobname - job id -> abbreviation. Omitted, the job is left off.
+* A fixed-level mob carries `Level` instead of a range; most carry the range.
 --]]
-function M.level_job(res, jobname)
-    if (res == nil) then
-        return nil;
-    end
-
-    local out = 'Lv.' .. (res.Level and tostring(res.Level)
-        or string.format('%d-%d', res.MinLevel or 0, res.MaxLevel or 0));
-
-    if (jobname ~= nil and res.Job ~= nil and res.Job > 0) then
-        out = out .. ' ' .. (jobname(res.Job) or '?');
-        if (res.SubJob ~= nil and res.SubJob > 0) then
-            out = out .. '/' .. (jobname(res.SubJob) or '?');
-        end
-    end
-
-    return out;
+function M.level_text(res)
+    if (res == nil) then return nil; end
+    return res.Level and tostring(res.Level)
+        or string.format('%d-%d', res.MinLevel or 0, res.MaxLevel or 0);
 end
 
 --[[
@@ -218,6 +204,29 @@ function M.check(res, level)
     end
 
     return { { text = low.text .. '-', color = low.color }, high };
+end
+
+--[[
+* M.check's (possibly two-segment) result, collapsed into the one string the HP bar label
+* prefixes itself with. The dash inside "EP-DC" used to be where the two segments met, drawn in
+* two colors on a row above the bar; on the bar label there is one string and one color, so the
+* segment texts are concatenated and the *low* tier's color wins -- the same color the dash rode
+* on before.
+*
+* @return {table|nil} { text, color }, or nil when M.check has nothing to say.
+--]]
+function M.check_text(res, level)
+    local segs = M.check(res, level);
+    if (segs == nil) then
+        return nil;
+    end
+
+    local text = segs[1].text;
+    if (segs[2] ~= nil) then
+        text = text .. segs[2].text;
+    end
+
+    return { text = text, color = segs[1].color };
 end
 
 -- What the mob notices you with, in the order it is worth reading. TrueSight leads Sight because
@@ -355,44 +364,67 @@ end
 * Everything the target panel draws from mobdb, split by where it goes rather than by which toggle
 * produced it -- the caller places each part and needs no idea which flag it came from:
 *
-*                                    EP-DC
-*     <Aggro> <Link>  [====== Lv.14-17 WAR/MNK ======]  <Sight> <Sound> <Scent>
+*                    14-17
+*     <Aggro> <Link>  [== EP-DC Tough Mist Lizard WAR/MNK ==]  <Sight> <Sound> <Scent>
 *                      <Fire>+25% <Ice>-50% <Dark>-50%
 *
-*   above - one line over the bar. The check tier, which is the one piece here that is about *you*
-*           rather than about the mob -- it belongs above the bar for the same reason it is read
-*           first, before deciding whether to look at anything else on the panel.
-*   label - text for the HP bar's own label. The level, in place of the HP percent, because a bar
-*           already *is* the percent -- the number on top of a full bar was saying "100%" over a
-*           full bar. (The caller switches back to the percent once the mob is damaged, which is
-*           the point at which the percent starts saying something the fill does not.)
+*   label - segments for the HP bar's own label: the check tier, the name, and the job, in that
+*           order. The name always shows -- it is the entity's own display name, not mobdb data --
+*           while the check tier and job each require both a mobdb entry and their own toggle.
+*           Built whenever `mob ~= nil`, since the name alone is worth drawing for a target mobdb
+*           has never heard of (an unrecognized mob, or a player). `nil` only when `mob` itself is
+*           `nil` -- there is no toggle table to have decided anything from.
+*   tag   - the level-range/fixed-level text for the tag box left of the bar (M.level_text), or
+*           `nil`. Requires mobdb data, unlike label -- there is no tag to show for a mob with no
+*           level.
 *   left  - segments flanking the bar on its left: aggro/passive and Link, the pull decision.
 *   right - segments flanking it on its right: what it senses you with.
 *   rows  - full-width rows hung under the panel. The resistance list, in practice -- that one has
 *           no fixed length, so it cannot flank anything without shoving the bar off-center.
 *
-* All of them are always present (label may be nil), so the caller indexes instead of guarding, and
-* a mob with nothing to say is empty groups rather than a missing table.
+* left/right/rows are always present, so the caller indexes those three without guarding; label and
+* tag are the two pieces that go nil, and only when there is truly nothing to build them from.
 *
-* @param {table|nil} res - M.find's result; nil (an unknown mob, or a PC) yields the empty shape.
-* @param {table|nil} mob - cfg.mob: the toggles.
-* @param {number|nil} level - the player's main job level, for the check line.
-* @return {table} { above, label, left, right, rows }.
+* @param {table|nil} res - M.find's result; nil (an unknown mob, or a PC) yields no tag, check
+*                          prefix, or job suffix -- but still a name-only label.
+* @param {table|nil} mob - cfg.mob: the toggles. nil yields the fully empty shape.
+* @param {function|nil} jobname - job id -> abbreviation. Omitted, the job is left off.
+* @param {number|nil} level - the player's main job level, for the check prefix.
+* @param {string|nil} name - the entity's display name, always known (not mobdb data).
+* @return {table} { label, tag, left, right, rows }.
 --]]
-function M.panel(res, mob, jobname, level)
-    local out = { above = {}, left = {}, right = {}, rows = {} };
-    if (res == nil or mob == nil) then
+function M.panel(res, mob, jobname, level, name)
+    local out = { left = {}, right = {}, rows = {} };
+    if (mob == nil) then
         return out;
     end
 
-    if (mob.level) then
-        out.label = M.level_job(res, jobname);
+    local label = {};
+
+    if (mob.check and res ~= nil) then
+        local chk = M.check_text(res, level);
+        if (chk ~= nil) then
+            label[#label + 1] = { text = chk.text .. ' ', color = chk.color };
+        end
     end
 
-    -- nil (no level to compare against, or a row with no level in it) leaves the group empty
-    -- rather than putting a blank line over the bar.
-    if (mob.check) then
-        out.above = M.check(res, level) or {};
+    if (name ~= nil) then
+        label[#label + 1] = { text = name };
+    end
+
+    if (mob.level and res ~= nil and res.Job ~= nil and res.Job > 0 and jobname ~= nil) then
+        local job = jobname(res.Job) or '?';
+        if (res.SubJob ~= nil and res.SubJob > 0) then
+            job = job .. '/' .. (jobname(res.SubJob) or '?');
+        end
+        label[#label + 1] = { text = ' ' .. job };
+    end
+
+    out.label = label;
+    out.tag   = (mob.level and res ~= nil) and M.level_text(res) or nil;
+
+    if (res == nil) then
+        return out;
     end
 
     -- Neither returns nil past the res check above, so there is nothing to fall back to.
