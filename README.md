@@ -657,7 +657,7 @@ the UI branch that reads this list needs it.
 
 | Command | Effect |
 |---|---|
-| `/floaties` or `/float` | Toggle the settings window. The **Enabled** checkbox in its **Debug** section is the on/off switch, persisted |
+| `/floaties` or `/float` | Toggle the settings window. The **Enabled** checkbox in its **Debug** section is the on/off switch, persisted. Whether the window itself is open is also persisted, so a `/lua reload` or relog leaves it exactly as you left it |
 | `/floaties height <n>` | Your own vertical nudge from the nameplate anchor. Positive is downward. Default `0.228` |
 | `/floaties config` | Same as the bare command, kept as an alias |
 | `/floaties bt` | Print the current gate state (in combat / engaged / idle, raw status, resolved `<bt>` and target, or why either was rejected) |

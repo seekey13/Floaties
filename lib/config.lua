@@ -14,6 +14,9 @@ local M = {};
 
 M.defaults = {
     enabled            = true,
+    -- Whether the config window itself was open at last save, so a reload (or relog) puts it back
+    -- the way it was left instead of always starting closed.
+    config_visible     = false,
     -- Gates are purely enabling (see M.visible), so all three off means the self/party panels
     -- never draw. All three on: visible in normal play, hidden while dead, zoning or resting.
     -- They do not reach the target panel -- having a target is its own answer to whether it

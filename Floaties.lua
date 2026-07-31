@@ -903,6 +903,7 @@ local function drawConfigWindow()
                           ('%s: %s'):fmt(label, tostring(on)));
     end
 
+    local was_open = config_open[1];
     if (imgui.Begin('Floaties Config', config_open)) then
         -- The settings gates, not the live conditions they test -- that readout moved into Debug
         -- below. One line: these three decide together (union, not intersection -- see
@@ -1068,10 +1069,19 @@ local function drawConfigWindow()
         end
     end
     imgui.End();
+
+    -- ImGui's own close button (X) writes config_open[1] straight to false, bypassing the
+    -- /floaties toggle below -- catch that case here so closing the window that way still sticks
+    -- across a reload, not just closing it via the command.
+    if (was_open ~= config_open[1]) then
+        config.settings.config_visible = config_open[1];
+        config.save();
+    end
 end
 
 ashita.events.register('load', 'floaties_load', function ()
     config.load();
+    config_open[1] = config.settings.config_visible;
 
     -- Loading mid-session has no zone packet to wait for.
     loadZone(AshitaCore:GetMemoryManager():GetParty():GetMemberZone(0));
@@ -1173,6 +1183,8 @@ ashita.events.register('command', 'floaties_command', function (e)
     -- separate toggle command to keep in sync with it.
     if (sub == '' or sub == 'config') then
         config_open[1] = not config_open[1];
+        config.settings.config_visible = config_open[1];
+        config.save();
         return;
     end
 
