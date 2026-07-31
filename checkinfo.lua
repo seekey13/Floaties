@@ -1,6 +1,6 @@
 --[[
 * Captures what /check reported about an entity, keyed by its server id, so a re-target does not
-* need a re-check to know what was already learned. Pure -- NewUI.lua unpacks the Message Basic
+* need a re-check to know what was already learned. Pure -- Floaties.lua unpacks the Message Basic
 * packet (0x0029) and resolves the entity, and hands the raw fields in here; this module owns the
 * decision of what counts as a check response and how its codes read.
 *

@@ -1,9 +1,9 @@
 --[[
-* NewUI - HP / MP / TP bars drawn in a styled unit-frame panel, tracking
+* Floaties - HP / MP / TP bars drawn in a styled unit-frame panel, tracking
 * the player in 3D space.
 --]]
 
-addon.name      = 'NewUI';
+addon.name      = 'Floaties';
 addon.author    = 'Seekey';
 addon.version   = '0.1';
 addon.desc      = 'Floating HP/MP/TP bars over the player.';
@@ -205,7 +205,7 @@ end
 
 ----------------------------------------------------------------------------------------------------
 -- Mob reference data. mobdb's zone files, loaded straight off disk -- see mobinfo.lua for why that
--- works without mobdb itself being loaded. NewUI never requires mobdb to draw: no file (or no
+-- works without mobdb itself being loaded. Floaties never requires mobdb to draw: no file (or no
 -- mobdb at all) is nil here, and the target panel just draws no reference lines.
 ----------------------------------------------------------------------------------------------------
 
@@ -868,7 +868,7 @@ local function drawConfigWindow()
                           ('%s: %s'):fmt(label, tostring(on)));
     end
 
-    if (imgui.Begin('NewUI Config', config_open)) then
+    if (imgui.Begin('Floaties Config', config_open)) then
         gateState('In Combat', 'show_in_combat');
         imgui.SameLine();
         gateState('Engaged', 'show_while_engaged');
@@ -883,7 +883,7 @@ local function drawConfigWindow()
         -- is impossible to miss. Hidden with every gate off is correct, not a bug -- say so.
         --
         -- `enabled` is part of that decision and used to be left out of it: it short-circuits ahead
-        -- of the gates in d3d_present, is persisted, and its only switch is the bare `/newui`
+        -- of the gates in d3d_present, is persisted, and its only switch is the bare `/floaties`
         -- command -- so an addon toggled off weeks ago read "Panel: shown" here forever while
         -- drawing nothing, and the one line meant to settle "is this a gate problem?" was the line
         -- lying. Both halves, or the status is worse than no status.
@@ -897,7 +897,7 @@ local function drawConfigWindow()
         -- line reports. The target panel below answers to neither.
         if (not cfg.enabled) then
             imgui.SameLine();
-            imgui.Text('-- addon switched off; tick Enabled below, or /newui');
+            imgui.Text('-- addon switched off; tick Enabled below, or /floaties');
         elseif (not (cfg.show_in_combat or cfg.show_while_engaged or cfg.show_while_idle)) then
             imgui.SameLine();
             imgui.Text('-- no gate enabled, so nothing can enable it');
@@ -917,7 +917,7 @@ local function drawConfigWindow()
 
         imgui.Separator();
 
-        -- The master switch, the same setting `/newui` flips. It had no widget at all, which is how
+        -- The master switch, the same setting `/floaties` flips. It had no widget at all, which is how
         -- it managed to be off and invisible at once -- every other persisted setting is reachable
         -- from this window, and this is the one that stops the addon drawing.
         checkbox('Enabled', cfg, 'enabled');
@@ -1012,7 +1012,7 @@ local function drawConfigWindow()
     imgui.End();
 end
 
-ashita.events.register('load', 'newui_load', function ()
+ashita.events.register('load', 'floaties_load', function ()
     config.load();
 
     -- Loading mid-session has no zone packet to wait for.
@@ -1021,7 +1021,7 @@ ashita.events.register('load', 'newui_load', function ()
     -- FFXiMain.dll is packed on disk and only unpacked in memory, so targets.lua's signatures can
     -- only be confirmed at runtime. Say so loudly rather than letting the gate quietly never match.
     if (targets == nil) then
-        print('[NewUI] lib/targets.lua failed to load -- "Show In Combat" will never match. Use "Show While Engaged" instead.');
+        print('[Floaties] lib/targets.lua failed to load -- "Show In Combat" will never match. Use "Show While Engaged" instead.');
     end
 end);
 
@@ -1029,7 +1029,7 @@ end);
 -- 0x00B is zone-out. check_list is cleared on both, matching checker.lua's own zone handling: a
 -- server id is only unique within one zone instance, so nothing recorded under the old one can be
 -- trusted once that instance is gone.
-ashita.events.register('packet_in', 'newui_packet', function (e)
+ashita.events.register('packet_in', 'floaties_packet', function (e)
     if (e.id == 0x00A or e.id == 0x00B) then
         if (e.id == 0x00A) then
             loadZone(struct.unpack('H', e.data, 0x30 + 1));
@@ -1051,7 +1051,7 @@ ashita.events.register('packet_in', 'newui_packet', function (e)
     end
 end);
 
-ashita.events.register('d3d_present', 'newui_present', function ()
+ashita.events.register('d3d_present', 'floaties_present', function ()
     local mm     = AshitaCore:GetMemoryManager();
     local player = mm:GetPlayer();
     local party  = mm:GetParty();
@@ -1100,9 +1100,9 @@ end);
 -- Commands
 ----------------------------------------------------------------------------------------------------
 
-ashita.events.register('command', 'newui_command', function (e)
+ashita.events.register('command', 'floaties_command', function (e)
     local args = e.command:args();
-    if (#args == 0 or args[1]:lower() ~= '/newui') then
+    if (#args == 0 or args[1]:lower() ~= '/floaties') then
         return;
     end
     e.blocked = true;
@@ -1117,7 +1117,7 @@ ashita.events.register('command', 'newui_command', function (e)
     -- One-shot print of the same state the config window's status line shows, for when you would
     -- rather watch the log across a fight than keep the window open.
     if (sub == 'bt') then
-        print(('[NewUI] in_combat=%s engaged=%s idle=%s status=%d bt=%s target=%s'):fmt(
+        print(('[Floaties] in_combat=%s engaged=%s idle=%s status=%d bt=%s target=%s'):fmt(
             tostring(gate_state.show_in_combat),
             tostring(gate_state.show_while_engaged),
             tostring(gate_state.show_while_idle),
@@ -1130,11 +1130,11 @@ ashita.events.register('command', 'newui_command', function (e)
     if (sub == 'height' and args[3] ~= nil) then
         config.settings.height_offset = tonumber(args[3]) or config.settings.height_offset;
         config.save();
-        print(('[NewUI] self height offset: %.2f (from the nameplate anchor, positive is down)'):fmt(config.settings.height_offset));
+        print(('[Floaties] self height offset: %.2f (from the nameplate anchor, positive is down)'):fmt(config.settings.height_offset));
         return;
     end
 
     config.settings.enabled = not config.settings.enabled;
     config.save();
-    print(('[NewUI] %s'):fmt(config.settings.enabled and 'on' or 'off'));
+    print(('[Floaties] %s'):fmt(config.settings.enabled and 'on' or 'off'));
 end);

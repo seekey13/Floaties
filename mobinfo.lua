@@ -22,7 +22,7 @@
 * The fallback is not decoration: mobdb's data files and its icons are separate installs, and a
 * resistance segment that lost its icon would otherwise print a bare "+25%" with nothing saying
 * which element. Picking the icon stays here, with the flag that chooses it; loading and drawing it
-* is NewUI.lua's, so this file still loads under stock lua.
+* is Floaties.lua's, so this file still loads under stock lua.
 --]]
 
 local M = {};
@@ -32,7 +32,7 @@ local M = {};
 *
 * A missing file is the normal case, not an error: mobdb ships ~245 of the game's zones, and it
 * may not be installed at all. Both land on nil and the reference lines simply have nothing to
-* say -- NewUI must not need mobdb to draw.
+* say -- Floaties must not need mobdb to draw.
 *
 * @param {string} path - full path to mobdb's <zone>.lua.
 * @return {table|nil} { Names, Indices }, both always present when non-nil.

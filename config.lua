@@ -1,5 +1,5 @@
 --[[
-* Persisted NewUI settings + derived layout math.
+* Persisted Floaties settings + derived layout math.
 *
 * Derived math (bar_width, panel_height) is kept as pure functions taking a
 * plain settings table so it stays testable (see test.lua) and can never
@@ -152,7 +152,7 @@ M.gates = { 'show_in_combat', 'show_while_engaged', 'show_while_idle' };
 
 --[[
 * Whether the self and party panels should be drawn at all, from the visibility
-* gates. The target panel is not gated -- see drawPanels in NewUI.lua.
+* gates. The target panel is not gated -- see drawPanels in Floaties.lua.
 *
 * Each gate purely *enables*: the panel shows when at least one enabled gate's
 * condition is currently true, and is hidden otherwise. Enabling several is a
@@ -295,7 +295,7 @@ function M.load()
     -- under plain lua for test.lua. Nested tables need no wrap -- copy/merge
     -- recurse through table_mt directly.
     M.settings = settings.load(T(M.defaults));
-    settings.register('settings', 'newui_settings_update', function (s)
+    settings.register('settings', 'floaties_settings_update', function (s)
         M.settings = s;
     end);
     return M.settings;

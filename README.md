@@ -1,4 +1,4 @@
-# NewUI
+# Floaties
 
 Ashita v4 addon. Draws a styled HP/MP/TP unit-frame panel that tracks your
 character in 3D space, anchored to the nameplate.
@@ -48,7 +48,7 @@ known.
 
 Size is the one setting that is **not** shared between the three panel kinds.
 Self, party and target each own a width and a height per bar, under `sizes` in
-the settings file and in their own block in `/newui config`:
+the settings file and in their own block in `/floaties config`:
 
 | Panel | Settings | Defaults |
 |---|---|---|
@@ -253,7 +253,7 @@ differently from "`get_bt` has nothing".
 
 Both gate conditions are evaluated once per frame into a single state table,
 *before* any of the early returns, so it keeps updating while the addon is
-disabled or the panel is gated off. The top line of `/newui config` shows it
+disabled or the panel is gated off. The top line of `/floaties config` shows it
 live — **In Combat / Engaged / Idle** in green when true, red when false,
 followed by the raw entity status and what `<bt>` currently resolves to:
 
@@ -270,7 +270,7 @@ together**, not the gates alone — so a gate reading false while a panel is on
 screen is visible as a contradiction rather than something to infer. With no gate
 enabled it reads `hidden -- no gate enabled, so nothing can enable it`; with the
 addon switched off it reads `hidden -- addon switched off; tick Enabled below, or
-/newui`.
+/floaties`.
 
 `Target panel:` is the second decision, and it is deliberately a second line: the
 gates do not reach it, so folding both into one `Panel:` verdict would have it
@@ -279,7 +279,7 @@ read `hidden` while a target panel was plainly on screen. It is `shown` when
 filters above — which is exactly the `target:` line reading anything but `none`
 or ` REJECTED`.
 
-`Enabled` is the master switch `/newui` toggles, and it is persisted. It reports
+`Enabled` is the master switch `/floaties` toggles, and it is persisted. It reports
 here and has its own checkbox because leaving it out of both is what let it be
 off and invisible at the same time: the line meant to answer "is this a gate
 problem?" said `shown` over an empty screen for as long as the setting stayed
@@ -300,13 +300,13 @@ name. `bt: none` means `get_bt` returned nothing.
 
 `target:` is the same treatment for the target panel, so an NPC you have clicked
 reads as ` REJECTED` with `flags=0x2` rather than looking identical to targeting
-nothing at all. `/newui bt` prints all of it to the log.
+nothing at all. `/floaties bt` prints all of it to the log.
 
 **Show While Engaged** tests a similar condition through a supported Ashita API
 with no signature involved. The battle-target gate is the one that stays true
 while a claimed mob is alive but you are disengaged.
 
-Every visual property is configurable via `/newui config` and persists across
+Every visual property is configurable via `/floaties config` and persists across
 sessions — per-panel widths and bar heights (see **Panel sizes**), and shared
 padding/rounding/colors/border/text color.
 
@@ -382,7 +382,7 @@ what it sees you with.
                     <Fire>+25% <Ice>-50% <Dark>-50%
 ```
 
-Four toggles in `/newui config` feed it:
+Four toggles in `/floaties config` feed it:
 
 | Setting | Contributes | Drawn as |
 |---|---|---|
@@ -605,7 +605,7 @@ re-targeting it later does not require a re-check to know what it already said. 
 yet — this is the list a target-panel branch reads from later; see `checkinfo.lua`.
 
 The client's Message Basic packet (`0x0029`) is what `/check` (and the `checker` addon) both read;
-NewUI listens for it too, alongside the check pair `checker.lua` uses to tell a check response from
+Floaties listens for it too, alongside the check pair `checker.lua` uses to tell a check response from
 the hundreds of other messages that packet carries. A recognized response overwrites any existing
 entry for that server id — a re-check is the freshest truth, not a second opinion kept alongside the
 first — and records the level, the resolved difficulty (`"like a decent challenge"`, etc.) and the
@@ -620,7 +620,7 @@ nothing recorded under the old one can mean the same entity after a zone change.
 **One entry is discarded when that entity reaches 0% hp.** This piggybacks on the target-entity read
 `updateGateState` already does every frame for the gate diagnostics, rather than a separate scan —
 so a checked mob that dies while it is your target is pruned for free, but one that dies off-target
-lingers in the list until the next zone clears it. That gap is intentional for now: NewUI only ever
+lingers in the list until the next zone clears it. That gap is intentional for now: Floaties only ever
 knows what it is currently looking at, and a full-entity sweep to close it is easy to add later if
 the UI branch that reads this list needs it.
 
@@ -628,14 +628,14 @@ the UI branch that reads this list needs it.
 
 | Command | Effect |
 |---|---|
-| `/newui` | Toggle on/off. Persisted, and the same setting as the **Enabled** checkbox in the config window |
-| `/newui height <n>` | Your own vertical nudge from the nameplate anchor. Positive is downward. Default `0.228` |
-| `/newui config` | Toggle the settings window |
-| `/newui bt` | Print the current gate state (in combat / engaged / idle, raw status, resolved `<bt>` and target, or why either was rejected) |
+| `/floaties` | Toggle on/off. Persisted, and the same setting as the **Enabled** checkbox in the config window |
+| `/floaties height <n>` | Your own vertical nudge from the nameplate anchor. Positive is downward. Default `0.228` |
+| `/floaties config` | Toggle the settings window |
+| `/floaties bt` | Print the current gate state (in combat / engaged / idle, raw status, resolved `<bt>` and target, or why either was rejected) |
 
 `0.0` puts the panel's top edge level with the top of the model, i.e. directly under the
 nameplate; nudge from there. Self, party and target have separate offsets (`Self Height
-Offset` / `Party Height Offset` / `Target Height Offset` in `/newui config`); the command
+Offset` / `Party Height Offset` / `Target Height Offset` in `/floaties config`); the command
 only touches your own. They default to `0.228` / `0.125` / `0.125` — everything hangs a
 little below the plate, your own taller panel slightly further.
 
@@ -657,13 +657,13 @@ back to the entity's feet position for that frame.
 
 ## Files
 
-- `NewUI.lua` — projection, ImGui rendering, gate state, config window, commands
+- `Floaties.lua` — projection, ImGui rendering, gate state, config window, commands
 - `nameplate.lua` — actor → skeleton → bone walk for the model-top anchor (memory reader injected, so it tests headless)
 - `lib/targets.lua` — Ashita's target library, vendored unmodified (only `get_bt` is used)
 - `stats.lua` — HP/MP/TP normalization, TP segment math, and the target's entity read + targetability test (no Ashita dependencies)
 - `config.lua` — settings defaults, load/save, derived layout math (no Ashita dependencies except load/save)
-- `mobinfo.lua` — mobdb zone-data loader, the reference rows, and the `/check` tier math, built as icon/text segments (no Ashita dependencies — it picks the icon names and the tier colors, `NewUI.lua` loads and draws them)
-- `checkinfo.lua` — the `/check` capture list keyed by server id: what counts as a check response, and its zone/death cleanup (no Ashita dependencies — `NewUI.lua` unpacks the packet and resolves the entity)
+- `mobinfo.lua` — mobdb zone-data loader, the reference rows, and the `/check` tier math, built as icon/text segments (no Ashita dependencies — it picks the icon names and the tier colors, `Floaties.lua` loads and draws them)
+- `checkinfo.lua` — the `/check` capture list keyed by server id: what counts as a check response, and its zone/death cleanup (no Ashita dependencies — `Floaties.lua` unpacks the packet and resolves the entity)
 - `test.lua` — self-check for `stats.lua`, `config.lua`, `nameplate.lua`, `mobinfo.lua` and `checkinfo.lua`; run with `lua test.lua`
 - `docs/` — research notes this was built from (gitignored)
 
@@ -678,7 +678,7 @@ characters.
 ## Credits
 
 **atom0s** — the Ashita v4 addon framework and its bundled ImGui/settings
-libraries underpin all of NewUI; two pieces of it are used directly:
+libraries underpin all of Floaties; two pieces of it are used directly:
 
 - `lib/targets.lua` — Ashita's own target library, vendored here unmodified
   (see **On the battle-target gate**).

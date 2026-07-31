@@ -11,8 +11,8 @@ it documents *why* each rule exists, and is expected to be updated in the same
 commit as any behavior change.
 
 The repo root **is** the addon directory: it must be installed as
-`Ashita/addons/NewUI/`, and Ashita loads `NewUI.lua` because the file matches
-the folder name.
+`Ashita/addons/Floaties/`, and Ashita loads `Floaties.lua` because the file
+matches the folder name.
 
 ## Commands
 
@@ -20,7 +20,7 @@ There is no build step. Lua 5.4 is on PATH:
 
 ```sh
 lua test.lua                        # run the whole self-check (from the repo root)
-luac -p NewUI.lua lib/targets.lua   # syntax-check the files test.lua cannot load
+luac -p Floaties.lua lib/targets.lua # syntax-check the files test.lua cannot load
 ```
 
 `test.lua` is a flat list of `assert`s, not a framework — there is no way to run
@@ -28,13 +28,13 @@ a single case; delete/comment lines locally if you need to isolate one. It exits
 non-zero on the first failure and prints `<file>.lua ok` per module otherwise.
 
 Only in-game verification covers rendering, projection, and the memory reads in
-`lib/targets.lua`; `/newui config` shows live gate/target state for that.
+`lib/targets.lua`; `/floaties config` shows live gate/target state for that.
 
 ## Architecture
 
 ### The headless boundary
 
-The single most important constraint: **`NewUI.lua` is the only file that may
+The single most important constraint: **`Floaties.lua` is the only file that may
 touch Ashita globals** (`AshitaCore`, `ashita.*`, `imgui`, `ffi`, `d3d8`,
 `GetEntity`, `require('common')`). Everything else stays loadable under plain
 Lua so `test.lua` can exercise it headless. Consequences to preserve:
@@ -49,12 +49,12 @@ Lua so `test.lua` can exercise it headless. Consequences to preserve:
   testable.
 - `mobinfo.lua` — pure, *including* its `loadfile` of mobdb's zone data: those
   files are plain `return { ... }` tables with no globals in them, so the loader
-  tests headless too. `NewUI.lua` supplies the path (`GetInstallPath`) and a
+  tests headless too. `Floaties.lua` supplies the path (`GetInstallPath`) and a
   job-id → abbreviation function; nothing here reads `AshitaCore`. mobdb is a
   data dependency, never a load-order one — a missing file is `nil` and the
   reference just doesn't draw. A line is an array of `{ icon, alt, text }`
   segments: choosing *which* mobdb icon a flag means is a decision and lives
-  here, loading and drawing the PNG is `NewUI.lua`'s, and `alt` is the word to
+  here, loading and drawing the PNG is `Floaties.lua`'s, and `alt` is the word to
   print when the texture is missing (mobdb's data and its icons install
   separately, so either can be absent on its own). `M.panel` keys its result by
   *where* each piece draws (`label`, `left`, `right`, `rows`) rather than by
@@ -67,7 +67,7 @@ Lua so `test.lua` can exercise it headless. Consequences to preserve:
   inside a `pcall` and a miss degrades one gate instead of killing the addon.
 
 New logic with a decision in it belongs in `stats.lua` or `config.lua` with
-asserts in `test.lua`; `NewUI.lua` should stay glue, drawing, and Ashita I/O.
+asserts in `test.lua`; `Floaties.lua` should stay glue, drawing, and Ashita I/O.
 
 ### Per-frame flow (`d3d_present`)
 

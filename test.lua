@@ -411,7 +411,7 @@ local jobs = { [1] = 'WAR', [2] = 'MNK' };
 local function jobname(id) return jobs[id]; end
 
 -- Detection and resistance lines are segments, drawn as mobdb's icons. These two flatten a line to
--- what NewUI draws when a texture is missing (alt in the icon's place) and to the icon names it
+-- what Floaties draws when a texture is missing (alt in the icon's place) and to the icon names it
 -- asks for -- one assertion per line either way, and the fallback wording is exactly the text the
 -- lines used to be, so the readings below did not have to change with the shape.
 local function text(line)
