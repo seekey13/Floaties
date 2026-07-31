@@ -19,11 +19,11 @@ matches the folder name.
 There is no build step. Lua 5.4 is on PATH:
 
 ```sh
-lua test.lua                        # run the whole self-check (from the repo root)
+lua lib/test.lua                     # run the whole self-check (from the repo root)
 luac -p Floaties.lua lib/targets.lua # syntax-check the files test.lua cannot load
 ```
 
-`test.lua` is a flat list of `assert`s, not a framework — there is no way to run
+`lib/test.lua` is a flat list of `assert`s, not a framework — there is no way to run
 a single case; delete/comment lines locally if you need to isolate one. It exits
 non-zero on the first failure and prints `<file>.lua ok` per module otherwise.
 

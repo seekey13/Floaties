@@ -13,11 +13,11 @@ require('common');
 local ffi       = require('ffi');
 local d3d       = require('d3d8');
 local imgui     = require('imgui');
-local stats     = require('stats');
-local config    = require('config');
-local nameplate = require('nameplate');
-local mobinfo   = require('mobinfo');
-local checkinfo = require('checkinfo');
+local stats     = require('lib.stats');
+local config    = require('lib.config');
+local nameplate = require('lib.nameplate');
+local mobinfo   = require('lib.mobinfo');
+local checkinfo = require('lib.checkinfo');
 
 local C   = ffi.C;
 local dev = d3d.get_device();

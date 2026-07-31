@@ -658,13 +658,13 @@ back to the entity's feet position for that frame.
 ## Files
 
 - `Floaties.lua` — projection, ImGui rendering, gate state, config window, commands
-- `nameplate.lua` — actor → skeleton → bone walk for the model-top anchor (memory reader injected, so it tests headless)
+- `lib/nameplate.lua` — actor → skeleton → bone walk for the model-top anchor (memory reader injected, so it tests headless)
 - `lib/targets.lua` — Ashita's target library, vendored unmodified (only `get_bt` is used)
-- `stats.lua` — HP/MP/TP normalization, TP segment math, and the target's entity read + targetability test (no Ashita dependencies)
-- `config.lua` — settings defaults, load/save, derived layout math (no Ashita dependencies except load/save)
-- `mobinfo.lua` — mobdb zone-data loader, the reference rows, and the `/check` tier math, built as icon/text segments (no Ashita dependencies — it picks the icon names and the tier colors, `Floaties.lua` loads and draws them)
-- `checkinfo.lua` — the `/check` capture list keyed by server id: what counts as a check response, and its zone/death cleanup (no Ashita dependencies — `Floaties.lua` unpacks the packet and resolves the entity)
-- `test.lua` — self-check for `stats.lua`, `config.lua`, `nameplate.lua`, `mobinfo.lua` and `checkinfo.lua`; run with `lua test.lua`
+- `lib/stats.lua` — HP/MP/TP normalization, TP segment math, and the target's entity read + targetability test (no Ashita dependencies)
+- `lib/config.lua` — settings defaults, load/save, derived layout math (no Ashita dependencies except load/save)
+- `lib/mobinfo.lua` — mobdb zone-data loader, the reference rows, and the `/check` tier math, built as icon/text segments (no Ashita dependencies — it picks the icon names and the tier colors, `Floaties.lua` loads and draws them)
+- `lib/checkinfo.lua` — the `/check` capture list keyed by server id: what counts as a check response, and its zone/death cleanup (no Ashita dependencies — `Floaties.lua` unpacks the packet and resolves the entity)
+- `lib/test.lua` — self-check for `lib/stats.lua`, `lib/config.lua`, `lib/nameplate.lua`, `lib/mobinfo.lua` and `lib/checkinfo.lua`; run with `lua lib/test.lua` from the repo root
 - `docs/` — research notes this was built from (gitignored)
 
 ## Notes

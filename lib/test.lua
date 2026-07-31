@@ -1,12 +1,12 @@
 --[[
-* Self-check for stats.lua. Run headless: lua test.lua
+* Self-check for stats.lua. Run headless from the repo root: lua lib/test.lua
 --]]
 
-local stats     = require('stats');
-local config    = require('config');
-local nameplate = require('nameplate');
-local mobinfo   = require('mobinfo');
-local checkinfo = require('checkinfo');
+local stats     = require('lib.stats');
+local config    = require('lib.config');
+local nameplate = require('lib.nameplate');
+local mobinfo   = require('lib.mobinfo');
+local checkinfo = require('lib.checkinfo');
 
 local function fakeParty(active, hpp, mpp, tp, hp, mp)
     return {
