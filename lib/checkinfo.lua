@@ -11,6 +11,9 @@
 *
 * The target panel (mobinfo.panel) reads this list to show an exact tier and level in place of its
 * own mobdb-derived estimate once a mob has been checked -- see `tier` on M.record's entry below.
+* It also reads `plus`, the one piece of a /check response mobdb's estimate has no way to produce
+* at all: retail tells a High Evasion / High Defense mob apart from a plain one of the same tier,
+* and this project's chart draws that as `+`/`++` trailing the tier abbreviation.
 --]]
 
 local M = {};
@@ -67,6 +70,24 @@ local CHECK_TIER = {
 };
 
 --[[
+* How many of "High Evasion" / "High Defense" a resolved condition string names -- 0, 1, or 2.
+* "Low" never counts: a mob checking worse than expected is not worth flagging the way one checking
+* better is, and the base tier already says how the fight reads overall. Counted off the resolved
+* string rather than the raw message id so the one combined condition (0xAA, "High Evasion, High
+* Defense") does not need a second table entry alongside M.CONDITIONS to know it is worth two.
+*
+* @param {string} condition - one of M.CONDITIONS' values.
+* @return {number} 0-2.
+--]]
+local function plus_count(condition)
+    local n = 0;
+    for _ in condition:gmatch('High') do
+        n = n + 1;
+    end
+    return n;
+end
+
+--[[
 * Records one /check response against the entity it was about. Overwrites any existing entry for
 * that server id -- a re-check is the freshest truth about that entity, not a second opinion to
 * keep alongside the first.
@@ -89,7 +110,7 @@ function M.record(list, ent, level, ptype, message)
     end
 
     if (message == IMPOSSIBLE_TO_GAUGE) then
-        list[ent.ServerId] = { level = level, type = nil, message = 'Impossible to gauge!', tier = 'ITG' };
+        list[ent.ServerId] = { level = level, type = nil, message = 'Impossible to gauge!', tier = 'ITG', plus = 0 };
         return;
     end
 
@@ -98,7 +119,7 @@ function M.record(list, ent, level, ptype, message)
         return;
     end
 
-    list[ent.ServerId] = { level = level, type = t, message = c, tier = CHECK_TIER[ptype] };
+    list[ent.ServerId] = { level = level, type = t, message = c, tier = CHECK_TIER[ptype], plus = plus_count(c) };
 end
 
 --[[

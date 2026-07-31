@@ -105,10 +105,14 @@ end
 * a panel could not disagree) deliberately painted VT and IT the same color, which was fine for two
 * letters side by side but would have painted two different danger levels' worth of bar identically.
 *
-* IT alone stands for three tiers the reference chart draws separately (IT, IT+, IT++): `/check`
-* itself never distinguishes past "incredibly tough", and check_tier has no way to derive which of
-* the three a given mob is, so IT takes the chart's darkest (most alarming) of the three rather than
-* inventing a split the game's own message can't support.
+* IT alone stands for three tiers the reference chart draws separately (IT, IT+, IT++): mobdb's
+* level-difference estimate (check_tier) has no condition data at all, so it can never say which of
+* the three a given mob is, and IT takes the chart's darkest (most alarming) of the three rather
+* than inventing a split the estimate can't support. A captured /check answers this exactly --
+* Message Basic's condition byte names High Evasion / High Defense independently of the difficulty
+* byte -- so M.panel appends `+`/`++` to *whichever* tier a checked mob names, straight from
+* checkinfo's `plus` (see checkinfo.lua); it reuses that tier's one color rather than needing a
+* second entry here, since the suffix is text, not a new threat level.
 *
 * No alpha: like the bar colors in config.defaults these carry rgb only, and drawText takes the
 * opacity from cfg.text.color so the shared text alpha still governs them; the bar fill takes its
@@ -386,13 +390,16 @@ end
 * @param {function|nil} jobname - job id -> abbreviation. Omitted, the job is left off.
 * @param {number|nil} level - the player's main job level, for the mobdb-estimated check prefix.
 * @param {string|nil} name - the entity's display name, always known (not mobdb data).
-* @param {table|nil} chk - checkinfo's captured entry for this entity (`{ level, tier, ... }`), or
-*                          `nil` when it has never been /checked. More accurate than mobdb's
+* @param {table|nil} chk - checkinfo's captured entry for this entity (`{ level, tier, plus, ... }`),
+*                          or `nil` when it has never been /checked. More accurate than mobdb's
 *                          estimate when present, so it wins for both the check prefix/bar color and
 *                          the level tag -- and needs no mobdb entry of its own to do either, since a
 *                          check works on any mob whether or not mobdb recognizes it. Its `level`
 *                          only wins when `> 0`; the server sends `0` when it declined to give one
-*                          (notably an NM's), and mobdb's range is still worth showing then.
+*                          (notably an NM's), and mobdb's range is still worth showing then. Its
+*                          `plus` (0-2) trails the tier as `+`/`++` for High Evasion/High Defense;
+*                          mobdb's own estimate never carries a suffix, having no condition to draw
+*                          one from.
 * @return {table} { label, tag, left, right, rows }.
 --]]
 function M.panel(res, mob, jobname, level, name, chk)
@@ -408,7 +415,10 @@ function M.panel(res, mob, jobname, level, name, chk)
         local tier = chk ~= nil and chk.tier ~= nil and M.CHECK[chk.tier] or nil;
         local text = tier or (res ~= nil and M.check_text(res, level) or nil);
         if (text ~= nil) then
-            label[#label + 1] = { text = text.text .. ' ', color = text.color };
+            -- The +/++ suffix only ever comes from a captured check (chk.plus) -- mobdb's
+            -- estimate (M.check_text) has no condition data to draw one from at all.
+            local plus = (tier ~= nil and chk.plus or 0);
+            label[#label + 1] = { text = text.text .. string.rep('+', plus) .. ' ', color = text.color };
             hp_color, hp_color2 = text.color, text.color2;
         end
     end

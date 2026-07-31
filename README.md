@@ -509,15 +509,25 @@ gets an exact tier and level, just no job suffix or detection/resistance rows �
 only from mobdb, and `/check` has nothing to say about them. Re-checking a mob replaces the captured
 entry with the fresh answer, same as it replaces everything else `checkinfo` keeps for that server id.
 
+**A captured check's tier also carries a `+`/`++` suffix for High Evasion and High Defense** —
+`IT+` for one, `IT++` for both — since retail's condition ("High Evasion, High Defense", etc.) is
+independent of the difficulty message and applies to whichever tier a mob names, not just `IT`. Low
+Evasion and Low Defense never draw anything: a mob checking *worse* than expected is not worth
+flagging the way one checking better is, and the plain tier already says how the fight reads
+overall. The suffix is text only, in the same color as the tier it trails — it does not need a color
+of its own, and mobdb's estimate never carries one, since it has no condition data to draw one from.
+
 The colors are this project's own reference palette — gray, green, blue, white,
 gold, orange, dark red, purple — rather than `/check`'s own chat colors: the
 tier now fills the whole bar, not just a couple of letters next to other text,
 so every tier needs a shade that reads as its own threat level on sight, and no
 two tiers share one. `IT` alone stands in for three shades of "incredibly
-tough" the reference chart draws separately — `/check` itself never says more
-than "incredibly tough", so there is no way to tell which of the three a given
-mob is, and `IT` takes the darkest of the three rather than inventing a split
-the game's own message can't support. They are not settings: this is one fixed
+tough" the reference chart draws separately — mobdb's own estimate has no
+condition data at all, so there is no way for it to tell which of the three a
+given mob is, and `IT` takes the darkest of the three rather than inventing a
+split the estimate can't support. A captured check can and does tell them
+apart — see the `+`/`++` suffix above — but reuses `IT`'s one color for all
+three rather than needing a shade of its own for each. They are not settings: this is one fixed
 chart, not a palette to retint. Opacity still comes from **Text Color**'s
 alpha for the label, and from the bar's own fill state (`full`/`incomplete`/
 `empty`) for the bar, like every other bar color.
@@ -671,6 +681,12 @@ Retail's message set has one code (`"like incredibly easy prey"`) this project's
 no room for below `EP`; it lands on `EP` there too, the same call `checker.lua`'s own colors make (it
 leaves that one code uncolored rather than giving it `EP`'s tint, but does not invent an eighth tier
 for it either).
+
+Each entry also carries `plus` (`0`-`2`): how many of "High Evasion" / "High Defense" the resolved
+condition names, counted off that same resolved string rather than a second lookup keyed on the raw
+message id — the one combined condition (`"High Evasion, High Defense"`) just matches twice. "Low"
+never counts. The target panel trails this many `+` onto the tier abbreviation; see **The check
+tier**.
 
 **The whole list is discarded on zone** (packets `0x00A` and `0x00B`, the same pair `checker.lua`
 itself clears its widescan cache on): a server id is only unique within one zone instance, so

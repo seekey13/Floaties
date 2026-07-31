@@ -703,6 +703,20 @@ assert(checked.tag == '25', 'the checked level snaps the tag to one number, got 
 assert(checked.hp_color == mobinfo.CHECK.IT.color, 'the bar fills in the checked tier\'s color');
 assert(checked.hp_color2 == nil, 'one checked tier is never a straddle, even if mobdb\'s range would have been');
 
+-- checkinfo's plus (0-2, High Evasion/High Defense) trails the tier abbreviation as `+`/`++`, and
+-- still colors the bar in the plain tier's one color -- the suffix is text, not a new threat level.
+local checkedPlus1 = mobinfo.panel(BOMB, ALL_LINES, jobname, 12, 'Bomb', { level = 25, tier = 'IT', plus = 1 });
+assert(label_text(checkedPlus1.label) == 'IT+ Bomb', 'one plus trails the tier as a single +, got ' .. tostring(label_text(checkedPlus1.label)));
+assert(checkedPlus1.hp_color == mobinfo.CHECK.IT.color, 'the plus does not change the bar color');
+
+local checkedPlus2 = mobinfo.panel(BOMB, ALL_LINES, jobname, 12, 'Bomb', { level = 25, tier = 'IT', plus = 2 });
+assert(label_text(checkedPlus2.label) == 'IT++ Bomb', 'both High Evasion and High Defense is a double ++, got ' .. tostring(label_text(checkedPlus2.label)));
+
+-- The mobdb estimate never carries a suffix -- it has no condition data to derive one from -- even
+-- for a tier that would otherwise take one were it a captured check.
+local estimateOnly = mobinfo.panel(BOMB, ALL_LINES, jobname, 12, 'Bomb');
+assert(not label_text(estimateOnly.label):find('%+'), 'the estimate path never appends a plus, got ' .. tostring(label_text(estimateOnly.label)));
+
 -- A checked mob mobdb has never heard of (res is nil) still gets the exact tier and level -- /check
 -- does not need mobdb to work, and job/detect/resist stay off since none of that is in a check.
 local checkedNoRes = mobinfo.panel(nil, ALL_LINES, jobname, 20, 'Unrecognized Mob', { level = 30, tier = 'VT' });
@@ -776,16 +790,36 @@ assert(list[500].level == 20, 'level is recorded as given, got ' .. tostring(lis
 assert(list[500].type == 'like a decent challenge', 'type resolves through M.TYPES, got ' .. tostring(list[500].type));
 assert(list[500].message == 'High Evasion', 'message resolves through M.CONDITIONS, got ' .. tostring(list[500].message));
 assert(list[500].tier == 'DC', 'type 0x43 maps to mobinfo\'s DC tier, got ' .. tostring(list[500].tier));
+assert(list[500].plus == 1, 'a single "High" in the condition is one plus, got ' .. tostring(list[500].plus));
 
 -- 0xAE is a real condition id and reads as an empty string, not "unrecognized".
 checkinfo.record(list, fakeEnt(0x10, 100, 0, 501), 20, 0x44, 0xAE);
 assert(list[501] ~= nil and list[501].message == '', 'condition 0xAE is the empty string, not missing');
 assert(list[501].tier == 'EM', 'type 0x44 maps to EM, got ' .. tostring(list[501].tier));
+assert(list[501].plus == 0, 'the average condition (0xAE) is no plus, got ' .. tostring(list[501].plus));
 
 -- Impossible to gauge: the server sends no usable type at all, so there is nothing to resolve.
 checkinfo.record(list, fakeEnt(0x10, 100, 0, 502), 0, 0xFF, 0xF9);
 assert(list[502].type == nil and list[502].message == 'Impossible to gauge!', 'an NM check has no type, only the ITG message');
 assert(list[502].tier == 'ITG', 'an NM check still gets a tier, matching mobinfo.CHECK.ITG');
+assert(list[502].plus == 0, 'an NM check has no condition to count, got ' .. tostring(list[502].plus));
+
+-- Both High Evasion and High Defense (0xAA) is two pluses; either alone is one; Low never counts,
+-- even paired with a High (0xAC, 0xB0) -- only "checks better than expected" is worth flagging.
+checkinfo.record(list, fakeEnt(0x10, 100, 0, 506), 20, 0x43, 0xAA);
+assert(list[506].plus == 2, 'High Evasion, High Defense is two pluses, got ' .. tostring(list[506].plus));
+checkinfo.record(list, fakeEnt(0x10, 100, 0, 507), 20, 0x43, 0xAD);
+assert(list[507].plus == 1, 'High Defense alone is one plus, got ' .. tostring(list[507].plus));
+checkinfo.record(list, fakeEnt(0x10, 100, 0, 508), 20, 0x43, 0xAC);
+assert(list[508].plus == 1, 'High Evasion, Low Defense is one plus -- Low does not count, got ' .. tostring(list[508].plus));
+checkinfo.record(list, fakeEnt(0x10, 100, 0, 509), 20, 0x43, 0xB0);
+assert(list[509].plus == 1, 'Low Evasion, High Defense is one plus, got ' .. tostring(list[509].plus));
+checkinfo.record(list, fakeEnt(0x10, 100, 0, 510), 20, 0x43, 0xAF);
+assert(list[510].plus == 0, 'Low Defense alone is no plus, got ' .. tostring(list[510].plus));
+checkinfo.record(list, fakeEnt(0x10, 100, 0, 511), 20, 0x43, 0xB1);
+assert(list[511].plus == 0, 'Low Evasion alone is no plus, got ' .. tostring(list[511].plus));
+checkinfo.record(list, fakeEnt(0x10, 100, 0, 512), 20, 0x43, 0xB2);
+assert(list[512].plus == 0, 'Low Evasion, Low Defense is no plus, got ' .. tostring(list[512].plus));
 
 -- 0x40 and 0x47 are the chart's two ends; 0x41 ("incredibly easy prey") has no tier of its own
 -- below EP in this project's chart, and lands on EP the same as 0x42 ("easy prey").
