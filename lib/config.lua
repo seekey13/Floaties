@@ -43,11 +43,10 @@ M.defaults = {
     -- one off what was picked.
     panel = {
         offset       = 2,           -- padding: panel edge -> bar edge, all sides
-        rounding     = 6,
-        rounded      = true,        -- corner rounding on/off (magnitude stays in `rounding`)
+        rounding     = 6,           -- 0 turns rounding off; no separate on/off switch
         -- Black at 100/255: a scrim dark enough to hold the bars off the world behind them
-        -- without becoming a solid slab over it. The border is fully transparent -- the panel
-        -- reads as its own shape, and `border_visible` is left on for the bar outlines.
+        -- without becoming a solid slab over it. The border is fully transparent -- borders draw
+        -- unconditionally now, so alpha alone (not a checkbox) is what hides one.
         bg           = { r = 0, g = 0, b = 0, a = 100/255 },
         border_color = { r = 0, g = 0, b = 0, a = 0 },
     },
@@ -63,7 +62,6 @@ M.defaults = {
     },
 
     gap            = 1,      -- vertical gap between the 3 bars
-    border_visible = true,   -- shared toggle for panel border + bar borders
 
     -- Tag box left of the bars, inside the panel: "P1".."P5" for a party member, or a mob's level
     -- (range or fixed) for a target -- see mobinfo.panel's `tag`. The panel keeps its configured
@@ -93,7 +91,7 @@ M.defaults = {
     },
 
     bars = {
-        rounded      = true,   -- corner rounding on/off for all 3 bars (magnitude is the fixed BAR_ROUNDING constant)
+        rounding     = 3,      -- corner rounding for all 3 bars; 0 turns it off, no separate switch
         border_color = { r = 0, g = 0, b = 0, a = 150/255 },   -- shared across hp/mp/tp outlines
 
         -- Each bar has one color, shared by all three panel kinds; opacity comes from `states`

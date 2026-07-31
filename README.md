@@ -258,9 +258,10 @@ differently from "`get_bt` has nothing".
 
 Both gate conditions are evaluated once per frame into a single state table,
 *before* any of the early returns, so it keeps updating while the addon is
-disabled or the panel is gated off. The top line of `/floaties config` shows it
-live — **In Combat / Engaged / Idle** in green when true, red when false,
-followed by the raw entity status and what `<bt>` currently resolves to:
+disabled or the panel is gated off. The **Debug** collapsing section at the
+bottom of `/floaties config` shows it live — **In Combat / Engaged / Idle** in
+green when true, red when false, followed by the raw entity status and what
+`<bt>` currently resolves to:
 
 ```
 In Combat: true  Engaged: true  Idle: false  | status=1
@@ -274,7 +275,7 @@ Target panel: shown
 together**, not the gates alone — so a gate reading false while a panel is on
 screen is visible as a contradiction rather than something to infer. With no gate
 enabled it reads `hidden -- no gate enabled, so nothing can enable it`; with the
-addon switched off it reads `hidden -- addon switched off; tick Enabled below`.
+addon switched off it reads `hidden -- addon switched off; tick Enabled above`.
 
 `Target panel:` is the second decision, and it is deliberately a second line: the
 gates do not reach it, so folding both into one `Panel:` verdict would have it
@@ -283,11 +284,13 @@ read `hidden` while a target panel was plainly on screen. It is `shown` when
 filters above — which is exactly the `target:` line reading anything but `none`
 or ` REJECTED`.
 
-`Enabled` is the master switch, a checkbox in `/floaties config` and persisted.
-It reports here and has its own checkbox because leaving it out of both is what
-let it be off and invisible at the same time: the line meant to answer "is this
-a gate problem?" said `shown` over an empty screen for as long as the setting
-stayed off.
+`Enabled` is the master switch, a checkbox at the top of **Debug** and
+persisted. It lives there, not among the regular settings above it, because the
+question "is the addon even on?" is exactly the one Debug's other lines answer
+— and leaving it out of the same section that reports "hidden" is what let it
+be off and invisible at the same time: the line meant to answer "is this a gate
+problem?" said `shown` over an empty screen for as long as the setting stayed
+off.
 
 **Either line reading `shown` with nothing on screen means the drawing threw**,
 not that a gate is wrong — and a `draw error:` line under it says what. The panels are
@@ -316,9 +319,13 @@ padding/rounding/colors/border/text color.
 
 The default panel is black at `100/255` alpha with a fully transparent **Panel
 Border Color**: the frame reads as its own shape against the world rather than an
-outlined box. **Border Visible** stays on regardless — it also controls the bar
-outlines, which do use theirs (black at `150/255`). To get a panel outline back,
-raise the border color's alpha rather than looking for a second toggle.
+outlined box. Both borders draw unconditionally now — there is no visibility
+checkbox for either — so a transparent alpha is what hides the panel border,
+while the bar border stays visible at its own default (black at `150/255`). To
+get a panel outline back, raise **Panel Border Color**'s alpha rather than
+looking for a separate toggle; the same goes for **Panel Rounding** and **Bar
+Rounding**, which turn their rounding off at `0` instead of a checkbox next to
+them.
 
 Labels carry a separate outline color from their fill: **Text Outline Color**
 draws the number a second time one pixel out in each direction, underneath, so a
@@ -586,9 +593,9 @@ dynamic spawns (the `0x700`+ range) differ per zone instance and are keyed by
 index, everything else by name. Client name markers are stripped before the name
 lookup.
 
-The config window's `mob data:` line reports the loaded zone and whether a file
-was found, so "every line ticked and still nothing under the bar" can be told
-apart from "mobdb isn't installed":
+The config window's **Debug** section carries a `mob data:` line reporting the
+loaded zone and whether a file was found, so "every line ticked and still
+nothing under the bar" can be told apart from "mobdb isn't installed":
 
 ```
 mob data: zone 100, loaded
@@ -650,7 +657,7 @@ the UI branch that reads this list needs it.
 
 | Command | Effect |
 |---|---|
-| `/floaties` or `/float` | Toggle the settings window. The **Enabled** checkbox inside it is the on/off switch, persisted |
+| `/floaties` or `/float` | Toggle the settings window. The **Enabled** checkbox in its **Debug** section is the on/off switch, persisted |
 | `/floaties height <n>` | Your own vertical nudge from the nameplate anchor. Positive is downward. Default `0.228` |
 | `/floaties config` | Same as the bare command, kept as an alias |
 | `/floaties bt` | Print the current gate state (in combat / engaged / idle, raw status, resolved `<bt>` and target, or why either was rejected) |

@@ -296,9 +296,6 @@ local function jobName(id)
     return AshitaCore:GetResourceManager():GetString(JOB_RESOURCE, id);
 end
 
--- Fixed (non-configurable) drawing constant -- not requested as a setting.
-local BAR_ROUNDING = 3;
-
 local config_open = { false };
 
 -- Last error thrown out of the panel drawing, or nil. d3d_present draws the config window *before*
@@ -306,9 +303,6 @@ local config_open = { false };
 -- with no panel on it, and Ashita's own log was the only place the reason existed. Kept here and
 -- printed in the window, so the addon says why it drew nothing.
 local draw_error = nil;
-
--- Display names for config.size_order, matching the wording the height-offset sliders already use.
-local SIZE_LABELS = { self = 'Self', party = 'Party', target = 'Target' };
 
 ----------------------------------------------------------------------------------------------------
 -- World -> screen projection. Lifted from targetlines/helpers.lua.
@@ -392,9 +386,7 @@ local function drawBar(draw_list, left, top, width, height, frac, state, bar_col
         draw_list:AddRectFilled({ left, top }, { left + fill_w, top + height }, packColor(bar_color, states[state]), rounding);
     end
 
-    if (cfg.border_visible) then
-        draw_list:AddRect({ left, top }, { left + width, top + height }, packColor(cfg.bars.border_color), rounding);
-    end
+    draw_list:AddRect({ left, top }, { left + width, top + height }, packColor(cfg.bars.border_color), rounding);
 end
 
 -- Drawn width of `text` at `size` px, bold's extra pixel included. CalcTextSize measures at the UI
@@ -632,19 +624,17 @@ local function drawPanel(sx, sy, s, bars, size, scale, tag, info)
     local width    = size.width * scale;
     local left     = sx - width / 2;
     local top      = sy;
-    local rounding = cfg.panel.rounded and cfg.panel.rounding * scale or 0;
+    local rounding = cfg.panel.rounding * scale;
 
     local draw_list = imgui.GetBackgroundDrawList();
 
     draw_list:AddRectFilled({ left, top }, { left + width, top + height }, packColor(cfg.panel.bg), rounding);
-    if (cfg.border_visible) then
-        draw_list:AddRect({ left, top }, { left + width, top + height }, packColor(cfg.panel.border_color), rounding);
-    end
+    draw_list:AddRect({ left, top }, { left + width, top + height }, packColor(cfg.panel.border_color), rounding);
 
     local content_left = sx - content / 2;
     local bar_left     = content_left + tag_w;
     local bar_top      = top + pad;
-    local bar_rounding = cfg.bars.rounded and BAR_ROUNDING * scale or 0;
+    local bar_rounding = cfg.bars.rounding * scale;
 
     -- The tag spans the bars' height rather than the top bar's, so it reads as one label against
     -- the whole stack. That is the panel's full inside now that the reference lines are outside it,
@@ -914,80 +904,68 @@ local function drawConfigWindow()
     end
 
     if (imgui.Begin('Floaties Config', config_open)) then
-        gateState('In Combat', 'show_in_combat');
+        -- The settings gates, not the live conditions they test -- that readout moved into Debug
+        -- below. One line: these three decide together (union, not intersection -- see
+        -- config.visible), so reading them side by side is how "no gate enabled" jumps out.
+        checkbox('Show In Combat', cfg, 'show_in_combat');
         imgui.SameLine();
-        gateState('Engaged', 'show_while_engaged');
+        checkbox('Show While Engaged', cfg, 'show_while_engaged');
         imgui.SameLine();
-        gateState('Idle', 'show_while_idle');
-        imgui.SameLine();
-        imgui.Text(('| status=%d'):fmt(gate_state.status));
-        imgui.Text(('bt: %s'):fmt(gate_state.bt_text));
-        imgui.Text(('target: %s'):fmt(gate_state.target_text));
-
-        -- The decision itself, so a gate that reads false while the panel is plainly on screen
-        -- is impossible to miss. Hidden with every gate off is correct, not a bug -- say so.
-        --
-        -- `enabled` is part of that decision and used to be left out of it: it short-circuits ahead
-        -- of the gates in d3d_present, is persisted, and its only switch is the **Enabled**
-        -- checkbox below -- so an addon toggled off weeks ago read "Panel: shown" here forever
-        -- while drawing nothing, and the one line meant to settle "is this a gate problem?" was
-        -- the line lying. Both halves, or the status is worse than no status.
-        -- Self/party only: the gates do not reach the target panel, so one "Panel: shown" covering
-        -- both would be wrong half the time -- red while a target panel is plainly on screen.
-        local shown = cfg.enabled and config.visible(cfg, gate_state);
-        imgui.TextColored(shown and { 0.4, 1.0, 0.4, 1.0 } or { 1.0, 0.4, 0.4, 1.0 },
-                          ('Self/party panels: %s'):fmt(shown and 'shown' or 'hidden'));
-
-        -- Kept on the self/party line: both notes are about the gates, which is the decision that
-        -- line reports. The target panel below answers to neither.
-        if (not cfg.enabled) then
-            imgui.SameLine();
-            imgui.Text('-- addon switched off; tick Enabled below');
-        elseif (not (cfg.show_in_combat or cfg.show_while_engaged or cfg.show_while_idle)) then
-            imgui.SameLine();
-            imgui.Text('-- no gate enabled, so nothing can enable it');
-        end
-
-        -- The target panel's own decision, in the same two colors, since it is now a separate one.
-        local target_shown = cfg.enabled and cfg.show_target and target_index ~= 0;
-        imgui.TextColored(target_shown and { 0.4, 1.0, 0.4, 1.0 } or { 1.0, 0.4, 0.4, 1.0 },
-                          ('Target panel: %s'):fmt(target_shown and 'shown' or 'hidden'));
-
-        -- "Panel: shown" over an empty screen means the draw threw, not that a gate is wrong. The
-        -- message is the one thing that could tell them apart, and it used to be the thing that got
-        -- swallowed -- see the pcall in d3d_present.
-        if (draw_error ~= nil) then
-            imgui.TextColored({ 1.0, 0.4, 0.4, 1.0 }, ('draw error: %s'):fmt(draw_error));
-        end
+        checkbox('Show While Idle', cfg, 'show_while_idle');
 
         imgui.Separator();
 
-        -- The master switch. It had no widget at all, which is how it managed to be off and
-        -- invisible at once -- every other persisted setting is reachable from this window, and
-        -- this is the one that stops the addon drawing.
-        checkbox('Enabled', cfg, 'enabled');
+        -- Everything every panel kind draws with identically: geometry, the bar toggles, colors,
+        -- alphas, rounding, and distance scaling. Target/Player/Party below only ever add a size
+        -- or a kind-specific toggle on top of what is decided here.
+        if (imgui.CollapsingHeader('General')) then
+            slider(imgui.SliderInt, 'Panel Offset', cfg.panel, 'offset', 0, 20);
+            colorEdit('Panel Background', cfg.panel.bg);
+            colorEdit('Panel Border Color', cfg.panel.border_color);
+            slider(imgui.SliderInt, 'Bar Gap', cfg, 'gap', 0, 10);
 
-        checkbox('Show In Combat', cfg, 'show_in_combat');
-        checkbox('Show While Engaged', cfg, 'show_while_engaged');
-        checkbox('Show While Idle', cfg, 'show_while_idle');
-        checkbox('Show Party Members', cfg, 'show_party');
+            -- "Bold" is a second fill stamped a pixel right, not a font weight (see M.label_size).
+            checkbox('Bold Text', cfg.text, 'bold');
+            for _, key in ipairs(config.bar_order) do
+                imgui.SameLine();
+                checkbox(('Show %s Text'):fmt(key:upper()), cfg.bars[key], 'label');
+            end
+            colorEdit('Text Color', cfg.text.color);
+            colorEdit('Text Outline Color', cfg.text.outline_color);
+            slider(imgui.SliderInt, 'Min Text Size', cfg.text, 'min_size', 1, 20);
+
+            colorEdit3('HP Color', cfg.bars.hp.color);
+            colorEdit3('MP Color', cfg.bars.mp.color);
+            colorEdit3('TP Color', cfg.bars.tp.color);
+            colorEdit('Bar Border Color', cfg.bars.border_color);
+
+            slider(imgui.SliderFloat, 'Full Alpha', cfg.states, 'full', 0, 1);
+            slider(imgui.SliderFloat, 'Empty Alpha', cfg.states, 'empty', 0, 1);
+            slider(imgui.SliderFloat, 'Incomplete Alpha', cfg.states, 'incomplete', 0, 1);
+
+            -- 0 turns rounding off; there is no separate on/off checkbox for either.
+            slider(imgui.SliderInt, 'Panel Rounding', cfg.panel, 'rounding', 0, 20);
+            slider(imgui.SliderInt, 'Bar Rounding', cfg.bars, 'rounding', 0, 20);
+
+            -- The reference depth does nothing while distance scaling is off, so it only appears
+            -- with it -- same pattern as Party Slot Indicator's size below.
+            checkbox('Scale With Distance', cfg, 'distance_scale');
+            if (cfg.distance_scale) then
+                slider(imgui.SliderFloat, 'Scale Reference Depth', cfg, 'scale_ref', 1, 30);
+            end
+        end
+
+        -- Target, then Player (self), then Party -- most-glanced-at first, matching the size
+        -- defaults' own ordering (config.lua's `sizes` comment).
+        imgui.Separator();
+        imgui.Text('Target Panel');
         checkbox('Show Target', cfg, 'show_target');
-        slider(imgui.SliderFloat, 'Self Height Offset', cfg, 'height_offset', -4, 4);
-        slider(imgui.SliderFloat, 'Party Height Offset', cfg, 'party_height_offset', -4, 4);
         slider(imgui.SliderFloat, 'Target Height Offset', cfg, 'target_height_offset', -4, 4);
-        slider(imgui.SliderInt, 'Panel Offset', cfg.panel, 'offset', 0, 20);
-        slider(imgui.SliderInt, 'Panel Rounding', cfg.panel, 'rounding', 0, 20);
-        checkbox('Panel Rounded', cfg.panel, 'rounded');
-        colorEdit('Panel Background', cfg.panel.bg);
-        colorEdit('Panel Border Color', cfg.panel.border_color);
-        slider(imgui.SliderInt, 'Bar Gap', cfg, 'gap', 0, 10);
-        checkbox('Border Visible', cfg, 'border_visible');
-
-        -- Size does nothing while the tag is off, so it only appears with it -- same as the
-        -- distance-scale reference below.
-        checkbox('Party Slot Indicator', cfg.slot, 'enabled');
-        if (cfg.slot.enabled) then
-            slider(imgui.SliderInt, 'Slot Text Size', cfg.slot, 'size', 8, 40);
+        slider(imgui.SliderInt, 'Target Width', cfg.sizes.target, 'width', 40, 300);
+        for _, key in ipairs(config.bar_order) do
+            if (cfg.sizes.target[key] ~= nil) then
+                slider(imgui.SliderInt, ('Target %s Height'):fmt(key:upper()), cfg.sizes.target, key, 4, 40);
+            end
         end
 
         -- Target panel reference rows. The data line is the diagnostic: "loaded" with every box
@@ -996,62 +974,97 @@ local function drawConfigWindow()
         --
         -- Detection is listed first because it draws first: it owns the icon groups flanking the
         -- bar, and Level & Job is the label inside it (see mobinfo.panel).
-        imgui.Separator();
-        imgui.Text('Target Info Lines');
         checkbox('Show Detection', cfg.mob, 'detect');
         checkbox('Show Level & Job', cfg.mob, 'level');
         checkbox('Show Check (TW/EP/DC/EM/T/VT/IT)', cfg.mob, 'check');
         checkbox('Show Weakness/Resist', cfg.mob, 'resist');
         slider(imgui.SliderInt, 'Info Text Size', cfg.mob, 'size', 8, 40);
-        imgui.Text(('mob data: zone %d, %s'):fmt(mob_zone, mob_db ~= nil and 'loaded' or 'none'));
 
-        -- No icon state reported here: a missing PNG draws its `alt` word on the panel, so the
-        -- lines reading as words *is* the diagnostic, and a counter in this window would only
-        -- repeat what is already on screen.
-
-        -- The reference does nothing while the checkbox is off, so it is only drawn when it is on.
         imgui.Separator();
-        checkbox('Scale With Distance', cfg, 'distance_scale');
-        if (cfg.distance_scale) then
-            slider(imgui.SliderFloat, 'Scale Reference Depth', cfg, 'scale_ref', 1, 30);
-        end
-
-        -- Size is per panel kind; a kind only lists the bars it can actually draw, which is why
-        -- Target shows an HP height and nothing else.
-        imgui.Separator();
-        for _, kind in ipairs(config.size_order) do
-            local size  = cfg.sizes[kind];
-            local title = SIZE_LABELS[kind];
-            imgui.Text(('%s Panel'):fmt(title));
-            slider(imgui.SliderInt, ('%s Width'):fmt(title), size, 'width', 40, 300);
-            for _, key in ipairs(config.bar_order) do
-                if (size[key] ~= nil) then
-                    slider(imgui.SliderInt, ('%s %s Height'):fmt(title, key:upper()), size, key, 4, 40);
-                end
+        imgui.Text('Player Panel');
+        slider(imgui.SliderFloat, 'Self Height Offset', cfg, 'height_offset', -4, 4);
+        slider(imgui.SliderInt, 'Self Width', cfg.sizes.self, 'width', 40, 300);
+        for _, key in ipairs(config.bar_order) do
+            if (cfg.sizes.self[key] ~= nil) then
+                slider(imgui.SliderInt, ('Self %s Height'):fmt(key:upper()), cfg.sizes.self, key, 4, 40);
             end
         end
 
         imgui.Separator();
-        checkbox('Bars Rounded', cfg.bars, 'rounded');
-        colorEdit('Bar Border Color', cfg.bars.border_color);
-        colorEdit3('HP Color', cfg.bars.hp.color);
-        colorEdit3('MP Color', cfg.bars.mp.color);
-        colorEdit3('TP Color', cfg.bars.tp.color);
-
-        imgui.Separator();
-        slider(imgui.SliderFloat, 'Full Alpha', cfg.states, 'full', 0, 1);
-        slider(imgui.SliderFloat, 'Empty Alpha', cfg.states, 'empty', 0, 1);
-        slider(imgui.SliderFloat, 'Incomplete Alpha', cfg.states, 'incomplete', 0, 1);
-
-        imgui.Separator();
-        colorEdit('Text Color', cfg.text.color);
-        colorEdit('Text Outline Color', cfg.text.outline_color);
-        slider(imgui.SliderInt, 'Min Text Size', cfg.text, 'min_size', 1, 20);
-        checkbox('Bold Text', cfg.text, 'bold');
-
-        -- Per bar, so a row can keep its height and lose only its number.
+        imgui.Text('Party Panel');
+        checkbox('Show Party Members', cfg, 'show_party');
+        slider(imgui.SliderFloat, 'Party Height Offset', cfg, 'party_height_offset', -4, 4);
+        slider(imgui.SliderInt, 'Party Width', cfg.sizes.party, 'width', 40, 300);
         for _, key in ipairs(config.bar_order) do
-            checkbox(('Show %s Text'):fmt(key:upper()), cfg.bars[key], 'label');
+            if (cfg.sizes.party[key] ~= nil) then
+                slider(imgui.SliderInt, ('Party %s Height'):fmt(key:upper()), cfg.sizes.party, key, 4, 40);
+            end
+        end
+
+        -- Size does nothing while the tag is off, so it only appears with it.
+        checkbox('Party Slot Indicator', cfg.slot, 'enabled');
+        if (cfg.slot.enabled) then
+            slider(imgui.SliderInt, 'Slot Text Size', cfg.slot, 'size', 8, 40);
+        end
+
+        -- Diagnostics: gate/target state, the shown/hidden decisions, and the addon's own on/off
+        -- switch. Collapsed by default and pinned to the bottom so it stays out of the way of the
+        -- settings above it while still being one click from anyone chasing "why is nothing
+        -- drawing" -- Enabled lives here too since that question always starts by checking it.
+        imgui.Separator();
+        if (imgui.CollapsingHeader('Debug')) then
+            -- The master switch. It had no widget at all once, which is how it managed to be off
+            -- and invisible at once -- every other persisted setting is reachable from this
+            -- window, and this is the one that stops the addon drawing.
+            checkbox('Enabled', cfg, 'enabled');
+
+            -- Live gate state, so a gate that is not firing can be told apart from one that is
+            -- firing when it should not. Green = the condition is true right now, red = false.
+            gateState('In Combat', 'show_in_combat');
+            imgui.SameLine();
+            gateState('Engaged', 'show_while_engaged');
+            imgui.SameLine();
+            gateState('Idle', 'show_while_idle');
+            imgui.SameLine();
+            imgui.Text(('| status=%d'):fmt(gate_state.status));
+            imgui.Text(('bt: %s'):fmt(gate_state.bt_text));
+            imgui.Text(('target: %s'):fmt(gate_state.target_text));
+
+            -- The decision itself, so a gate that reads false while the panel is plainly on screen
+            -- is impossible to miss. Hidden with every gate off is correct, not a bug -- say so.
+            -- Self/party only: the gates do not reach the target panel, so one "Panel: shown"
+            -- covering both would be wrong half the time -- red while a target panel is plainly
+            -- on screen.
+            local shown = cfg.enabled and config.visible(cfg, gate_state);
+            imgui.TextColored(shown and { 0.4, 1.0, 0.4, 1.0 } or { 1.0, 0.4, 0.4, 1.0 },
+                              ('Self/party panels: %s'):fmt(shown and 'shown' or 'hidden'));
+
+            -- Kept on the self/party line: both notes are about the gates, which is the decision
+            -- that line reports. The target panel below answers to neither.
+            if (not cfg.enabled) then
+                imgui.SameLine();
+                imgui.Text('-- addon switched off; tick Enabled above');
+            elseif (not (cfg.show_in_combat or cfg.show_while_engaged or cfg.show_while_idle)) then
+                imgui.SameLine();
+                imgui.Text('-- no gate enabled, so nothing can enable it');
+            end
+
+            -- The target panel's own decision, in the same two colors, since it is now a separate one.
+            local target_shown = cfg.enabled and cfg.show_target and target_index ~= 0;
+            imgui.TextColored(target_shown and { 0.4, 1.0, 0.4, 1.0 } or { 1.0, 0.4, 0.4, 1.0 },
+                              ('Target panel: %s'):fmt(target_shown and 'shown' or 'hidden'));
+
+            -- "Panel: shown" over an empty screen means the draw threw, not that a gate is wrong. The
+            -- message is the one thing that could tell them apart, and it used to be the thing that got
+            -- swallowed -- see the pcall in d3d_present.
+            if (draw_error ~= nil) then
+                imgui.TextColored({ 1.0, 0.4, 0.4, 1.0 }, ('draw error: %s'):fmt(draw_error));
+            end
+
+            -- No icon state reported here: a missing PNG draws its `alt` word on the panel, so the
+            -- lines reading as words *is* the diagnostic, and a counter in this window would only
+            -- repeat what is already on screen.
+            imgui.Text(('mob data: zone %d, %s'):fmt(mob_zone, mob_db ~= nil and 'loaded' or 'none'));
         end
     end
     imgui.End();
