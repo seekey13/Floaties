@@ -65,10 +65,11 @@ M.defaults = {
     gap            = 1,      -- vertical gap between the 3 bars
     border_visible = true,   -- shared toggle for panel border + bar borders
 
-    -- Party slot tag ("P1".."P5") in a box left of the bars, inside the panel. The panel keeps its
-    -- configured width, so this takes its space out of the bars. Your own panel and target panels
-    -- get no tag and reserve no box -- slot 0 needs no telling apart, and an arbitrary entity has
-    -- no party slot.
+    -- Tag box left of the bars, inside the panel: "P1".."P5" for a party member, or a mob's level
+    -- (range or fixed) for a target -- see mobinfo.panel's `tag`. The panel keeps its configured
+    -- width, so this takes its space out of the bars. Your own panel gets no tag and reserves no
+    -- box -- slot 0 needs no telling apart. `enabled` below is the party tag's own switch; a
+    -- target panel's tag is gated by `mob.level` instead (see the `mob` block below).
     slot = {
         enabled = true,
         size    = 21,   -- text height in px; the box's width is derived from it (M.slot_box)
@@ -80,8 +81,8 @@ M.defaults = {
     -- rather than drawn blank, so switching one on does not guarantee content. Target panels only:
     -- party members are not mobs.
     mob = {
-        level  = true,   -- Lv.14-17 WAR, labelling the HP bar until the mob is damaged
-        check  = true,   -- EP/DC/T..., colored by tier, on a row above the panel
+        level  = true,   -- the tag box (14-17, or a fixed level), plus a job suffix on the label
+        check  = true,   -- EP/DC/T... prefix on the HP bar's own label, colored by the lower tier
         detect = true,   -- aggro/passive + Link flanking left, the senses flanking right
         resist = true,   -- element icon + percentage, on a row under the panel
         -- Row height in px: the text size, and the icons' side. The second piece of text with a
@@ -192,23 +193,27 @@ function M.slot_box(cfg)
 end
 
 --[[
-* Horizontal space the slot indicator takes out of a panel's content: the box plus one bar gap
-* beside it, so the box sits off the bars by the same distance the bars sit off each other.
+* Horizontal space the tag box takes out of a panel's content: the box plus one bar gap beside
+* it, so the box sits off the bars by the same distance the bars sit off each other.
 *
-* @param {boolean} has_slot - whether this panel kind has a slot at all (false for target).
-* @return {number} 0 when there is no slot or the indicator is off, so bar_width lands back on
-*                  exactly its old value rather than near it.
+* Trusts the caller's decision outright -- whoever built (or withheld) the tag string already
+* knows whether this panel has one. Target panels get a tag too now, gated by `cfg.mob.level`
+* rather than `cfg.slot.enabled` (see mobinfo.panel's `tag`), so re-deciding off `slot.enabled`
+* here would either duplicate that gate or fight it.
+*
+* @param {boolean} has_tag - whether this panel has a tag box to draw at all.
+* @return {number} 0 when there is no tag, so bar_width lands back on exactly its old value
+*                  rather than near it.
 --]]
-function M.slot_width(cfg, has_slot)
-    -- has_slot first: callers that never show one (and test fixtures) need no `slot` table.
-    if (not has_slot or not cfg.slot.enabled) then
+function M.slot_width(cfg, has_tag)
+    if (not has_tag) then
         return 0;
     end
     return M.slot_box(cfg) + cfg.gap;
 end
 
-function M.bar_width(cfg, size, has_slot)
-    return size.width - 2 * cfg.panel.offset - M.slot_width(cfg, has_slot);
+function M.bar_width(cfg, size, has_tag)
+    return size.width - 2 * cfg.panel.offset - M.slot_width(cfg, has_tag);
 end
 
 -- Clamps on the scale curve. Fixed, not settings: they stop a far panel vanishing and a near one

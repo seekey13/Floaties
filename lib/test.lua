@@ -166,31 +166,40 @@ for _, kind in ipairs(config.size_order) do
     assert(config.panel_height(config.defaults, size, { 'hp' }) > 0, kind .. ' cannot lay out an hp bar');
 end
 
--- Party slot indicator: the box plus one bar gap comes out of the bars, never out of the panel,
--- and only for a panel kind that has a slot at all.
+-- Tag box (party slot, or now a target's level -- see mobinfo.panel): the box plus one bar gap
+-- comes out of the bars, never out of the panel, for any panel kind whose caller decided it has
+-- one. slot_width trusts that decision (has_tag) outright -- cfg.slot.enabled is the party tag's
+-- own switch, checked by the caller that builds the tag string (drawMember), not re-checked here.
 local slotcfg = { panel = { offset = 4 }, gap = 2, slot = { enabled = true, size = 12 } };
 local offcfg  = { panel = { offset = 4 }, gap = 2, slot = { enabled = false, size = 12 } };
 
 assert(config.slot_box(slotcfg) == 18, 'box width = floor(1.5 * text size), got ' .. tostring(config.slot_box(slotcfg)));
 assert(config.slot_width(slotcfg, true) == 20, 'reserved width = box + one gap, got ' .. tostring(config.slot_width(slotcfg, true)));
-assert(config.slot_width(slotcfg, false) == 0, 'a panel with no slot reserves nothing');
-assert(config.slot_width(offcfg, true) == 0, 'the indicator off reserves nothing');
+assert(config.slot_width(slotcfg, false) == 0, 'a panel with no tag reserves nothing, whatever slot.enabled says');
 
--- Exactly the old width when off, not merely close to it: switching the tag off must not nudge
--- bars by a rounding remainder.
-assert(config.bar_width(offcfg, SELF, true) == config.bar_width(offcfg, SELF), 'off must match the no-slot width exactly');
+-- The behavior change this task makes: has_tag alone decides now. slot.enabled is a real setting
+-- still (drawMember reads it to decide whether to build a tag string at all), but slot_width no
+-- longer re-checks it -- a caller that hands in has_tag=true gets charged for the box regardless.
+assert(config.slot_width(offcfg, true) == 20, 'has_tag alone decides -- slot.enabled is not read here anymore, got ' .. tostring(config.slot_width(offcfg, true)));
+assert(config.slot_width(offcfg, false) == 0, 'still nothing with no tag, whatever slot.enabled says');
+
+-- Exactly the old width when there is no tag, not merely close to it: no tag must not nudge bars
+-- by a rounding remainder.
+assert(config.bar_width(slotcfg, SELF, false) == config.bar_width(slotcfg, SELF), 'no tag must match the untagged width exactly');
 assert(config.bar_width(slotcfg, SELF, true) == 200 - 2 * 4 - 20, 'bars give up box + gap, got ' .. tostring(config.bar_width(slotcfg, SELF, true)));
-assert(config.bar_width(slotcfg, sizes.target, false) == 192, 'the target panel keeps its full bar width');
+assert(config.bar_width(slotcfg, sizes.target, false) == 192, 'the target panel keeps its full bar width when it has no tag');
 
--- The defaults ship with it on, so they are the case that has to lay out: box floor(1.5*21)=31
--- plus the 1px gap, out of the bars only.
+-- The defaults ship with the party indicator on, so they are the case that has to lay out: box
+-- floor(1.5*21)=31 plus the 1px gap, out of the bars only.
 assert(config.slot_width(config.defaults, true) == 32, 'default reserved width, got ' .. tostring(config.slot_width(config.defaults, true)));
 assert(config.bar_width(config.defaults, SELF, true) == 196 - 32, 'a default party panel gives up box + gap, got ' .. tostring(config.bar_width(config.defaults, SELF, true)));
-assert(config.bar_width(config.defaults, config.defaults.sizes.target, false) == 296, 'the default target panel reserves nothing');
+assert(config.bar_width(config.defaults, config.defaults.sizes.target, false) == 296, 'the default target panel reserves nothing when it has no tag');
 assert(config.label_size(config.defaults, config.defaults.slot.size) ~= nil, 'the default slot text must clear Min Text Size, or the tag never prints');
 
 -- The panel's own footprint is untouched -- the space is taken from the bars inside it.
-assert(config.panel_height(slotcfg, SELF) == config.panel_height(offcfg, SELF), 'the tag must not change panel height');
+-- panel_height never reads cfg.slot at all, so this holds regardless of whether a tag is drawn.
+local notagcfg = { panel = { offset = 4 }, gap = 2 };
+assert(config.panel_height(slotcfg, SELF) == config.panel_height(notagcfg, SELF), 'a tag must not change panel height');
 
 -- Mob reference lines hang *below* the panel, so they cost it no height at all: a target panel is
 -- the same shape whether the mob has three lines or none, and panel_height counts bars only.
