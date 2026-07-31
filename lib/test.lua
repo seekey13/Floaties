@@ -584,9 +584,16 @@ for key, want in pairs({ TW='TW', EP='EP', DC='DC', EM='EM', T='T', VT='VT', IT=
     assert(t.color ~= nil and t.color.r ~= nil and t.color.a == nil,
         key .. ' carries rgb and no alpha -- drawText takes the opacity from cfg.text.color');
 end
-local vt, it = mobinfo.CHECK.VT.color, mobinfo.CHECK.IT.color;
-assert(vt.r == it.r and vt.g == it.g and vt.b == it.b,
-    'VT and IT share checker\'s Tomato: re-tinting one would put a color on screen /check never gives');
+
+-- Every tier gets its own shade now that the color also fills the HP bar itself, not just the
+-- label text: two tiers sharing a color would paint two different threat levels the same on a bar.
+local seen = {};
+for _, key in ipairs({ 'TW', 'EP', 'DC', 'EM', 'T', 'VT', 'IT', 'ITG' }) do
+    local c      = mobinfo.CHECK[key].color;
+    local packed = c.r .. ',' .. c.g .. ',' .. c.b;
+    assert(seen[packed] == nil, key .. ' shares a color with ' .. tostring(seen[packed]));
+    seen[packed] = key;
+end
 
 -- Lookup: index first (dynamic spawns are keyed by it), then name.
 local db = { Indices = { [382] = BONES }, Names = { ['Bomb'] = BOMB } };
@@ -622,6 +629,7 @@ local full = mobinfo.panel(LINKER, ALL_LINES, jobname, 20, 'Tough Mist Lizard');
 assert(label_text(full.label) == '??? Tough Mist Lizard WAR',
     'check + name + job, got ' .. tostring(label_text(full.label)));
 assert(full.tag == '14-17', 'the level tag box, got ' .. tostring(full.tag));
+assert(full.hp_color == mobinfo.CHECK.ITG.color, 'the HP bar fills in the same color as the check prefix');
 assert(icons(full.left) == 'PassiveHQ Link', 'threat flanks left, got ' .. icons(full.left));
 assert(icons(full.right) == 'Sight Sound Scent', 'senses flank right, got ' .. icons(full.right));
 assert(#full.rows == 0, 'a mob with no modifiers hangs no rows');
@@ -631,6 +639,7 @@ local bomb = mobinfo.panel(BOMB, ALL_LINES, jobname, 12, 'Bomb');
 -- share the bar label instead of drawing as two colored segments above it.
 assert(label_text(bomb.label) == 'EP-DC Bomb', 'the range straddles a boundary, got ' .. tostring(label_text(bomb.label)));
 assert(bomb.tag == '8-10', 'got ' .. tostring(bomb.tag));
+assert(bomb.hp_color == mobinfo.CHECK.EP.color, 'a straddling range colors the bar with the low tier, same as the label');
 assert(icons(bomb.left) == 'AggroNQ', 'no link, so the left group is the aggro icon alone');
 assert(icons(bomb.right) == 'Sight Magic', 'got ' .. icons(bomb.right));
 assert(#bomb.rows == 1, 'the resistance list is the row under the panel');
@@ -640,6 +649,7 @@ assert(text(bomb.rows[1]) == 'Fire+25% Ice-50% Wind-50% Earth-50% Lightning-50% 
 local nolevel = mobinfo.panel(BOMB, ALL_LINES, jobname, nil, 'Bomb');
 assert(label_text(nolevel.label) == 'Bomb', 'no player level leaves the check segment out, got ' .. tostring(label_text(nolevel.label)));
 assert(nolevel.tag == '8-10', 'the tag does not depend on the check level');
+assert(nolevel.hp_color == nil, 'no check segment means no bar color either');
 
 assert(label_text(mobinfo.panel(LINKER, ALL_LINES, nil, 20, 'Tough Mist Lizard').label) == '??? Tough Mist Lizard',
     'no jobname function means no job suffix, got '
@@ -651,6 +661,7 @@ local player = mobinfo.panel(nil, ALL_LINES, jobname, 20, 'PlayerName');
 assert(label_text(player.label) == 'PlayerName', 'a player (or unknown mob) gets a name-only label, got ' .. tostring(label_text(player.label)));
 assert(player.tag == nil, 'no res means no tag');
 assert(#player.left == 0 and #player.right == 0 and #player.rows == 0, 'no res means no detect/resist groups either');
+assert(player.hp_color == nil, 'no res means no check color either');
 
 local noNameNoRes = mobinfo.panel(nil, ALL_LINES, jobname, 20, nil);
 assert(noNameNoRes.label ~= nil and #noNameNoRes.label == 0,
@@ -661,30 +672,36 @@ local lvl = mobinfo.panel(LINKER, ONLY_LEVEL, jobname, 20, 'Tough Mist Lizard');
 assert(label_text(lvl.label) == 'Tough Mist Lizard WAR', 'level alone adds the job suffix, not the check prefix, got ' .. tostring(label_text(lvl.label)));
 assert(lvl.tag == '14-17' and #lvl.left == 0 and #lvl.right == 0 and #lvl.rows == 0,
     'level alone is the tag + job suffix, and nothing else');
+assert(lvl.hp_color == nil, 'level alone does not color the bar -- that is Show Check\'s toggle');
 
 local det = mobinfo.panel(BOMB, ONLY_DETECT, jobname, 12, 'Bomb');
 assert(label_text(det.label) == 'Bomb', 'detect alone leaves the name-only label, got ' .. tostring(label_text(det.label)));
 assert(det.tag == nil, 'detect alone has no tag');
 assert(icons(det.left) == 'AggroNQ' and icons(det.right) == 'Sight Magic',
     'detect alone is the icons, and the bar keeps its own label');
+assert(det.hp_color == nil, 'detect alone does not color the bar either');
 
 local chk = mobinfo.panel(BOMB, ONLY_CHECK, jobname, 12, 'Bomb');
 assert(label_text(chk.label) == 'EP-DC Bomb', 'check alone prefixes the bar label -- it does not borrow the level toggle, got ' .. tostring(label_text(chk.label)));
 assert(chk.tag == nil and #chk.left == 0 and #chk.rows == 0, 'check alone adds no tag and no other groups');
+assert(chk.hp_color == mobinfo.CHECK.EP.color, 'check alone still colors the bar, same as the label prefix');
 
 -- left/right/rows are always present so the caller indexes them without guarding; label/tag are
 -- the two pieces that go nil, and only when there is truly nothing to build (mob itself nil).
 local none = mobinfo.panel(BOMB, nil, jobname, 12, 'Bomb');
 assert(none.label == nil and none.tag == nil, 'no toggle table at all means no label or tag');
 assert(#none.left == 0 and #none.right == 0 and #none.rows == 0, 'and no groups');
+assert(none.hp_color == nil, 'and no bar color');
 
 local nolines = mobinfo.panel(BOMB, NO_LINES, jobname, 12, nil);
 assert(nolines.label ~= nil and #nolines.label == 0, 'every toggle off (and no name) is an empty label, not a missing one');
 assert(nolines.tag == nil and #nolines.left == 0 and #nolines.right == 0 and #nolines.rows == 0);
+assert(nolines.hp_color == nil, 'every toggle off means no bar color either');
 
 local shipped = mobinfo.panel(BOMB, config.defaults.mob, jobname, 12, 'Bomb');
 assert(shipped.label ~= nil and #shipped.label > 0 and shipped.tag ~= nil and #shipped.left > 0 and #shipped.rows == 1,
     'the defaults ship every toggle on');
+assert(shipped.hp_color == mobinfo.CHECK.EP.color, 'the defaults color the bar too');
 
 -- The loader. A missing file is the normal case -- mobdb ships ~245 zones and may not be
 -- installed at all -- so it must land on nil rather than throwing.

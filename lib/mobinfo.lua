@@ -98,35 +98,36 @@ end
 --[[
 * /check tiers: the abbreviation drawn, and the color it is drawn in.
 *
-* Colors are Ashita's `checker` addon's, translated from the chat color indices it prints with
-* (checker.lua's `types` table) into the RGB of the name Ashita's chat lib gives each index --
-* 67 Grey, 2 LawnGreen, 8 Coral, 68 Salmon, 76 Tomato, 5 Magenta. Same ladder on the panel as in
-* the log, so a check you ran and a panel you glanced at cannot disagree.
+* This is the project's own reference palette, not `/check`'s chat colors: the tier now paints the
+* HP bar's fill (M.panel's `hp_color`) as well as prefixing its label, so every tier needs a shade
+* that reads as a distinct threat level at a glance on a bar, not just a distinct abbreviation next
+* to other text. The old palette (borrowed from Ashita's `checker` addon so a check in the log and
+* a panel could not disagree) deliberately painted VT and IT the same color, which was fine for two
+* letters side by side but would have painted two different danger levels' worth of bar identically.
 *
-* VT and IT deliberately share Tomato: checker prints both with index 76, and re-tinting one of
-* them here would put a color on screen that /check never produces. The abbreviations already tell
-* them apart.
+* IT alone stands for three tiers the reference chart draws separately (IT, IT+, IT++): `/check`
+* itself never distinguishes past "incredibly tough", and check_tier has no way to derive which of
+* the three a given mob is, so IT takes the chart's darkest (most alarming) of the three rather than
+* inventing a split the game's own message can't support.
 *
 * No alpha: like the bar colors in config.defaults these carry rgb only, and drawText takes the
-* opacity from cfg.text.color so the shared text alpha still governs them.
+* opacity from cfg.text.color so the shared text alpha still governs them; the bar fill takes its
+* opacity from cfg.states the same way every other bar color does (see drawBar).
 *
-* ponytail: a constant, not seven color pickers in the config window -- these are the game's own
-* check colors, not a palette anyone is meant to retint. Promote to config.defaults if asked.
+* ponytail: a constant, not seven color pickers in the config window -- this is one reference chart,
+* not a palette anyone is meant to retint. Promote to config.defaults if asked.
 --]]
 M.CHECK = {
-    TW  = { text = 'TW',  color = { r = 128/255, g = 128/255, b = 128/255 } },   -- 67 Grey
-    EP  = { text = 'EP',  color = { r = 124/255, g = 252/255, b = 0       } },   -- 2  LawnGreen
-    -- 102 is the one index Ashita's chat.colors does not name. It sits between the yellows and
-    -- the purples in that table, and the game draws Decent Challenge as a pale blue, so this is
-    -- LightSkyBlue: the closest reading of an index there is no published RGB for.
-    DC  = { text = 'DC',  color = { r = 135/255, g = 206/255, b = 250/255 } },   -- 102
-    EM  = { text = 'EM',  color = { r = 1,       g = 127/255, b = 80/255  } },   -- 8  Coral
-    T   = { text = 'T',   color = { r = 250/255, g = 128/255, b = 114/255 } },   -- 68 Salmon
-    VT  = { text = 'VT',  color = { r = 1,       g = 99/255,  b = 71/255  } },   -- 76 Tomato
-    IT  = { text = 'IT',  color = { r = 1,       g = 99/255,  b = 71/255  } },   -- 76 Tomato
+    TW  = { text = 'TW',  color = { r = 160/255, g = 160/255, b = 160/255 } },
+    EP  = { text = 'EP',  color = { r = 145/255, g = 220/255, b = 145/255 } },
+    DC  = { text = 'DC',  color = { r = 175/255, g = 200/255, b = 235/255 } },
+    EM  = { text = 'EM',  color = { r = 1,       g = 1,       b = 1       } },
+    T   = { text = 'T',   color = { r = 245/255, g = 195/255, b = 80/255  } },
+    VT  = { text = 'VT',  color = { r = 240/255, g = 165/255, b = 90/255  } },
+    IT  = { text = 'IT',  color = { r = 165/255, g = 20/255,  b = 20/255  } },
     -- No abbreviation was ever printed for Impossible to Gauge, so it borrows the game's own way
     -- of saying "you are not being told": the level itself reads ??? on an NM.
-    ITG = { text = '???', color = { r = 1,       g = 0,       b = 1       } },   -- 5  Magenta
+    ITG = { text = '???', color = { r = 130/255, g = 70/255,  b = 210/255 } },
 };
 
 --[[
@@ -377,6 +378,11 @@ end
 *   tag   - the level-range/fixed-level text for the tag box left of the bar (M.level_text), or
 *           `nil`. Requires mobdb data, unlike label -- there is no tag to show for a mob with no
 *           level.
+*   hp_color - the check tier's color (M.CHECK[...].color), for the HP bar's own fill -- the same
+*           color the check prefix on `label` draws in, so the bar and its label can never disagree
+*           about what the mob checks as. `nil` under the exact conditions the check prefix itself
+*           is left off `label` (Show Check off, no mobdb entry, or no player level to check
+*           against), since there is then nothing to color the bar with either.
 *   left  - segments flanking the bar on its left: aggro/passive and Link, the pull decision.
 *   right - segments flanking it on its right: what it senses you with.
 *   rows  - full-width rows hung under the panel. The resistance list, in practice -- that one has
@@ -400,11 +406,13 @@ function M.panel(res, mob, jobname, level, name)
     end
 
     local label = {};
+    local hp_color = nil;
 
     if (mob.check and res ~= nil) then
         local chk = M.check_text(res, level);
         if (chk ~= nil) then
             label[#label + 1] = { text = chk.text .. ' ', color = chk.color };
+            hp_color = chk.color;
         end
     end
 
@@ -420,8 +428,9 @@ function M.panel(res, mob, jobname, level, name)
         label[#label + 1] = { text = ' ' .. job };
     end
 
-    out.label = label;
-    out.tag   = (mob.level and res ~= nil) and M.level_text(res) or nil;
+    out.label    = label;
+    out.tag      = (mob.level and res ~= nil) and M.level_text(res) or nil;
+    out.hp_color = hp_color;
 
     if (res == nil) then
         return out;

@@ -672,7 +672,12 @@ local function drawPanel(sx, sy, s, bars, size, scale, tag, info)
                         frac, (frac >= 1) and 'full' or 'incomplete', bar_cfg.color, cfg, bar_rounding);
             end
         else
-            drawBar(draw_list, bar_left, bar_top, bw, h, s[key], 'full', bar_cfg.color, cfg, bar_rounding);
+            -- The target's HP bar fills in its check tier's color instead of the configured HP
+            -- color, when there is one -- info.hp_color is nil for every other bar (mp/tp), every
+            -- non-target panel (NO_INFO), and a target with Show Check off or no tier to report, so
+            -- this never touches anything but the one bar it names.
+            local color = (key == 'hp' and info.hp_color) or bar_cfg.color;
+            drawBar(draw_list, bar_left, bar_top, bw, h, s[key], 'full', color, cfg, bar_rounding);
         end
 
         -- Label stays centered across the whole row, so TP prints over the middle bar.

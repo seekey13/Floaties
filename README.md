@@ -393,7 +393,7 @@ Four toggles in `/floaties config` feed it:
 |---|---|---|
 | **Show Detection** | the icon groups flanking the bar | left of it: aggro/passive, then Link. Right of it: TrueSight, Sight, Sound, Scent, Magic, JA, Blood |
 | **Show Level & Job** | the tag box, and a suffix on the bar's label | `14-17` in the box; ` WAR/MNK` appended to the label |
-| **Show Check** | a prefix on the bar's own label | the `/check` tier, colored, jammed into one string: `EP-DC ` |
+| **Show Check** | a prefix on the bar's own label, and the bar's own fill color | the `/check` tier, colored, jammed into one string: `EP-DC `; the bar fills in that same color |
 | **Show Weakness/Resist** | a row under the panel | an icon and a percentage each: `<Fire>+25% <Ice>-50%` |
 
 The target's **name always draws**, whatever mobdb knows about it or doesn't —
@@ -444,10 +444,10 @@ already owns it.
 
 ### The check tier
 
-**Show Check** prefixes the bar's label with the `/check` tier, in the color
-`/check` would print it in — your main job level against the mob's level from
-mobdb, so it is the one piece of the label that is about *you* rather than
-about the mob.
+**Show Check** prefixes the bar's label with the `/check` tier, and fills the
+bar itself in that tier's color — your main job level against the mob's level
+from mobdb, so it is the one piece of the panel that is about *you* rather
+than about the mob.
 
 | | Abbreviation | Level difference at 1 | at 75 |
 |---|---|---|---|
@@ -475,20 +475,26 @@ end of the curve.
 `EP-DC` for a Lv.14-17 mob at level 20 — instead of printing each end in its own
 color the way it used to when this sat on its own line above the bar: the label
 is one string in one color now, so the *low* tier's color wins, the same color
-the dash between the two used to ride on. mobdb gives most mobs a range, and
-picking one end to color would still be wrong about the other half of the spawn.
+the dash between the two used to ride on, and the same color the bar itself
+fills in with. mobdb gives most mobs a range, and picking one end to color
+would still be wrong about the other half of the spawn.
 
 **A notorious monster reads `???` whatever its level says.** `/check` refuses to
 gauge an NM, and printing the tier mobdb's range implies would be inventing an
 answer the game withholds.
 
-The colors are Ashita's `checker` addon's, translated from the chat color
-indices it prints with, so a check you ran in the log and a panel you glanced at
-cannot disagree. **VT and IT share one color** for the same reason — `checker`
-prints both in Tomato, and re-tinting one would put a color on screen `/check`
-never produces. The abbreviations tell them apart. They are not settings: these
-are the game's colors, not a palette to retint. Opacity still comes from **Text
-Color**'s alpha, like every other string on a panel.
+The colors are this project's own reference palette — gray, green, blue, white,
+gold, orange, dark red, purple — rather than `/check`'s own chat colors: the
+tier now fills the whole bar, not just a couple of letters next to other text,
+so every tier needs a shade that reads as its own threat level on sight, and no
+two tiers share one. `IT` alone stands in for three shades of "incredibly
+tough" the reference chart draws separately — `/check` itself never says more
+than "incredibly tough", so there is no way to tell which of the three a given
+mob is, and `IT` takes the darkest of the three rather than inventing a split
+the game's own message can't support. They are not settings: this is one fixed
+chart, not a palette to retint. Opacity still comes from **Text Color**'s
+alpha for the label, and from the bar's own fill state (`full`/`incomplete`/
+`empty`) for the bar, like every other bar color.
 
 ### Where the icons sit
 
