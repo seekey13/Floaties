@@ -171,26 +171,27 @@ function M.check_tier(level, mob_level)
 end
 
 --[[
-* The check line: how the mob would read to a /check, from mobdb's level range.
+* The check line: how the mob would read to a /check, from mobdb's level range, collapsed into the
+* one string and one color the HP bar label prefixes itself with.
 *
 * mobdb gives a *range* for most mobs, and a range can straddle a boundary -- a Lv.14-17 mob is a
-* different fight at each end. Both ends are printed when they differ ("EP-DC"), each in its own
-* color, rather than picking one and being wrong about the other half of the spawn. The dash rides
-* on the first segment so the pair is two draws, not three.
+* different fight at each end. Both ends are printed when they differ ("EP-DC") rather than picking
+* one and being wrong about the other half of the spawn; the label draws it as one string in one
+* color, so the two tiers are concatenated directly and the *low* tier's color wins.
 *
 * A notorious monster is ITG regardless of level: /check refuses to gauge an NM, and printing a
 * tier mobdb's range implies would be inventing an answer the game withholds.
 *
 * @param {number|nil} level - the player's main job level. nil or 0 (not logged in yet) yields nil.
-* @return {table|nil} segments, or nil when there is nothing to check against.
+* @return {table|nil} { text, color }, or nil when there is nothing to check against.
 --]]
-function M.check(res, level)
+function M.check_text(res, level)
     if (res == nil or level == nil or level <= 0) then
         return nil;
     end
 
     if (res.Notorious == true) then
-        return { M.CHECK.ITG };
+        return { text = M.CHECK.ITG.text, color = M.CHECK.ITG.color };
     end
 
     local lo = res.Level or res.MinLevel;
@@ -201,33 +202,10 @@ function M.check(res, level)
 
     local low, high = M.CHECK[M.check_tier(level, lo)], M.CHECK[M.check_tier(level, hi)];
     if (low == high) then
-        return { low };
+        return { text = low.text, color = low.color };
     end
 
-    return { { text = low.text .. '-', color = low.color }, high };
-end
-
---[[
-* M.check's (possibly two-segment) result, collapsed into the one string the HP bar label
-* prefixes itself with. The dash inside "EP-DC" used to be where the two segments met, drawn in
-* two colors on a row above the bar; on the bar label there is one string and one color, so the
-* segment texts are concatenated and the *low* tier's color wins -- the same color the dash rode
-* on before.
-*
-* @return {table|nil} { text, color }, or nil when M.check has nothing to say.
---]]
-function M.check_text(res, level)
-    local segs = M.check(res, level);
-    if (segs == nil) then
-        return nil;
-    end
-
-    local text = segs[1].text;
-    if (segs[2] ~= nil) then
-        text = text .. segs[2].text;
-    end
-
-    return { text = text, color = segs[1].color };
+    return { text = low.text .. '-' .. high.text, color = low.color };
 end
 
 -- What the mob notices you with, in the order it is worth reading. TrueSight leads Sight because

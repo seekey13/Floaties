@@ -547,35 +547,20 @@ assert(tier(20, 27) == 'IT', 'seven up is incredibly tough, got ' .. tier(20, 27
 assert(tier(99, 79) == 'TW' and tier(99, 80) == 'EP', 'above 75 the bands stop widening');
 
 -- The line itself. mobdb gives a range, and a range that straddles a boundary prints both ends --
--- one tier for a Lv.14-17 mob would be wrong about half the spawn.
-local function checkline(level, res)
-    local line = mobinfo.check(res, level);
-    if (line == nil) then return nil; end
-    local out = {};
-    for i, seg in ipairs(line) do out[i] = seg.text; end
-    return table.concat(out);
-end
-
-assert(checkline(20, { MinLevel=14, MaxLevel=16 }) == 'EP', 'a range inside one tier prints once');
-assert(checkline(20, { MinLevel=14, MaxLevel=17 }) == 'EP-DC',
-    'a straddling range prints both ends, got ' .. tostring(checkline(20, { MinLevel=14, MaxLevel=17 })));
-assert(checkline(20, { Level=20 }) == 'EM', 'a fixed level is its own range');
-assert(checkline(20, { Level=20, MinLevel=1, MaxLevel=99 }) == 'EM', 'a fixed level wins over the range');
-assert(checkline(20, { MinLevel=14, MaxLevel=17, Notorious=true }) == '???',
-    'an NM is never gauged, whatever its range says');
-assert(mobinfo.check({ MinLevel=1, MaxLevel=2 }, nil) == nil, 'no player level, nothing to compare');
-assert(mobinfo.check({ MinLevel=1, MaxLevel=2 }, 0) == nil, 'level 0 is not logged in yet');
-assert(mobinfo.check({ Job=1 }, 20) == nil, 'a row with no level in it has no check line');
-assert(mobinfo.check(nil, 20) == nil, 'an unknown mob has no check line');
-
--- check_text collapses M.check's (possibly two-segment) result into the one string the bar label
--- prefixes itself with, keeping the low tier's color -- the same color the dash used to ride on.
+-- one tier for a Lv.14-17 mob would be wrong about half the spawn -- jammed into one string and
+-- the low tier's color, the shape the bar label prefixes itself with.
 assert(mobinfo.check_text({ MinLevel=14, MaxLevel=16 }, 20).text == 'EP', 'a range inside one tier collapses to that tier alone');
 local straddle = mobinfo.check_text({ MinLevel=14, MaxLevel=17 }, 20);
 assert(straddle.text == 'EP-DC', 'both ends jammed into one string, got ' .. tostring(straddle.text));
 assert(straddle.color == mobinfo.CHECK.EP.color, 'the low tier\'s color, got ' .. tostring(straddle.color));
-assert(mobinfo.check_text({ MinLevel=14, MaxLevel=17, Notorious=true }, 20).text == '???', 'ITG for a notorious mob');
-assert(mobinfo.check_text({ MinLevel=1, MaxLevel=2 }, nil) == nil, 'no level to compare against means no check text either');
+assert(mobinfo.check_text({ Level=20 }, 20).text == 'EM', 'a fixed level is its own range');
+assert(mobinfo.check_text({ Level=20, MinLevel=1, MaxLevel=99 }, 20).text == 'EM', 'a fixed level wins over the range');
+assert(mobinfo.check_text({ MinLevel=14, MaxLevel=17, Notorious=true }, 20).text == '???',
+    'an NM is never gauged, whatever its range says');
+assert(mobinfo.check_text({ MinLevel=1, MaxLevel=2 }, nil) == nil, 'no player level, nothing to compare');
+assert(mobinfo.check_text({ MinLevel=1, MaxLevel=2 }, 0) == nil, 'level 0 is not logged in yet');
+assert(mobinfo.check_text({ Job=1 }, 20) == nil, 'a row with no level in it has no check line');
+assert(mobinfo.check_text(nil, 20) == nil, 'an unknown mob has no check line');
 
 -- Each tier draws in its own color, and the abbreviations are the ones /check prints.
 for key, want in pairs({ TW='TW', EP='EP', DC='DC', EM='EM', T='T', VT='VT', IT='IT', ITG='???' }) do
