@@ -225,8 +225,8 @@ end
 
 ----------------------------------------------------------------------------------------------------
 -- /check capture. What the last /check said about an entity, keyed by its server id, so a
--- re-target does not need a re-check -- see checkinfo.lua. Not drawn anywhere yet; this is just the
--- list a later branch reads from.
+-- re-target does not need a re-check -- see checkinfo.lua. drawTarget hands this target's entry (if
+-- any) into mobinfo.panel, which prefers it over the mobdb-derived estimate.
 ----------------------------------------------------------------------------------------------------
 
 local check_list = {};
@@ -857,7 +857,8 @@ local function drawTarget(mm, view, proj, vp)
     -- level you fight at, which is what GetMainJobLevel reports (it already reads as the synced
     -- level while level sync is up). ent.Name is always known -- unlike everything else mobinfo
     -- draws, the label's name segment needs no mobdb entry.
-    local info = mobinfo.panel(res, config.settings.mob, jobName, mm:GetPlayer():GetMainJobLevel(), ent.Name);
+    local info = mobinfo.panel(res, config.settings.mob, jobName, mm:GetPlayer():GetMainJobLevel(), ent.Name,
+                                check_list[ent.ServerId]);
 
     drawAt(mm, target_index, s, TARGET_BARS, config.settings.sizes.target,
            config.settings.target_height_offset, info.tag, info,

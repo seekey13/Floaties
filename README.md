@@ -104,8 +104,9 @@ out the same way a bar label does; the reserved space stays, so the bars don't
 jump as you walk away.
 
 **Target panels get a tag box too, but a different one.** Instead of a party
-slot it holds the target's level — a range (`14-17`) or a fixed number (`50`),
-no `Lv.` prefix and no job — gated by **Show Level & Job** (`cfg.mob.level`)
+slot it holds the target's level — a range (`14-17`) or a fixed number (`50`,
+also what a checked mob's exact level shows as — see **The check tier**), no
+`Lv.` prefix and no job — gated by **Show Level & Job** (`cfg.mob.level`)
 rather than by this setting, since an arbitrary entity has no party slot to
 gate on. It reserves space out of the bar the same way, through the same
 `M.slot_width` — the box just holds different text depending on which panel
@@ -495,6 +496,19 @@ flat, in that one tier's color, same as ever.
 gauge an NM, and printing the tier mobdb's range implies would be inventing an
 answer the game withholds.
 
+**A mob you have actually /checked overrides all of the above with the real answer.** Everything
+this section describes — the interpolated bands, the straddling range, the gradient fill — is an
+*estimate* from mobdb's level data; once `checkinfo`'s captured list (see **Check capture**) holds
+an entry for the target, its exact tier and level win instead. The label prefix collapses to that
+one tier (never `EP-DC` — a check answers with exactly one tier, so the bar fills flat in its color,
+never a gradient) and the tag box snaps from a range to the single level `/check` reported, once it
+gave a usable one — the server sends `0` in place of a level for an NM's response, so that box keeps
+mobdb's range in that case instead of showing nothing. Both hold **even for a mob mobdb has no entry
+for at all**: `/check` needs no mobdb data to work, so an unrecognized mob you have checked still
+gets an exact tier and level, just no job suffix or detection/resistance rows — those really do come
+only from mobdb, and `/check` has nothing to say about them. Re-checking a mob replaces the captured
+entry with the fresh answer, same as it replaces everything else `checkinfo` keeps for that server id.
+
 The colors are this project's own reference palette — gray, green, blue, white,
 gold, orange, dark red, purple — rather than `/check`'s own chat colors: the
 tier now fills the whole bar, not just a couple of letters next to other text,
@@ -636,8 +650,9 @@ retinting them.
 ## Check capture
 
 `/check`'s answer is captured off the wire and kept, keyed by the checked entity's server id, so
-re-targeting it later does not require a re-check to know what it already said. Not drawn anywhere
-yet — this is the list a target-panel branch reads from later; see `checkinfo.lua`.
+re-targeting it later does not require a re-check to know what it already said. The target panel
+reads this list — see **The check tier** — and prefers it over mobdb's estimate whenever an entry
+exists; see `checkinfo.lua`.
 
 The client's Message Basic packet (`0x0029`) is what `/check` (and the `checker` addon) both read;
 Floaties listens for it too, alongside the check pair `checker.lua` uses to tell a check response from
@@ -647,6 +662,15 @@ first — and records the level, the resolved difficulty (`"like a decent challe
 resolved condition (`"High Evasion"`, etc.). A notorious monster's response carries no difficulty at
 all — the server withholds it — so that entry's type is `nil` and its message reads `"Impossible to
 gauge!"` instead.
+
+Alongside that resolved text, each entry also carries a `tier` — one of mobinfo's own chart keys
+(`TW`/`EP`/.../`IT`, or `ITG` for the notorious case), mapped straight from Message Basic's difficulty
+code. A captured check already names one exact tier, so this is a lookup table next to the ones that
+resolve the display text, not the level-difference math `mobinfo.check_tier` runs for an estimate.
+Retail's message set has one code (`"like incredibly easy prey"`) this project's seven-tier chart has
+no room for below `EP`; it lands on `EP` there too, the same call `checker.lua`'s own colors make (it
+leaves that one code uncolored rather than giving it `EP`'s tint, but does not invent an eighth tier
+for it either).
 
 **The whole list is discarded on zone** (packets `0x00A` and `0x00B`, the same pair `checker.lua`
 itself clears its widescan cache on): a server id is only unique within one zone instance, so

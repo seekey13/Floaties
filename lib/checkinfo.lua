@@ -9,8 +9,8 @@
 * stay loadable under stock lua (see CLAUDE.md), and chat's coloring is a presentation detail for
 * whichever UI branch reads this list later, not a fact worth freezing into the capture.
 *
-* Nothing here is wired to the target panel yet -- that is a later branch's job. This module only
-* builds and maintains the list.
+* The target panel (mobinfo.panel) reads this list to show an exact tier and level in place of its
+* own mobdb-derived estimate once a mob has been checked -- see `tier` on M.record's entry below.
 --]]
 
 local M = {};
@@ -46,6 +46,26 @@ M.TYPES = {
 -- the difficulty entirely rather than sending one from M.TYPES, so there is no type to resolve.
 local IMPOSSIBLE_TO_GAUGE = 0xF9;
 
+-- M.TYPES' codes, mapped straight to mobinfo.lua's own tier chart (M.CHECK's keys) -- a captured
+-- check already names one exact tier, so this is a lookup, not the diff-from-level math
+-- mobinfo.check_tier does for an estimate. A plain string key, not a require of mobinfo: the two
+-- modules describe the same seven tiers without one depending on the other to do it.
+--
+-- 0x41 ("like incredibly easy prey") is the one code with no tier of its own below EP -- the
+-- game's own message set distinguishes it from 0x42's "easy prey", but this project's chart does
+-- not carry an eighth tier for it, and checker.lua's own colors make the same call: 0x42 alone
+-- gets its tint (color1(2, ...)), while 0x41 is left uncolored.
+local CHECK_TIER = {
+    [0x40] = 'TW',
+    [0x41] = 'EP',
+    [0x42] = 'EP',
+    [0x43] = 'DC',
+    [0x44] = 'EM',
+    [0x45] = 'T',
+    [0x46] = 'VT',
+    [0x47] = 'IT',
+};
+
 --[[
 * Records one /check response against the entity it was about. Overwrites any existing entry for
 * that server id -- a re-check is the freshest truth about that entity, not a second opinion to
@@ -69,7 +89,7 @@ function M.record(list, ent, level, ptype, message)
     end
 
     if (message == IMPOSSIBLE_TO_GAUGE) then
-        list[ent.ServerId] = { level = level, type = nil, message = 'Impossible to gauge!' };
+        list[ent.ServerId] = { level = level, type = nil, message = 'Impossible to gauge!', tier = 'ITG' };
         return;
     end
 
@@ -78,7 +98,7 @@ function M.record(list, ent, level, ptype, message)
         return;
     end
 
-    list[ent.ServerId] = { level = level, type = t, message = c };
+    list[ent.ServerId] = { level = level, type = t, message = c, tier = CHECK_TIER[ptype] };
 end
 
 --[[

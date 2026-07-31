@@ -694,6 +694,40 @@ assert(shipped.label ~= nil and #shipped.label > 0 and shipped.tag ~= nil and #s
     'the defaults ship every toggle on');
 assert(shipped.hp_color == mobinfo.CHECK.EP.color, 'the defaults color the bar too');
 
+-- A captured check (checkinfo's entry, `chk`) overrides mobdb's estimate: exact tier and level
+-- instead of a range, and never a straddle gradient even though BOMB's own range (8-10 at level 12)
+-- straddles EP/DC on its own.
+local checked = mobinfo.panel(BOMB, ALL_LINES, jobname, 12, 'Bomb', { level = 25, tier = 'IT' });
+assert(label_text(checked.label) == 'IT Bomb', 'the checked tier wins over the mobdb estimate, got ' .. tostring(label_text(checked.label)));
+assert(checked.tag == '25', 'the checked level snaps the tag to one number, got ' .. tostring(checked.tag));
+assert(checked.hp_color == mobinfo.CHECK.IT.color, 'the bar fills in the checked tier\'s color');
+assert(checked.hp_color2 == nil, 'one checked tier is never a straddle, even if mobdb\'s range would have been');
+
+-- A checked mob mobdb has never heard of (res is nil) still gets the exact tier and level -- /check
+-- does not need mobdb to work, and job/detect/resist stay off since none of that is in a check.
+local checkedNoRes = mobinfo.panel(nil, ALL_LINES, jobname, 20, 'Unrecognized Mob', { level = 30, tier = 'VT' });
+assert(label_text(checkedNoRes.label) == 'VT Unrecognized Mob', 'got ' .. tostring(label_text(checkedNoRes.label)));
+assert(checkedNoRes.tag == '30', 'the tag needs no mobdb entry when chk supplies the level');
+assert(checkedNoRes.hp_color == mobinfo.CHECK.VT.color, 'the bar colors from chk alone too');
+assert(#checkedNoRes.left == 0 and #checkedNoRes.right == 0 and #checkedNoRes.rows == 0,
+    'no res still means no job suffix and no detect/resist groups');
+
+-- A level of 0 is the server declining to give one (an NM's check, in practice): the tag falls back
+-- to mobdb's range when there is one, and to nothing when there isn't -- same as no chk at all.
+local checkedNoLevel = mobinfo.panel(BOMB, ALL_LINES, jobname, 12, 'Bomb', { level = 0, tier = 'ITG' });
+assert(label_text(checkedNoLevel.label) == '??? Bomb', 'the tier still wins with no usable level, got ' .. tostring(label_text(checkedNoLevel.label)));
+assert(checkedNoLevel.tag == '8-10', 'mobdb\'s range is the fallback when chk gives no usable level');
+
+local checkedNoLevelNoRes = mobinfo.panel(nil, ALL_LINES, jobname, 12, 'Unrecognized Mob', { level = 0, tier = 'ITG' });
+assert(checkedNoLevelNoRes.tag == nil, 'no usable level and no mobdb entry leaves no tag at all');
+
+-- Show Check off leaves the checked tier out of the label and the bar uncolored, same as the
+-- mobdb-estimate path -- the toggle still owns the whole prefix, whichever source supplied it.
+local checkedNoToggle = mobinfo.panel(BOMB, ONLY_LEVEL, jobname, 12, 'Bomb', { level = 25, tier = 'IT' });
+assert(label_text(checkedNoToggle.label) == 'Bomb', 'check off means no prefix even with a captured check, got ' .. tostring(label_text(checkedNoToggle.label)));
+assert(checkedNoToggle.hp_color == nil, 'and no bar color either');
+assert(checkedNoToggle.tag == '25', 'the level tag is Show Level & Job\'s toggle, independent of Show Check');
+
 -- The loader. A missing file is the normal case -- mobdb ships ~245 zones and may not be
 -- installed at all -- so it must land on nil rather than throwing.
 assert(mobinfo.load('no-such-zone-file-12345.lua') == nil, 'a missing zone file yields no data');
@@ -741,18 +775,31 @@ checkinfo.record(list, fakeEnt(0x10, 100, 0, 500), 20, 0x43, 0xAB);
 assert(list[500].level == 20, 'level is recorded as given, got ' .. tostring(list[500].level));
 assert(list[500].type == 'like a decent challenge', 'type resolves through M.TYPES, got ' .. tostring(list[500].type));
 assert(list[500].message == 'High Evasion', 'message resolves through M.CONDITIONS, got ' .. tostring(list[500].message));
+assert(list[500].tier == 'DC', 'type 0x43 maps to mobinfo\'s DC tier, got ' .. tostring(list[500].tier));
 
 -- 0xAE is a real condition id and reads as an empty string, not "unrecognized".
 checkinfo.record(list, fakeEnt(0x10, 100, 0, 501), 20, 0x44, 0xAE);
 assert(list[501] ~= nil and list[501].message == '', 'condition 0xAE is the empty string, not missing');
+assert(list[501].tier == 'EM', 'type 0x44 maps to EM, got ' .. tostring(list[501].tier));
 
 -- Impossible to gauge: the server sends no usable type at all, so there is nothing to resolve.
 checkinfo.record(list, fakeEnt(0x10, 100, 0, 502), 0, 0xFF, 0xF9);
 assert(list[502].type == nil and list[502].message == 'Impossible to gauge!', 'an NM check has no type, only the ITG message');
+assert(list[502].tier == 'ITG', 'an NM check still gets a tier, matching mobinfo.CHECK.ITG');
+
+-- 0x40 and 0x47 are the chart's two ends; 0x41 ("incredibly easy prey") has no tier of its own
+-- below EP in this project's chart, and lands on EP the same as 0x42 ("easy prey").
+checkinfo.record(list, fakeEnt(0x10, 100, 0, 503), 20, 0x40, 0xAB);
+assert(list[503].tier == 'TW', 'type 0x40 maps to TW, got ' .. tostring(list[503].tier));
+checkinfo.record(list, fakeEnt(0x10, 100, 0, 504), 20, 0x41, 0xAB);
+assert(list[504].tier == 'EP', 'type 0x41 has no tier below EP, got ' .. tostring(list[504].tier));
+checkinfo.record(list, fakeEnt(0x10, 100, 0, 505), 20, 0x47, 0xAB);
+assert(list[505].tier == 'IT', 'type 0x47 maps to IT, got ' .. tostring(list[505].tier));
 
 -- A re-check overwrites rather than stacking a second entry for the same server id.
 checkinfo.record(list, fakeEnt(0x10, 100, 0, 500), 25, 0x44, 0xAA);
 assert(list[500].level == 25 and list[500].type == 'like an even match', 're-checking overwrites the old entry');
+assert(list[500].tier == 'EM', 'the tier is overwritten along with everything else');
 
 -- Pruning: only the entity that is now at 0% hp loses its entry; everything else survives.
 checkinfo.prune(list, nil);

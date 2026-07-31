@@ -352,22 +352,25 @@ end
 *
 *   label - segments for the HP bar's own label: the check tier, the name, and the job, in that
 *           order. The name always shows -- it is the entity's own display name, not mobdb data --
-*           while the check tier and job each require both a mobdb entry and their own toggle.
-*           Built whenever `mob ~= nil`, since the name alone is worth drawing for a target mobdb
-*           has never heard of (an unrecognized mob, or a player). `nil` only when `mob` itself is
-*           `nil` -- there is no toggle table to have decided anything from.
-*   tag   - the level-range/fixed-level text for the tag box left of the bar (M.level_text), or
-*           `nil`. Requires mobdb data, unlike label -- there is no tag to show for a mob with no
-*           level.
+*           while the check tier and job each require their own toggle, and the job needs a mobdb
+*           entry (there is nothing else it could come from). Built whenever `mob ~= nil`, since the
+*           name alone is worth drawing for a target mobdb has never heard of (an unrecognized mob,
+*           or a player). `nil` only when `mob` itself is `nil` -- there is no toggle table to have
+*           decided anything from.
+*   tag   - the level-range/fixed-level text for the tag box left of the bar, or `nil`. A captured
+*           check (`chk`) snaps this to the single level it reported, in place of mobdb's range,
+*           whenever it gave a usable one (see `chk` below); otherwise mobdb's M.level_text.
 *   hp_color - the check tier's color (M.CHECK[...].color), for the HP bar's own fill -- the same
 *           color the check prefix on `label` draws in, so the bar and its label can never disagree
 *           about what the mob checks as. `nil` under the exact conditions the check prefix itself
-*           is left off `label` (Show Check off, no mobdb entry, or no player level to check
-*           against), since there is then nothing to color the bar with either.
-*   hp_color2 - the *high* tier's color when the level range straddles a boundary (M.check_text's
-*           `color2`), so the bar can fill low-to-high as a gradient instead of losing the half the
-*           label already drops by concatenating "EP-DC" into one string. `nil` whenever `hp_color`
-*           alone is the whole answer, including every case `hp_color` itself is `nil`.
+*           is left off `label` (Show Check off, or neither a captured check nor a mobdb entry with
+*           a player level to check against), since there is then nothing to color the bar with
+*           either.
+*   hp_color2 - the *high* tier's color when a mobdb-estimated range straddles a boundary
+*           (M.check_text's `color2`), so the bar can fill low-to-high as a gradient instead of
+*           losing the half the label already drops by concatenating "EP-DC" into one string. Always
+*           `nil` when `chk` supplied the tier -- one check answers with exactly one tier, never a
+*           straddle -- and whenever `hp_color` itself is `nil`.
 *   left  - segments flanking the bar on its left: aggro/passive and Link, the pull decision.
 *   right - segments flanking it on its right: what it senses you with.
 *   rows  - full-width rows hung under the panel. The resistance list, in practice -- that one has
@@ -376,15 +379,23 @@ end
 * left/right/rows are always present, so the caller indexes those three without guarding; label and
 * tag are the two pieces that go nil, and only when there is truly nothing to build them from.
 *
-* @param {table|nil} res - M.find's result; nil (an unknown mob, or a PC) yields no tag, check
-*                          prefix, or job suffix -- but still a name-only label.
+* @param {table|nil} res - M.find's result; nil (an unknown mob, or a PC) yields no job suffix, and
+*                          no tag/check prefix unless `chk` supplies them -- but still a name-only
+*                          label.
 * @param {table|nil} mob - cfg.mob: the toggles. nil yields the fully empty shape.
 * @param {function|nil} jobname - job id -> abbreviation. Omitted, the job is left off.
-* @param {number|nil} level - the player's main job level, for the check prefix.
+* @param {number|nil} level - the player's main job level, for the mobdb-estimated check prefix.
 * @param {string|nil} name - the entity's display name, always known (not mobdb data).
+* @param {table|nil} chk - checkinfo's captured entry for this entity (`{ level, tier, ... }`), or
+*                          `nil` when it has never been /checked. More accurate than mobdb's
+*                          estimate when present, so it wins for both the check prefix/bar color and
+*                          the level tag -- and needs no mobdb entry of its own to do either, since a
+*                          check works on any mob whether or not mobdb recognizes it. Its `level`
+*                          only wins when `> 0`; the server sends `0` when it declined to give one
+*                          (notably an NM's), and mobdb's range is still worth showing then.
 * @return {table} { label, tag, left, right, rows }.
 --]]
-function M.panel(res, mob, jobname, level, name)
+function M.panel(res, mob, jobname, level, name, chk)
     local out = { left = {}, right = {}, rows = {} };
     if (mob == nil) then
         return out;
@@ -393,11 +404,12 @@ function M.panel(res, mob, jobname, level, name)
     local label = {};
     local hp_color, hp_color2 = nil, nil;
 
-    if (mob.check and res ~= nil) then
-        local chk = M.check_text(res, level);
-        if (chk ~= nil) then
-            label[#label + 1] = { text = chk.text .. ' ', color = chk.color };
-            hp_color, hp_color2 = chk.color, chk.color2;
+    if (mob.check) then
+        local tier = chk ~= nil and chk.tier ~= nil and M.CHECK[chk.tier] or nil;
+        local text = tier or (res ~= nil and M.check_text(res, level) or nil);
+        if (text ~= nil) then
+            label[#label + 1] = { text = text.text .. ' ', color = text.color };
+            hp_color, hp_color2 = text.color, text.color2;
         end
     end
 
@@ -413,8 +425,17 @@ function M.panel(res, mob, jobname, level, name)
         label[#label + 1] = { text = ' ' .. job };
     end
 
+    local tag = nil;
+    if (mob.level) then
+        if (chk ~= nil and chk.level ~= nil and chk.level > 0) then
+            tag = tostring(chk.level);
+        elseif (res ~= nil) then
+            tag = M.level_text(res);
+        end
+    end
+
     out.label     = label;
-    out.tag       = (mob.level and res ~= nil) and M.level_text(res) or nil;
+    out.tag       = tag;
     out.hp_color  = hp_color;
     out.hp_color2 = hp_color2;
 
