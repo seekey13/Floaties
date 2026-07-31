@@ -57,10 +57,28 @@ Lua so `test.lua` can exercise it headless. Consequences to preserve:
   here, loading and drawing the PNG is `Floaties.lua`'s, and `alt` is the word to
   print when the texture is missing (mobdb's data and its icons install
   separately, so either can be absent on its own). `M.panel` keys its result by
-  *where* each piece draws (`label`, `left`, `right`, `rows`) rather than by
-  which toggle produced it, so `drawPanel` places them without knowing which
-  flag any of them came from — and all four keys are always present, so it
-  indexes instead of guarding.
+  *where* each piece draws (`label`, `tag`, `hp_color`, `hp_color2`, `left`,
+  `right`, `rows`) rather than by which toggle produced it, so `drawPanel`
+  places them without knowing which flag any of them came from — `left`,
+  `right`, and `rows` are always present so the caller indexes instead of
+  guarding, while `label` and `tag` are the two pieces that go `nil`, and only
+  when there is truly nothing to build them from. `M.panel` optionally takes a
+  `chk` argument — one entity's captured `/check` (see `checkinfo.lua`) — which
+  overrides mobdb's level-range/tier *estimate* with the exact level and tier
+  the server actually reported, whenever one exists. `hp_color2` carries the
+  *high* tier's color only when a mobdb-estimated range straddles a tier
+  boundary, so `drawBar` can fill the HP bar low-to-high as a gradient instead
+  of collapsing the straddle into one color the way the text label does.
+- `checkinfo.lua` — pure. Captures what `/check` (Message Basic, packet
+  `0x0029`) said about an entity, keyed by server id, so a re-target doesn't
+  need a re-check to know what was already learned. `Floaties.lua` unpacks the
+  packet and resolves the entity via `GetEntity`; this module owns deciding
+  whether a message/type code pair is actually a check response and how its
+  codes read (condition/type tables re-expressed as plain strings, since `bit`
+  and `chat`'s colored `T{}` values are LuaJIT/Ashita-only). Entries are pruned
+  when the entity dies (`M.prune`) and the whole list is cleared on zone change
+  (`M.clear`, wired to packets `0x00A`/`0x00B`), since a server id is only
+  unique within one zone instance.
 - `lib/targets.lua` — Ashita's own target library, **vendored unmodified**. Do
   not edit it; it is diffable against upstream/Sidekick's `lib/core/targets.lua`.
   It hard-`error`s at load when its byte signatures miss, so it is `require`d
