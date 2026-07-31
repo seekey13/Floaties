@@ -103,8 +103,13 @@ Text Size**, including once the distance scale has shrunk it there, the tag drop
 out the same way a bar label does; the reserved space stays, so the bars don't
 jump as you walk away.
 
-Target panels never get one either — an arbitrary entity has no party slot — so
-that panel also reserves no space and keeps its full bar width.
+**Target panels get a tag box too, but a different one.** Instead of a party
+slot it holds the target's level — a range (`14-17`) or a fixed number (`50`),
+no `Lv.` prefix and no job — gated by **Show Level & Job** (`cfg.mob.level`)
+rather than by this setting, since an arbitrary entity has no party slot to
+gate on. It reserves space out of the bar the same way, through the same
+`M.slot_width` — the box just holds different text depending on which panel
+kind is drawing it.
 
 ## Distance scaling
 
@@ -151,13 +156,13 @@ ones. **Show Target** in the config window turns it off; it has its own
 
 **One bar, HP only.** Party panels can show MP and TP because the party packets
 carry them. For an arbitrary entity the client is told a single number — an HP
-percent — and nothing else, so there is no MP or TP to draw. The label is that
-percent, via the same `hp_raw == 0` fallback party members' labels already use,
-and prints with a trailing `%` for exactly that reason — except while the mob is
-at full health, when the bar carries its level instead (see **Target reference
-lines**). The panel shrinks to fit the one bar and stays that shape: every piece
-of mob reference is drawn *around* it, never inside, so none of it changes the
-panel's geometry.
+percent — and nothing else, so there is no MP or TP to draw. The bar's label is
+the target's name, prefixed with its `/check` tier and suffixed with its job
+when mobdb has an entry (see **Target reference lines**), and the HP percent is
+appended once the mob takes damage — a full bar already says "100%" without it.
+The panel shrinks to fit the one bar and stays that shape: every piece of mob
+reference is drawn *around* it, never inside, so none of it changes the panel's
+geometry.
 
 **Which target.** The cursor target (`<t>`) first; when nothing is selected, the
 battle target (`<bt>`) instead, so clearing your target mid-fight doesn't blank
@@ -377,9 +382,9 @@ frame — reading left to right as one sentence: what it does to you, what it is
 what it sees you with.
 
 ```
-                    EP-DC
-<Passive> <Link>  [═══════ Lv.14-17 WAR/MNK ═══════]  <Sight> <Sound> <Scent>
-                    <Fire>+25% <Ice>-50% <Dark>-50%
+            14-17
+<Passive> <Link> [═ EP-DC Tough Mist Lizard WAR/MNK ═] <Sight> <Sound> <Scent>
+                   <Fire>+25% <Ice>-50% <Dark>-50%
 ```
 
 Four toggles in `/floaties config` feed it:
@@ -387,17 +392,23 @@ Four toggles in `/floaties config` feed it:
 | Setting | Contributes | Drawn as |
 |---|---|---|
 | **Show Detection** | the icon groups flanking the bar | left of it: aggro/passive, then Link. Right of it: TrueSight, Sight, Sound, Scent, Magic, JA, Blood |
-| **Show Level & Job** | the bar's own label | `Lv.14-17 WAR/MNK`, in place of the HP percent |
-| **Show Check** | a line at the bar's top-left corner | the `/check` tier, colored: `EP-DC` |
+| **Show Level & Job** | the tag box, and a suffix on the bar's label | `14-17` in the box; ` WAR/MNK` appended to the label |
+| **Show Check** | a prefix on the bar's own label | the `/check` tier, colored, jammed into one string: `EP-DC ` |
 | **Show Weakness/Resist** | a row under the panel | an icon and a percentage each: `<Fire>+25% <Ice>-50%` |
 
-**Show Detection** owns both groups because they answer the same question from
-two sides — Link sits with the aggro flag rather than with the senses, since it
-is not one, and the two of them together are the pull decision. Each toggle
-still owns exactly what it names: **Show Detection** alone draws the icons and
-leaves the bar its percent, **Show Level & Job** alone relabels the bar and draws
-no icons, and **Show Check** draws its line whether or not the level itself is on
-the bar.
+The target's **name always draws**, whatever mobdb knows about it or doesn't —
+it is the entity's own display name, not mobdb data, so a player or an
+unrecognized mob still gets a label instead of a blank bar. **Show Check** and
+**Show Level & Job**'s job suffix are the only pieces of the label that need a
+mobdb entry; the tag box needs one too.
+
+**Show Detection** owns both icon groups because they answer the same question
+from two sides — Link sits with the aggro flag rather than with the senses,
+since it is not one, and the two of them together are the pull decision. Each
+toggle still owns exactly what it names: **Show Detection** alone draws the
+icons and leaves the label alone, **Show Level & Job** alone adds the tag box
+and the job suffix (no check prefix), and **Show Check** alone prefixes the
+label (no tag box, no job).
 
 Resistances stay on their own row under the panel. That list has no fixed
 length, so flanking with it would shove the bar off-center by however many
@@ -406,31 +417,37 @@ damage types the mob happens to have.
 All four ship on. They draw on the target panel only — party members are not
 mobs, and a PC you have targeted has no entry either.
 
-### The level on the bar
+### The label on the bar
 
-**A full-health mob shows its level where the `100%` used to be, and switches to
-the percent the moment it takes damage.**
+**The label is the target's name, with the check tier prefixed and the job
+suffixed when mobdb has an entry, and the HP percent appended once the mob
+takes damage.** A full bar already says "100%" without it; the fill stops
+resolving 71% from 64% the moment there is damage on it, which is when the
+percent starts saying something the fill does not — so it is left off at full
+health and appended from the first hit onward.
 
-`100%` over a full bar is the bar repeating itself — the fill already says it —
-while the level is shown nowhere else on screen. Once there is damage on it that
-stops being true: the fill no longer resolves 71% from 64%, and the percent is
-the number being read. So the swap happens on the first hit and stays.
+**The name is not mobdb data.** It is the entity's own display name, always
+known, so a player you have targeted or a mob mobdb has never heard of still
+gets a label — just without the check prefix or job suffix, which do need an
+entry.
 
 **The label shrinks to fit rather than being dropped.** A number always fitted
-the bar; `Lv.14-17 WAR/MNK` is as long as the mob's job pairing makes it, and a
-label that vanished would leave the bar saying nothing at all. The size solves
-directly out of the width — no iteration — starting from the bar-height size
-every label uses.
+the bar; the full label (`EP-DC Tough Mist Lizard WAR/MNK`) is as long as the
+check tier, the name, and the mob's job pairing make it, and a label that
+vanished would leave the bar saying nothing at all. The size solves directly
+out of the combined width of every segment — no iteration — starting from the
+bar-height size every label uses.
 
 A bar too *short* still drops its text rather than shrinking it to mush. That is
 the other failure — no glyph is legible at any width — and **Min Text Size**
 already owns it.
 
-### The check line
+### The check tier
 
-**Show Check** puts the `/check` tier over the bar, in the color `/check` would
-print it in — your main job level against the mob's level from mobdb, so it is
-the one line here that is about *you* rather than about the mob.
+**Show Check** prefixes the bar's label with the `/check` tier, in the color
+`/check` would print it in — your main job level against the mob's level from
+mobdb, so it is the one piece of the label that is about *you* rather than
+about the mob.
 
 | | Abbreviation | Level difference at 1 | at 75 |
 |---|---|---|---|
@@ -443,12 +460,8 @@ the one line here that is about *you* rather than about the mob.
 | Incredibly Tough | `IT` | 6+ above | 8+ above |
 | Impossible to Gauge | `???` | any notorious monster | |
 
-It sits at the **bar's top-left corner** — one **Bar Gap** over the panel's top
-edge, flush with the bar's left edge. Above, because it is read first: whether to
-engage at all is answered before anything else on the panel matters. Left rather
-than centered, because a centered line slides sideways as `EM` grows into
-`EP-DC`, and the one thing you re-read on every new target should be in the same
-place every time.
+It leads the label — before the name — because it is read first: whether to
+engage at all is answered before anything else on the panel matters.
 
 **The bands are interpolated between the two published endpoints**, not looked
 up. The server derives the tier from the experience the kill would award and
@@ -458,9 +471,12 @@ across the whole range for one line of arithmetic instead of a 75×75 table.
 Above 75 the boundaries hold at their level-75 values rather than running off the
 end of the curve.
 
-**A level *range* prints both ends when they straddle a boundary** — `EP-DC` for
-a Lv.14-17 mob at level 20 — each end in its own color. mobdb gives most mobs a
-range, and picking one end would be wrong about the other half of the spawn.
+**A level *range* that straddles a boundary is jammed into one string** —
+`EP-DC` for a Lv.14-17 mob at level 20 — instead of printing each end in its own
+color the way it used to when this sat on its own line above the bar: the label
+is one string in one color now, so the *low* tier's color wins, the same color
+the dash between the two used to ride on. mobdb gives most mobs a range, and
+picking one end to color would still be wrong about the other half of the spawn.
 
 **A notorious monster reads `???` whatever its level says.** `/check` refuses to
 gauge an NM, and printing the tier mobdb's range implies would be inventing an
@@ -515,10 +531,11 @@ a panel, where a number lining up under the wrong icon is the likelier reading.
 ### Placement
 
 The rows sit one **Bar Gap** under the panel's bottom edge, each centered on the
-same anchor the panel is; the check line sits one **Bar Gap** over the top edge,
-left-aligned to the bar. **None of the reference costs the panel any height or
+same anchor the panel is. **None of the reference costs the panel any height or
 width** — a target panel is exactly the same shape whether the mob has everything
-to say or nothing.
+to say or nothing. (The check tier no longer has a placement of its own — it
+lives inside the bar label now, so it costs nothing beyond what the label
+already costs.)
 
 That is the point of it all being outside. A resistance list has no natural
 width: a mob weak and resistant to eight damage types is a long line at any
