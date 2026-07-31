@@ -553,6 +553,8 @@ assert(mobinfo.check_text({ MinLevel=14, MaxLevel=16 }, 20).text == 'EP', 'a ran
 local straddle = mobinfo.check_text({ MinLevel=14, MaxLevel=17 }, 20);
 assert(straddle.text == 'EP-DC', 'both ends jammed into one string, got ' .. tostring(straddle.text));
 assert(straddle.color == mobinfo.CHECK.EP.color, 'the low tier\'s color, got ' .. tostring(straddle.color));
+assert(straddle.color2 == mobinfo.CHECK.DC.color, 'the high tier\'s color rides along for the bar gradient, got ' .. tostring(straddle.color2));
+assert(mobinfo.check_text({ MinLevel=14, MaxLevel=16 }, 20).color2 == nil, 'a range inside one tier has no second color -- nothing to gradient toward');
 assert(mobinfo.check_text({ Level=20 }, 20).text == 'EM', 'a fixed level is its own range');
 assert(mobinfo.check_text({ Level=20, MinLevel=1, MaxLevel=99 }, 20).text == 'EM', 'a fixed level wins over the range');
 assert(mobinfo.check_text({ MinLevel=14, MaxLevel=17, Notorious=true }, 20).text == '???',
@@ -615,6 +617,7 @@ assert(label_text(full.label) == '??? Tough Mist Lizard WAR',
     'check + name + job, got ' .. tostring(label_text(full.label)));
 assert(full.tag == '14-17', 'the level tag box, got ' .. tostring(full.tag));
 assert(full.hp_color == mobinfo.CHECK.ITG.color, 'the HP bar fills in the same color as the check prefix');
+assert(full.hp_color2 == nil, 'a notorious monster is one tier (ITG), not a straddle -- no gradient');
 assert(icons(full.left) == 'PassiveHQ Link', 'threat flanks left, got ' .. icons(full.left));
 assert(icons(full.right) == 'Sight Sound Scent', 'senses flank right, got ' .. icons(full.right));
 assert(#full.rows == 0, 'a mob with no modifiers hangs no rows');
@@ -625,6 +628,7 @@ local bomb = mobinfo.panel(BOMB, ALL_LINES, jobname, 12, 'Bomb');
 assert(label_text(bomb.label) == 'EP-DC Bomb', 'the range straddles a boundary, got ' .. tostring(label_text(bomb.label)));
 assert(bomb.tag == '8-10', 'got ' .. tostring(bomb.tag));
 assert(bomb.hp_color == mobinfo.CHECK.EP.color, 'a straddling range colors the bar with the low tier, same as the label');
+assert(bomb.hp_color2 == mobinfo.CHECK.DC.color, 'and carries the high tier too, for the bar\'s gradient fill');
 assert(icons(bomb.left) == 'AggroNQ', 'no link, so the left group is the aggro icon alone');
 assert(icons(bomb.right) == 'Sight Magic', 'got ' .. icons(bomb.right));
 assert(#bomb.rows == 1, 'the resistance list is the row under the panel');
@@ -635,6 +639,7 @@ local nolevel = mobinfo.panel(BOMB, ALL_LINES, jobname, nil, 'Bomb');
 assert(label_text(nolevel.label) == 'Bomb', 'no player level leaves the check segment out, got ' .. tostring(label_text(nolevel.label)));
 assert(nolevel.tag == '8-10', 'the tag does not depend on the check level');
 assert(nolevel.hp_color == nil, 'no check segment means no bar color either');
+assert(nolevel.hp_color2 == nil, 'and no second color for a gradient that has no first');
 
 assert(label_text(mobinfo.panel(LINKER, ALL_LINES, nil, 20, 'Tough Mist Lizard').label) == '??? Tough Mist Lizard',
     'no jobname function means no job suffix, got '
@@ -670,6 +675,7 @@ local chk = mobinfo.panel(BOMB, ONLY_CHECK, jobname, 12, 'Bomb');
 assert(label_text(chk.label) == 'EP-DC Bomb', 'check alone prefixes the bar label -- it does not borrow the level toggle, got ' .. tostring(label_text(chk.label)));
 assert(chk.tag == nil and #chk.left == 0 and #chk.rows == 0, 'check alone adds no tag and no other groups');
 assert(chk.hp_color == mobinfo.CHECK.EP.color, 'check alone still colors the bar, same as the label prefix');
+assert(chk.hp_color2 == mobinfo.CHECK.DC.color, 'and still carries the high tier for the gradient');
 
 -- left/right/rows are always present so the caller indexes them without guarding; label/tag are
 -- the two pieces that go nil, and only when there is truly nothing to build (mob itself nil).

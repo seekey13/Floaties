@@ -399,7 +399,7 @@ Four toggles in `/floaties config` feed it:
 |---|---|---|
 | **Show Detection** | the icon groups flanking the bar | left of it: aggro/passive, then Link. Right of it: TrueSight, Sight, Sound, Scent, Magic, JA, Blood |
 | **Show Level & Job** | the tag box, and a suffix on the bar's label | `14-17` in the box; ` WAR/MNK` appended to the label |
-| **Show Check** | a prefix on the bar's own label, and the bar's own fill color | the `/check` tier, colored, jammed into one string: `EP-DC `; the bar fills in that same color |
+| **Show Check** | a prefix on the bar's own label, and the bar's own fill color | the `/check` tier, colored, jammed into one string: `EP-DC `; the bar fills in that color, or a left-to-right low-to-high gradient when the range straddles two tiers |
 | **Show Weakness/Resist** | a row under the panel | an icon and a percentage each: `<Fire>+25% <Ice>-50%` |
 
 The target's **name always draws**, whatever mobdb knows about it or doesn't —
@@ -481,9 +481,15 @@ end of the curve.
 `EP-DC` for a Lv.14-17 mob at level 20 — instead of printing each end in its own
 color the way it used to when this sat on its own line above the bar: the label
 is one string in one color now, so the *low* tier's color wins, the same color
-the dash between the two used to ride on, and the same color the bar itself
-fills in with. mobdb gives most mobs a range, and picking one end to color
-would still be wrong about the other half of the spawn.
+the dash between the two used to ride on. mobdb gives most mobs a range, and
+picking one end to color would still be wrong about the other half of the spawn.
+
+**The bar itself fills in a gradient for a straddling range** — low tier's color
+on the left, high tier's on the right — instead of picking one end the way the
+label has to. The gradient spans the whole bar width and holds still as HP
+drains; the fill just reveals less of it, the same way the flat fill for a
+single-tier mob always did. A mob that does not straddle a boundary still fills
+flat, in that one tier's color, same as ever.
 
 **A notorious monster reads `???` whatever its level says.** `/check` refuses to
 gauge an NM, and printing the tier mobdb's range implies would be inventing an

@@ -372,18 +372,41 @@ local function packColor(c, alpha)
     return imgui.GetColorU32({ c.r, c.g, c.b, alpha or c.a });
 end
 
+-- The color a straddling check tier's gradient shows at horizontal fraction `t` (0 = `a`, the low
+-- tier; 1 = `b`, the high tier). Needed so the filled portion's right edge lines up with whatever
+-- the full-width track already shows there (see drawBar) -- AddRectFilledMultiColor only
+-- interpolates between the two stops it is given, not against a wider rect drawn underneath it.
+local function lerpColor(a, b, t)
+    return { r = a.r + (b.r - a.r) * t, g = a.g + (b.g - a.g) * t, b = a.b + (b.b - a.b) * t };
+end
+
 --[[
 * Draws one bar: empty track, filled portion, and a border outline.
 * Fill opacity comes from cfg.states[state].
+*
+* `bar_color2`, when given, turns the whole bar into a horizontal gradient from `bar_color` (left
+* edge) to `bar_color2` (right edge) -- a straddling check tier's low and high colors -- fixed
+* across the full bar width regardless of `frac`, so a target's HP draining just reveals less of
+* the same low-to-high range rather than the range itself compressing into whatever sliver is left.
 --]]
-local function drawBar(draw_list, left, top, width, height, frac, state, bar_color, cfg, rounding)
+local function drawBar(draw_list, left, top, width, height, frac, state, bar_color, bar_color2, cfg, rounding)
     local states = cfg.states;
-
-    draw_list:AddRectFilled({ left, top }, { left + width, top + height }, packColor(bar_color, states.empty), rounding);
-
     local fill_w = width * frac;
-    if (fill_w > 0) then
-        draw_list:AddRectFilled({ left, top }, { left + fill_w, top + height }, packColor(bar_color, states[state]), rounding);
+
+    if (bar_color2 == nil) then
+        draw_list:AddRectFilled({ left, top }, { left + width, top + height }, packColor(bar_color, states.empty), rounding);
+        if (fill_w > 0) then
+            draw_list:AddRectFilled({ left, top }, { left + fill_w, top + height }, packColor(bar_color, states[state]), rounding);
+        end
+    else
+        local empty_l, empty_r = packColor(bar_color, states.empty), packColor(bar_color2, states.empty);
+        draw_list:AddRectFilledMultiColor({ left, top }, { left + width, top + height }, empty_l, empty_r, empty_r, empty_l);
+
+        if (fill_w > 0) then
+            local edge = lerpColor(bar_color, bar_color2, frac);
+            local fill_l, fill_r = packColor(bar_color, states[state]), packColor(edge, states[state]);
+            draw_list:AddRectFilledMultiColor({ left, top }, { left + fill_w, top + height }, fill_l, fill_r, fill_r, fill_l);
+        end
     end
 
     draw_list:AddRect({ left, top }, { left + width, top + height }, packColor(cfg.bars.border_color), rounding);
@@ -659,15 +682,18 @@ local function drawPanel(sx, sy, s, bars, size, scale, tag, info)
             for i = 1, 3 do
                 local frac = stats.tp_segment(s.tp_raw, i);
                 drawBar(draw_list, bar_left + (i - 1) * (seg_w + gap), bar_top, seg_w, h,
-                        frac, (frac >= 1) and 'full' or 'incomplete', bar_cfg.color, cfg, bar_rounding);
+                        frac, (frac >= 1) and 'full' or 'incomplete', bar_cfg.color, nil, cfg, bar_rounding);
             end
         else
             -- The target's HP bar fills in its check tier's color instead of the configured HP
             -- color, when there is one -- info.hp_color is nil for every other bar (mp/tp), every
             -- non-target panel (NO_INFO), and a target with Show Check off or no tier to report, so
-            -- this never touches anything but the one bar it names.
-            local color = (key == 'hp' and info.hp_color) or bar_cfg.color;
-            drawBar(draw_list, bar_left, bar_top, bw, h, s[key], 'full', color, cfg, bar_rounding);
+            -- this never touches anything but the one bar it names. info.hp_color2 rides along the
+            -- same way, only ever set alongside hp_color, to turn that one bar into a gradient when
+            -- the mob's level range straddles a tier boundary (see mobinfo.check_text).
+            local color  = (key == 'hp' and info.hp_color) or bar_cfg.color;
+            local color2 = key == 'hp' and info.hp_color2 or nil;
+            drawBar(draw_list, bar_left, bar_top, bw, h, s[key], 'full', color, color2, cfg, bar_rounding);
         end
 
         -- Label stays centered across the whole row, so TP prints over the middle bar.

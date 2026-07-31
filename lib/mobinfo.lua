@@ -177,13 +177,16 @@ end
 * mobdb gives a *range* for most mobs, and a range can straddle a boundary -- a Lv.14-17 mob is a
 * different fight at each end. Both ends are printed when they differ ("EP-DC") rather than picking
 * one and being wrong about the other half of the spawn; the label draws it as one string in one
-* color, so the two tiers are concatenated directly and the *low* tier's color wins.
+* color, so the two tiers are concatenated directly and the *low* tier's color wins there too.
+* `color2`, the *high* tier's color, rides along only for that straddling case -- it is nil
+* whenever `color` alone is the whole answer -- so the HP bar (M.panel's `hp_color`/`hp_color2`)
+* can fill low-to-high as a gradient instead of silently losing the half the label already drops.
 *
 * A notorious monster is ITG regardless of level: /check refuses to gauge an NM, and printing a
 * tier mobdb's range implies would be inventing an answer the game withholds.
 *
 * @param {number|nil} level - the player's main job level. nil or 0 (not logged in yet) yields nil.
-* @return {table|nil} { text, color }, or nil when there is nothing to check against.
+* @return {table|nil} { text, color, color2 }, or nil when there is nothing to check against.
 --]]
 function M.check_text(res, level)
     if (res == nil or level == nil or level <= 0) then
@@ -205,7 +208,7 @@ function M.check_text(res, level)
         return { text = low.text, color = low.color };
     end
 
-    return { text = low.text .. '-' .. high.text, color = low.color };
+    return { text = low.text .. '-' .. high.text, color = low.color, color2 = high.color };
 end
 
 -- What the mob notices you with, in the order it is worth reading. TrueSight leads Sight because
@@ -361,6 +364,10 @@ end
 *           about what the mob checks as. `nil` under the exact conditions the check prefix itself
 *           is left off `label` (Show Check off, no mobdb entry, or no player level to check
 *           against), since there is then nothing to color the bar with either.
+*   hp_color2 - the *high* tier's color when the level range straddles a boundary (M.check_text's
+*           `color2`), so the bar can fill low-to-high as a gradient instead of losing the half the
+*           label already drops by concatenating "EP-DC" into one string. `nil` whenever `hp_color`
+*           alone is the whole answer, including every case `hp_color` itself is `nil`.
 *   left  - segments flanking the bar on its left: aggro/passive and Link, the pull decision.
 *   right - segments flanking it on its right: what it senses you with.
 *   rows  - full-width rows hung under the panel. The resistance list, in practice -- that one has
@@ -384,13 +391,13 @@ function M.panel(res, mob, jobname, level, name)
     end
 
     local label = {};
-    local hp_color = nil;
+    local hp_color, hp_color2 = nil, nil;
 
     if (mob.check and res ~= nil) then
         local chk = M.check_text(res, level);
         if (chk ~= nil) then
             label[#label + 1] = { text = chk.text .. ' ', color = chk.color };
-            hp_color = chk.color;
+            hp_color, hp_color2 = chk.color, chk.color2;
         end
     end
 
@@ -406,9 +413,10 @@ function M.panel(res, mob, jobname, level, name)
         label[#label + 1] = { text = ' ' .. job };
     end
 
-    out.label    = label;
-    out.tag      = (mob.level and res ~= nil) and M.level_text(res) or nil;
-    out.hp_color = hp_color;
+    out.label     = label;
+    out.tag       = (mob.level and res ~= nil) and M.level_text(res) or nil;
+    out.hp_color  = hp_color;
+    out.hp_color2 = hp_color2;
 
     if (res == nil) then
         return out;
