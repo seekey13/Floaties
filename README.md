@@ -274,8 +274,7 @@ Target panel: shown
 together**, not the gates alone — so a gate reading false while a panel is on
 screen is visible as a contradiction rather than something to infer. With no gate
 enabled it reads `hidden -- no gate enabled, so nothing can enable it`; with the
-addon switched off it reads `hidden -- addon switched off; tick Enabled below, or
-/floaties`.
+addon switched off it reads `hidden -- addon switched off; tick Enabled below`.
 
 `Target panel:` is the second decision, and it is deliberately a second line: the
 gates do not reach it, so folding both into one `Panel:` verdict would have it
@@ -284,11 +283,11 @@ read `hidden` while a target panel was plainly on screen. It is `shown` when
 filters above — which is exactly the `target:` line reading anything but `none`
 or ` REJECTED`.
 
-`Enabled` is the master switch `/floaties` toggles, and it is persisted. It reports
-here and has its own checkbox because leaving it out of both is what let it be
-off and invisible at the same time: the line meant to answer "is this a gate
-problem?" said `shown` over an empty screen for as long as the setting stayed
-off.
+`Enabled` is the master switch, a checkbox in `/floaties config` and persisted.
+It reports here and has its own checkbox because leaving it out of both is what
+let it be off and invisible at the same time: the line meant to answer "is this
+a gate problem?" said `shown` over an empty screen for as long as the setting
+stayed off.
 
 **Either line reading `shown` with nothing on screen means the drawing threw**,
 not that a gate is wrong — and a `draw error:` line under it says what. The panels are
@@ -651,9 +650,9 @@ the UI branch that reads this list needs it.
 
 | Command | Effect |
 |---|---|
-| `/floaties` | Toggle on/off. Persisted, and the same setting as the **Enabled** checkbox in the config window |
+| `/floaties` or `/float` | Toggle the settings window. The **Enabled** checkbox inside it is the on/off switch, persisted |
 | `/floaties height <n>` | Your own vertical nudge from the nameplate anchor. Positive is downward. Default `0.228` |
-| `/floaties config` | Toggle the settings window |
+| `/floaties config` | Same as the bare command, kept as an alias |
 | `/floaties bt` | Print the current gate state (in combat / engaged / idle, raw status, resolved `<bt>` and target, or why either was rejected) |
 
 `0.0` puts the panel's top edge level with the top of the model, i.e. directly under the

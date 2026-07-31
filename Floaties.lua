@@ -928,10 +928,10 @@ local function drawConfigWindow()
         -- is impossible to miss. Hidden with every gate off is correct, not a bug -- say so.
         --
         -- `enabled` is part of that decision and used to be left out of it: it short-circuits ahead
-        -- of the gates in d3d_present, is persisted, and its only switch is the bare `/floaties`
-        -- command -- so an addon toggled off weeks ago read "Panel: shown" here forever while
-        -- drawing nothing, and the one line meant to settle "is this a gate problem?" was the line
-        -- lying. Both halves, or the status is worse than no status.
+        -- of the gates in d3d_present, is persisted, and its only switch is the **Enabled**
+        -- checkbox below -- so an addon toggled off weeks ago read "Panel: shown" here forever
+        -- while drawing nothing, and the one line meant to settle "is this a gate problem?" was
+        -- the line lying. Both halves, or the status is worse than no status.
         -- Self/party only: the gates do not reach the target panel, so one "Panel: shown" covering
         -- both would be wrong half the time -- red while a target panel is plainly on screen.
         local shown = cfg.enabled and config.visible(cfg, gate_state);
@@ -942,7 +942,7 @@ local function drawConfigWindow()
         -- line reports. The target panel below answers to neither.
         if (not cfg.enabled) then
             imgui.SameLine();
-            imgui.Text('-- addon switched off; tick Enabled below, or /floaties');
+            imgui.Text('-- addon switched off; tick Enabled below');
         elseif (not (cfg.show_in_combat or cfg.show_while_engaged or cfg.show_while_idle)) then
             imgui.SameLine();
             imgui.Text('-- no gate enabled, so nothing can enable it');
@@ -962,9 +962,9 @@ local function drawConfigWindow()
 
         imgui.Separator();
 
-        -- The master switch, the same setting `/floaties` flips. It had no widget at all, which is how
-        -- it managed to be off and invisible at once -- every other persisted setting is reachable
-        -- from this window, and this is the one that stops the addon drawing.
+        -- The master switch. It had no widget at all, which is how it managed to be off and
+        -- invisible at once -- every other persisted setting is reachable from this window, and
+        -- this is the one that stops the addon drawing.
         checkbox('Enabled', cfg, 'enabled');
 
         checkbox('Show In Combat', cfg, 'show_in_combat');
@@ -1147,14 +1147,18 @@ end);
 
 ashita.events.register('command', 'floaties_command', function (e)
     local args = e.command:args();
-    if (#args == 0 or args[1]:lower() ~= '/floaties') then
+    local cmd  = (args[1] or ''):lower();
+    if (#args == 0 or (cmd ~= '/floaties' and cmd ~= '/float')) then
         return;
     end
     e.blocked = true;
 
     local sub = (args[2] or ''):lower();
 
-    if (sub == 'config') then
+    -- Bare `/floaties`/`/float`, and `config` for backward compatibility, both just raise the
+    -- window -- the **Enabled** checkbox inside it is the only on/off switch now, so there is no
+    -- separate toggle command to keep in sync with it.
+    if (sub == '' or sub == 'config') then
         config_open[1] = not config_open[1];
         return;
     end
@@ -1178,8 +1182,4 @@ ashita.events.register('command', 'floaties_command', function (e)
         print(('[Floaties] self height offset: %.2f (from the nameplate anchor, positive is down)'):fmt(config.settings.height_offset));
         return;
     end
-
-    config.settings.enabled = not config.settings.enabled;
-    config.save();
-    print(('[Floaties] %s'):fmt(config.settings.enabled and 'on' or 'off'));
 end);
