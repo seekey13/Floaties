@@ -241,19 +241,35 @@ local check_list = {};
 local claimed_list = {};
 
 --[[
-* Every server id currently "yours": your own party (0..17 -- already covers trusts, which occupy
-* real party slots, same reasoning isEnemy's own party loop relies on) plus your pet/avatar/
-* automaton, which has no party slot of its own and is only reachable through your own entity's
-* PetTargetIndex.
+* Every server id currently "yours": slot 0 (you) unconditionally; slots 1-5 (the rest of your own
+* party, where a trust can occupy a slot alongside real players) only when that slot's server id is
+* a trust rather than a real player -- trusts carry the same non-PC server-id bit (0x1000000)
+* lib/enemylist.lua's resolve_index already relies on to distinguish non-PC entities, which a player
+* character's server id never has set; plus your pet/avatar/automaton, which has no party slot of
+* its own and is only reachable through your own entity's PetTargetIndex. Alliance slots (6..17) are
+* never consulted -- a real party/alliance member landing a hit does not count, only your own
+* actions do.
 *
 * @param {userdata} party - the party memory manager.
 * @return {table} set of server ids currently yours, keyed by id, valued true.
 --]]
 local function mineIds(party)
     local ids = {};
-    for i = 0, 17 do
+
+    if (party:GetMemberIsActive(0) == 1) then
+        ids[party:GetMemberServerId(0)] = true;
+    end
+
+    -- Slots 1..5 are the rest of your own party. A trust can occupy one of these same slots, but so
+    -- can a real player -- only the trust counts as "you". Trusts carry the same non-PC server id
+    -- bit lib/enemylist.lua's resolve_index already relies on (0x1000000 set), which a player
+    -- character's server id never has.
+    for i = 1, 5 do
         if (party:GetMemberIsActive(i) == 1) then
-            ids[party:GetMemberServerId(i)] = true;
+            local id = party:GetMemberServerId(i);
+            if (bit.band(id, 0x1000000) ~= 0) then
+                ids[id] = true;
+            end
         end
     end
 
@@ -276,11 +292,12 @@ end
 *
 * Every field between the actor id and the target list (the reserved bits, Type, Param/
 * SpellGroup, Recast) and every field inside each target's own actions (Reaction, Animation,
-* SpecialEffect, Knockback, Param, Message, Flags, and the optional additional-effect block) is
-* still read here even though none of their values are kept: 0x0028 is packed bit by bit, so there
-* is no way to skip a field without decoding its width first. This project only wants "who acted"
-* and "who they targeted" -- no Reaction filtering, since an attempted action counts whether or not
-* it landed -- so those decoded values are discarded on purpose.
+* SpecialEffect, Knockback, Param, Message, Flags, and the optional additional-effect and
+* spikes-effect blocks) is still read here even though none of their values are kept: 0x0028 is
+* packed bit by bit, so there is no way to skip a field without decoding its width first. This
+* project only wants "who acted" and "who they targeted" -- no Reaction filtering, since an
+* attempted action counts whether or not it landed -- so those decoded values are discarded on
+* purpose.
 *
 * @param {table} e - the packet_in event (needs e.data_raw and e.size).
 * @return {number, table} the actor's server id, and an array of target server ids.
@@ -312,11 +329,18 @@ local function parseAction(e)
 
     local targets = {};
     for _ = 1, target_count do
-        targets[#targets + 1] = bits(32); -- target server id
+        local tid = bits(32); -- target server id
+        if (max_bits == 0) then
+            break; -- packet ran out mid-read; nothing after this point is real data
+        end
+        targets[#targets + 1] = tid;
         for _ = 1, bits(4) do -- action count
             bits(5); bits(12); bits(7); bits(3); bits(17); bits(10); bits(31); -- reaction..flags
             if (bits(1) == 1) then
                 bits(10); bits(17); bits(10); -- additional effect
+            end
+            if (bits(1) == 1) then
+                bits(10); bits(14); bits(10); -- spikes effect (Damage, Param, Message) -- narrower Param than the additional-effect block above (14 bits, not 17)
             end
         end
     end
