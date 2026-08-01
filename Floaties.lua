@@ -241,14 +241,12 @@ local check_list = {};
 local claimed_list = {};
 
 --[[
-* Every server id currently "yours": slot 0 (you) unconditionally; slots 1-5 (the rest of your own
-* party, where a trust can occupy a slot alongside real players) only when that slot's server id is
-* a trust rather than a real player -- trusts carry the same non-PC server-id bit (0x1000000)
-* lib/enemylist.lua's resolve_index already relies on to distinguish non-PC entities, which a player
-* character's server id never has set; plus your pet/avatar/automaton, which has no party slot of
-* its own and is only reachable through your own entity's PetTargetIndex. Alliance slots (6..17) are
-* never consulted -- a real party/alliance member landing a hit does not count, only your own
-* actions do.
+* Every server id currently "yours": slot 0 (you) unconditionally, plus your pet/avatar/automaton,
+* which has no party slot of its own and is only reachable through your own entity's
+* PetTargetIndex. Trusts are deliberately not special-cased: a trust only ever acts against
+* something you are already acting against, so your own hit already covers whatever a trust's hit
+* would have added -- checking trusts separately would be tracking a strict subset of what your own
+* actions already produce.
 *
 * @param {userdata} party - the party memory manager.
 * @return {table} set of server ids currently yours, keyed by id, valued true.
@@ -258,19 +256,6 @@ local function mineIds(party)
 
     if (party:GetMemberIsActive(0) == 1) then
         ids[party:GetMemberServerId(0)] = true;
-    end
-
-    -- Slots 1..5 are the rest of your own party. A trust can occupy one of these same slots, but so
-    -- can a real player -- only the trust counts as "you". Trusts carry the same non-PC server id
-    -- bit lib/enemylist.lua's resolve_index already relies on (0x1000000 set), which a player
-    -- character's server id never has.
-    for i = 1, 5 do
-        if (party:GetMemberIsActive(i) == 1) then
-            local id = party:GetMemberServerId(i);
-            if (bit.band(id, 0x1000000) ~= 0) then
-                ids[id] = true;
-            end
-        end
     end
 
     local self_ent = GetEntity(party:GetMemberTargetIndex(0));
