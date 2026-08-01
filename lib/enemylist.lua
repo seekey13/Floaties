@@ -1,6 +1,6 @@
 --[[
-* Tracks which mobs you (or your pet/avatar/automaton, or a trust in your own party) have
-* personally damaged or affected, keyed by server id -- pure, mirrors checkinfo.lua's shape.
+* Tracks which mobs you (or your pet/avatar/automaton) have personally damaged or affected, keyed
+* by server id -- pure, mirrors checkinfo.lua's shape.
 * Floaties.lua decodes the Action packet (0x0028), decides whether the actor counts as "you" and
 * whether the target is a mob, and calls M.record with the resolved target entity; this module
 * only owns the list itself and has no per-entry data beyond membership.

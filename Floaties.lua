@@ -233,7 +233,7 @@ end
 local check_list = {};
 
 ----------------------------------------------------------------------------------------------------
--- Enemy list. Every mob you (or your pet/trust) have personally hit or affected, keyed by server
+-- Enemy list. Every mob you (or your pet/avatar/automaton) have personally hit or affected, keyed by server
 -- id -- see lib/enemylist.lua. Populated off the Action packet (0x0028) in the packet_in handler
 -- below; drawClaimed (Task 4) reads it every frame.
 ----------------------------------------------------------------------------------------------------
@@ -885,7 +885,7 @@ end
 --]]
 local function drawAt(mm, index, s, bars, size, offset, tag, info, view, proj, vp)
     if (index == 0) then
-        return;
+        return false;
     end
 
     local ent = mm:GetEntity();
@@ -905,7 +905,9 @@ local function drawAt(mm, index, s, bars, size, offset, tag, info, view, proj, v
         -- Scale comes from the anchor point, so the panel keeps its top edge pinned under the
         -- nameplate and grows or shrinks downward from there.
         drawPanel(sx, sy, s, bars, size, config.panel_scale(config.settings, depth), tag, info);
+        return true;
     end
+    return false;
 end
 
 --[[
@@ -956,7 +958,7 @@ local TARGET_BARS = { 'hp' };
 local function drawMobPanel(mm, index, ent, view, proj, vp)
     local s = stats.read_entity(ent);
     if (s == nil) then
-        return;
+        return false;
     end
 
     -- The reference is mob data, so it is looked up only for a mob -- a PC target passes the flag
@@ -975,9 +977,9 @@ local function drawMobPanel(mm, index, ent, view, proj, vp)
     local info = mobinfo.panel(res, config.settings.mob, jobName, mm:GetPlayer():GetMainJobLevel(), ent.Name,
                                 check_list[ent.ServerId]);
 
-    drawAt(mm, index, s, TARGET_BARS, config.settings.sizes.target,
-           config.settings.target_height_offset, info.tag, info,
-           view, proj, vp);
+    return drawAt(mm, index, s, TARGET_BARS, config.settings.sizes.target,
+                  config.settings.target_height_offset, info.tag, info,
+                  view, proj, vp);
 end
 
 --[[
@@ -994,29 +996,41 @@ end
 
 --[[
 * Draws a panel over every mob currently in the enemy list (lib.enemylist) -- every mob you (or
-* your pet/trust) have personally hit or affected, per the packet_in handler's 0x0028 case.
+* your pet/avatar/automaton) have personally hit or affected, per the packet_in handler's 0x0028
+* case.
 *
-* Skips whatever index is currently target_index, so a mob that is both your target and on this
-* list never gets a second panel stacked on the one drawTarget already drew -- the same exclusion
-* stats.targetable already applies for party slots 0..5. Pruning happens inline here rather than
-* as a separate sweep: an entry that no longer resolves to a living mob is dropped the moment this
-* loop notices, and one that fails to resolve at all (fully despawned, its index recycled by
-* something else) simply stops drawing and sits inert in the list until the next zone clears it --
-* the same accepted gap checkinfo.lua's own off-target death case documents.
+* Skips the entity currently at target_index only when the target panel is actually drawing it
+* (show_target on) -- with Show Target off, the mob you're fighting still gets its panel from here
+* instead of getting none at all. Pruning happens inline here rather than as a separate sweep: an
+* entry that no longer resolves to a living mob is dropped the moment this loop notices, and one
+* that fails to resolve to any index at all (fully despawned) is dropped outright here rather than
+* re-paying a full entity-table scan for it (lib.enemylist's resolve_index fallback) every
+* subsequent frame forever.
 --]]
 local function drawClaimed(mm, view, proj, vp)
+    local em    = mm:GetEntity();
+    local getId = function (i) return em:GetServerId(i); end;
+    local party = mm:GetParty();
     local count = 0;
+
     for server_id in pairs(claimed_list) do
-        local idx = enemylist.resolve_index(function (i) return mm:GetEntity():GetServerId(i); end, server_id);
-        local ent = (idx ~= 0 and idx ~= target_index) and GetEntity(idx) or nil;
+        local idx = enemylist.resolve_index(getId, server_id);
 
-        enemylist.prune(claimed_list, ent);
+        if (idx == 0) then
+            claimed_list[server_id] = nil;
+        else
+            local skip = config.settings.show_target and idx == target_index;
+            local ent  = skip and nil or GetEntity(idx);
 
-        if (ent ~= nil and ent.HPPercent > 0 and bit.band(ent.SpawnFlags, 0x10) ~= 0) then
-            drawMobPanel(mm, idx, ent, view, proj, vp);
-            count = count + 1;
-            if (count >= config.settings.enemy_list_max) then
-                break;
+            enemylist.prune(claimed_list, ent);
+
+            if (ent ~= nil and bit.band(ent.SpawnFlags, 0x10) ~= 0 and stats.targetable(ent, party)) then
+                if (drawMobPanel(mm, idx, ent, view, proj, vp)) then
+                    count = count + 1;
+                    if (count >= config.settings.enemy_list_max) then
+                        break;
+                    end
+                end
             end
         end
     end
@@ -1318,8 +1332,10 @@ ashita.events.register('packet_in', 'floaties_packet', function (e)
     end
 
     -- Action. Bit-packed, not byte-aligned like the two above -- see parseAction. Only actions
-    -- whose actor is you, your pet/avatar/automaton, or a trust in your own party ("mine") ever
-    -- add anything: a party member landing a hit does not count, only your own actions do.
+    -- whose actor is you or your pet/avatar/automaton ("mine") ever add anything: a trust's own
+    -- actions are not checked (it only ever acts against something you're already acting against,
+    -- so your own hit already covers it), and a party member landing a hit does not count either --
+    -- only your own (and your pet's) actions do.
     if (e.id == 0x0028) then
         local actor_id, target_ids = parseAction(e);
         local mm    = AshitaCore:GetMemoryManager();
@@ -1363,10 +1379,13 @@ ashita.events.register('d3d_present', 'floaties_present', function ()
     -- The target panel is deliberately outside this: having something targeted *is* the answer to
     -- "should this draw", and running it through gates keyed on your own status meant a mob you
     -- had just clicked drew nothing until you engaged it -- the one moment the panel is for. It
-    -- answers to `show_target` and a resolved target_index alone.
-    local gated  = config.visible(config.settings, gate_state);
-    local target = config.settings.show_target and target_index ~= 0;
-    if (not gated and not target) then
+    -- answers to `show_target` and a resolved target_index alone. The enemy list is outside it for
+    -- the same reason: having hit something already answers the question, so it answers to
+    -- `show_enemy_list` and a non-empty claimed_list alone.
+    local gated   = config.visible(config.settings, gate_state);
+    local target  = config.settings.show_target and target_index ~= 0;
+    local claimed = config.settings.show_enemy_list and next(claimed_list) ~= nil;
+    if (not gated and not target and not claimed) then
         return;
     end
 
