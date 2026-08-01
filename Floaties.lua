@@ -18,6 +18,7 @@ local config    = require('lib.config');
 local nameplate = require('lib.nameplate');
 local mobinfo   = require('lib.mobinfo');
 local checkinfo = require('lib.checkinfo');
+local enemylist = require('lib.enemylist');
 
 local C   = ffi.C;
 local dev = d3d.get_device();
@@ -230,6 +231,98 @@ end
 ----------------------------------------------------------------------------------------------------
 
 local check_list = {};
+
+----------------------------------------------------------------------------------------------------
+-- Enemy list. Every mob you (or your pet/trust) have personally hit or affected, keyed by server
+-- id -- see lib/enemylist.lua. Populated off the Action packet (0x0028) in the packet_in handler
+-- below; drawClaimed (Task 4) reads it every frame.
+----------------------------------------------------------------------------------------------------
+
+local claimed_list = {};
+
+--[[
+* Every server id currently "yours": your own party (0..17 -- already covers trusts, which occupy
+* real party slots, same reasoning isEnemy's own party loop relies on) plus your pet/avatar/
+* automaton, which has no party slot of its own and is only reachable through your own entity's
+* PetTargetIndex.
+*
+* @param {userdata} party - the party memory manager.
+* @return {table} set of server ids currently yours, keyed by id, valued true.
+--]]
+local function mineIds(party)
+    local ids = {};
+    for i = 0, 17 do
+        if (party:GetMemberIsActive(i) == 1) then
+            ids[party:GetMemberServerId(i)] = true;
+        end
+    end
+
+    local self_ent = GetEntity(party:GetMemberTargetIndex(0));
+    if (self_ent ~= nil and self_ent.PetTargetIndex ~= 0) then
+        local pet = GetEntity(self_ent.PetTargetIndex);
+        if (pet ~= nil) then
+            ids[pet.ServerId] = true;
+        end
+    end
+
+    return ids;
+end
+
+--[[
+* Minimal decode of an Action packet (0x0028): just enough to know who acted and which server ids
+* they targeted. Bit-packed, not byte-aligned like /check's 0x0029, so it needs
+* ashita.bits.unpack_be rather than struct.unpack -- the same primitive HXUI's ParseActionPacket
+* (Ashita/addons/HXUI/helpers.lua) and Sidekick both already use for this exact packet.
+*
+* Every field between the actor id and the target list (the reserved bits, Type, Param/
+* SpellGroup, Recast) and every field inside each target's own actions (Reaction, Animation,
+* SpecialEffect, Knockback, Param, Message, Flags, and the optional additional-effect block) is
+* still read here even though none of their values are kept: 0x0028 is packed bit by bit, so there
+* is no way to skip a field without decoding its width first. This project only wants "who acted"
+* and "who they targeted" -- no Reaction filtering, since an attempted action counts whether or not
+* it landed -- so those decoded values are discarded on purpose.
+*
+* @param {table} e - the packet_in event (needs e.data_raw and e.size).
+* @return {number, table} the actor's server id, and an array of target server ids.
+--]]
+local function parseAction(e)
+    local bit_offset = 40; -- header
+    local max_bits    = e.size * 8;
+
+    local function bits(n)
+        if (bit_offset + n > max_bits) then
+            max_bits = 0; -- malformed; every further read returns 0
+            return 0;
+        end
+        local v = ashita.bits.unpack_be(e.data_raw, 0, bit_offset, n);
+        bit_offset = bit_offset + n;
+        return v;
+    end
+
+    local actor_id     = bits(32);
+    local target_count = bits(6);
+    bits(4); -- reserved
+    local atype = bits(4);
+    if (atype == 8 or atype == 9) then
+        bits(16); bits(16); -- Param, SpellGroup
+    else
+        bits(32); -- Param
+    end
+    bits(32); -- Recast
+
+    local targets = {};
+    for _ = 1, target_count do
+        targets[#targets + 1] = bits(32); -- target server id
+        for _ = 1, bits(4) do -- action count
+            bits(5); bits(12); bits(7); bits(3); bits(17); bits(10); bits(31); -- reaction..flags
+            if (bits(1) == 1) then
+                bits(10); bits(17); bits(10); -- additional effect
+            end
+        end
+    end
+
+    return actor_id, targets;
+end
 
 --[[
 * mobdb's own icon PNGs, by the name mobinfo puts in a segment.
@@ -1154,6 +1247,7 @@ ashita.events.register('packet_in', 'floaties_packet', function (e)
             loadZone(struct.unpack('H', e.data, 0x30 + 1));
         end
         checkinfo.clear(check_list);
+        enemylist.clear(claimed_list);
         return;
     end
 
@@ -1167,6 +1261,27 @@ ashita.events.register('packet_in', 'floaties_packet', function (e)
         local message = struct.unpack('H', e.data, 0x18 + 1); -- Message (Defense / Evasion)
 
         checkinfo.record(check_list, GetEntity(target), level, ptype, message);
+        return;
+    end
+
+    -- Action. Bit-packed, not byte-aligned like the two above -- see parseAction. Only actions
+    -- whose actor is you, your pet/avatar/automaton, or a trust in your own party ("mine") ever
+    -- add anything: a party member landing a hit does not count, only your own actions do.
+    if (e.id == 0x0028) then
+        local actor_id, target_ids = parseAction(e);
+        local mm    = AshitaCore:GetMemoryManager();
+        local party = mm:GetParty();
+        local mine  = mineIds(party);
+
+        if (mine[actor_id]) then
+            for _, tid in ipairs(target_ids) do
+                local idx = enemylist.resolve_index(function (i) return mm:GetEntity():GetServerId(i); end, tid);
+                local ent = idx ~= 0 and GetEntity(idx) or nil;
+                if (ent ~= nil and bit.band(ent.SpawnFlags, 0x10) ~= 0) then
+                    enemylist.record(claimed_list, ent);
+                end
+            end
+        end
     end
 end);
 
