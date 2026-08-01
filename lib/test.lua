@@ -848,3 +848,66 @@ checkinfo.clear(list);
 assert(next(list) == nil, 'clear empties the whole list');
 
 print('checkinfo.lua ok');
+
+-- enemylist.lua: personally-claimed mob tracking, keyed by server id -- mirrors checkinfo.lua's
+-- shape. No per-entry data beyond membership, so recording an already-tracked mob is a no-op.
+local enemylist = require('lib.enemylist');
+
+local elist = {};
+enemylist.record(elist, nil);
+assert(next(elist) == nil, 'recording a nil entity must not add anything');
+
+enemylist.record(elist, fakeEnt(0x10, 100, 0, 700));
+assert(elist[700] == true, 'a recorded mob is tracked by its server id');
+
+enemylist.record(elist, fakeEnt(0x10, 100, 0, 700));
+assert(elist[700] == true, 'recording the same mob twice is a no-op, not an error');
+
+enemylist.prune(elist, nil);
+assert(elist[700] == true, 'pruning a nil entity must not touch the list');
+
+enemylist.prune(elist, fakeEnt(0x10, 50, 0, 700));
+assert(elist[700] == true, 'a mob still above 0% hp must not be pruned');
+
+enemylist.prune(elist, fakeEnt(0x10, 0, 0, 700));
+assert(elist[700] == nil, 'a mob at 0% hp is pruned');
+
+enemylist.record(elist, fakeEnt(0x10, 100, 0, 701));
+enemylist.record(elist, fakeEnt(0x10, 100, 0, 702));
+enemylist.clear(elist);
+assert(next(elist) == nil, 'clear empties the whole list');
+
+print('enemylist.lua ok');
+
+-- resolve_index: server id -> live entity index, via an injected get_server_id lookup (same
+-- injection pattern nameplate.lua uses for its memory reader) so this is testable without a real
+-- entity manager.
+local function fakeServerIds(map)
+    return function (index) return map[index] or 0; end;
+end
+
+-- Fast path: a non-PC server id (0x1000000 bit set) encodes its own index in the low 12 bits.
+local FAST_ID = 0x1000000 + 0x123;
+assert(enemylist.resolve_index(fakeServerIds({ [0x123] = FAST_ID }), FAST_ID) == 0x123,
+    'the fast path decodes the index straight out of the server id');
+
+-- The bit trick alone is not trusted -- it must be verified against get_server_id, since a stale
+-- server id can still carry that bit pattern after the entity at that index changed.
+assert(enemylist.resolve_index(fakeServerIds({ [0x123] = 999 }), FAST_ID) == 0,
+    'an unverified fast-path guess must fall through to the full scan, not be trusted blind');
+
+-- >= 0x900 wraps back by 0x100, matching HXUI's/Sidekick's own shortcut.
+local WRAP_ID = 0x1000000 + 0x905;
+assert(enemylist.resolve_index(fakeServerIds({ [0x805] = WRAP_ID }), WRAP_ID) == 0x805,
+    'an index >= 0x900 wraps back by 0x100 before verification');
+
+-- No fast-path bit set at all: falls straight to the full walk.
+local SLOW_ID = 12345;
+assert(enemylist.resolve_index(fakeServerIds({ [42] = SLOW_ID }), SLOW_ID) == 42,
+    'a server id with no fast-path bit is found by the full walk');
+
+-- Not found anywhere.
+assert(enemylist.resolve_index(fakeServerIds({}), SLOW_ID) == 0,
+    'an id that matches nothing yields 0');
+
+print('enemylist.lua resolve_index ok');
