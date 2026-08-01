@@ -993,6 +993,36 @@ local function drawTarget(mm, view, proj, vp)
 end
 
 --[[
+* Draws a panel over every mob currently in the enemy list (lib.enemylist) -- every mob you (or
+* your pet/trust) have personally hit or affected, per the packet_in handler's 0x0028 case.
+*
+* Skips whatever index is currently target_index, so a mob that is both your target and on this
+* list never gets a second panel stacked on the one drawTarget already drew -- the same exclusion
+* stats.targetable already applies for party slots 0..5. Pruning happens inline here rather than
+* as a separate sweep: an entry that no longer resolves to a living mob is dropped the moment this
+* loop notices, and one that fails to resolve at all (fully despawned, its index recycled by
+* something else) simply stops drawing and sits inert in the list until the next zone clears it --
+* the same accepted gap checkinfo.lua's own off-target death case documents.
+--]]
+local function drawClaimed(mm, view, proj, vp)
+    local count = 0;
+    for server_id in pairs(claimed_list) do
+        local idx = enemylist.resolve_index(function (i) return mm:GetEntity():GetServerId(i); end, server_id);
+        local ent = (idx ~= 0 and idx ~= target_index) and GetEntity(idx) or nil;
+
+        enemylist.prune(claimed_list, ent);
+
+        if (ent ~= nil and ent.HPPercent > 0 and bit.band(ent.SpawnFlags, 0x10) ~= 0) then
+            drawMobPanel(mm, idx, ent, view, proj, vp);
+            count = count + 1;
+            if (count >= config.settings.enemy_list_max) then
+                break;
+            end
+        end
+    end
+end
+
+--[[
 * Every panel for one frame. Split out of d3d_present so the pcall guarding it can take arguments
 * instead of a closure allocated per frame.
 *
@@ -1009,6 +1039,13 @@ local function drawPanels(mm, party, view, proj, vp, gated)
 
     if (config.settings.show_target) then
         drawTarget(mm, view, proj, vp);
+    end
+
+    -- Ungated, same reasoning as the target panel: having hit something already answers "should
+    -- this draw" -- gating it on your own idle/engaged/combat status would hide a mob you just
+    -- pulled until your own status caught up.
+    if (config.settings.show_enemy_list) then
+        drawClaimed(mm, view, proj, vp);
     end
 end
 
@@ -1135,6 +1172,9 @@ local function drawConfigWindow()
         checkbox('Show Weakness/Resist', cfg.mob, 'resist');
         slider(imgui.SliderInt, 'Info Text Size', cfg.mob, 'size', 8, 40);
 
+        checkbox('Show Enemy List', cfg, 'show_enemy_list');
+        slider(imgui.SliderInt, 'Enemy List Max', cfg, 'enemy_list_max', 1, 20);
+
         imgui.Separator();
         imgui.Text('Player Panel');
         slider(imgui.SliderFloat, 'Self Height Offset', cfg, 'height_offset', -4, 4);
@@ -1220,6 +1260,10 @@ local function drawConfigWindow()
             -- lines reading as words *is* the diagnostic, and a counter in this window would only
             -- repeat what is already on screen.
             imgui.Text(('mob data: zone %d, %s'):fmt(mob_zone, mob_db ~= nil and 'loaded' or 'none'));
+
+            local tracked = 0;
+            for _ in pairs(claimed_list) do tracked = tracked + 1; end
+            imgui.Text(('enemy list: %d tracked'):fmt(tracked));
         end
     end
     imgui.End();

@@ -26,6 +26,8 @@ M.defaults = {
     show_while_idle    = true,  -- show when entity status is Idle
     show_party         = true,  -- draw panels over party members too, not just self
     show_target        = true,  -- draw a panel over whatever you have targeted, ungated
+    show_enemy_list    = true,  -- draw a panel over every mob you've personally hit/affected, ungated
+    enemy_list_max     = 8,     -- cap on how many enemy-list panels draw in one frame
 
     -- Vertical world nudge from the nameplate anchor (top of the model), positive = downward,
     -- since the height axis points down. 0 puts the panel's top edge level with the model's head,
