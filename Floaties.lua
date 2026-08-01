@@ -837,17 +837,22 @@ local function drawMember(mm, party, i, view, proj, vp)
            tag, nil, view, proj, vp);
 end
 
--- HP is the only stat the client is told about an arbitrary entity, so the target panel is always
--- this one bar. Hoisted out of the frame loop rather than built per call.
+-- HP is the only stat the client is told about an arbitrary entity, so any mob-reference panel is
+-- always this one bar. Hoisted out of the frame loop rather than built per call.
 local TARGET_BARS = { 'hp' };
 
 --[[
-* Draws a panel over the current target. target_index is already resolved and validated by
-* updateGateState, so a rejected or absent target is just 0 here.
+* Draws a target-style panel over one already-resolved entity: mob reference lookup, /check
+* capture lookup, and the world-anchored draw. Shared by drawTarget (the current target) and
+* drawClaimed (every mob you've personally hit, see lib/enemylist.lua) -- the two differ only in
+* which index/entity they hand in, and everything about how the panel looks is identical between
+* them by construction.
+*
+* @param {number} index - the entity's target index.
+* @param {userdata} ent - entity from GetEntity(index). Never nil -- callers check first.
 --]]
-local function drawTarget(mm, view, proj, vp)
-    local ent = target_index ~= 0 and GetEntity(target_index) or nil;
-    local s   = stats.read_entity(ent);
+local function drawMobPanel(mm, index, ent, view, proj, vp)
+    local s = stats.read_entity(ent);
     if (s == nil) then
         return;
     end
@@ -858,7 +863,7 @@ local function drawTarget(mm, view, proj, vp)
     -- the plain HP percent on its bar and gets no icons beside it.
     local res = nil;
     if (bit.band(ent.SpawnFlags, 0x10) ~= 0) then
-        res = mobinfo.find(mob_db, target_index, ent.Name);
+        res = mobinfo.find(mob_db, index, ent.Name);
     end
 
     -- Main job level, not the sub's and not a level-synced display value: /check is decided by the
@@ -868,9 +873,21 @@ local function drawTarget(mm, view, proj, vp)
     local info = mobinfo.panel(res, config.settings.mob, jobName, mm:GetPlayer():GetMainJobLevel(), ent.Name,
                                 check_list[ent.ServerId]);
 
-    drawAt(mm, target_index, s, TARGET_BARS, config.settings.sizes.target,
+    drawAt(mm, index, s, TARGET_BARS, config.settings.sizes.target,
            config.settings.target_height_offset, info.tag, info,
            view, proj, vp);
+end
+
+--[[
+* Draws a panel over the current target. target_index is already resolved and validated by
+* updateGateState, so a rejected or absent target is just 0 here.
+--]]
+local function drawTarget(mm, view, proj, vp)
+    local ent = target_index ~= 0 and GetEntity(target_index) or nil;
+    if (ent == nil) then
+        return;
+    end
+    drawMobPanel(mm, target_index, ent, view, proj, vp);
 end
 
 --[[
