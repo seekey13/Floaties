@@ -699,6 +699,34 @@ lingers in the list until the next zone clears it. That gap is intentional for n
 knows what it is currently looking at, and a full-entity sweep to close it is easy to add later if
 the UI branch that reads this list needs it.
 
+## Enemy list
+
+Every mob you (or your pet, avatar, or automaton) have personally damaged or affected gets
+the exact same panel the current target does -- HP bar, name, check tier, level tag, detection
+icons, resist row -- floating over it, independent of what is currently targeted. **Show Enemy
+List** in `/floaties config` turns it off; **Enemy List Max** caps how many draw in one frame.
+
+**What counts as "yours."** Built off the Action packet (`0x0028`), the same one that carries
+melee swings, weaponskills, job abilities, and spells (including each Dia/Poison tick, which
+re-sends this packet with the caster as the actor) -- filtered to actions whose actor is you or your
+pet/avatar/automaton. A trust's own actions are not checked separately -- a trust only ever acts
+against something you are already acting against, so your own hit already covers whatever a trust's
+hit would add. A party member landing a hit does not add anything either; only your own (and your
+pet's) actions do. Any action counts, hit or miss -- a swing that whiffs still means you're fighting
+it, so the packet's own hit/miss/parry/evade code is never read.
+
+This is **not** a ranked hate/enmity display. The server does not send real enmity numbers to the
+client during normal play (the only exact read is casting Libra), so nothing here claims to know
+where you stand on a mob's hate list -- only that you've hit it.
+
+**No double panel.** A mob that is both your current target and on this list only ever gets the
+target panel -- the enemy-list loop skips whatever index `target_index` currently is, the same way
+the target panel already skips party members in slots `0..5`.
+
+Ungated, same reasoning as the target panel: having hit something already answers "should this
+draw" -- gating it on your own idle/engaged/combat status would hide a mob you just pulled until
+your own status caught up.
+
 ## Commands
 
 | Command | Effect |
@@ -739,7 +767,8 @@ back to the entity's feet position for that frame.
 - `lib/config.lua` — settings defaults, load/save, derived layout math (no Ashita dependencies except load/save)
 - `lib/mobinfo.lua` — mobdb zone-data loader, the reference rows, and the `/check` tier math, built as icon/text segments (no Ashita dependencies — it picks the icon names and the tier colors, `Floaties.lua` loads and draws them)
 - `lib/checkinfo.lua` — the `/check` capture list keyed by server id: what counts as a check response, and its zone/death cleanup (no Ashita dependencies — `Floaties.lua` unpacks the packet and resolves the entity)
-- `lib/test.lua` — self-check for `lib/stats.lua`, `lib/config.lua`, `lib/nameplate.lua`, `lib/mobinfo.lua` and `lib/checkinfo.lua`; run with `lua lib/test.lua` from the repo root
+- `lib/enemylist.lua` — the enemy list: which mobs you've personally hit, keyed by server id, plus server-id-to-index resolution (no Ashita dependencies — `Floaties.lua` decodes the Action packet, decides who counts as "you", and resolves indices through an injected reader)
+- `lib/test.lua` — self-check for `lib/stats.lua`, `lib/config.lua`, `lib/nameplate.lua`, `lib/mobinfo.lua`, `lib/checkinfo.lua` and `lib/enemylist.lua`; run with `lua lib/test.lua` from the repo root
 - `docs/` — research notes this was built from (gitignored)
 
 ## Notes
