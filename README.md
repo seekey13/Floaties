@@ -457,7 +457,7 @@ Four toggles in `/floaties config` feed it:
 |---|---|---|
 | **Show Detection** | the icon groups flanking the bar | left of it: aggro/passive, then Link. Right of it: TrueSight, Sight, Sound, Scent, Magic, JA, Blood |
 | **Show Level & Job** | the tag box, and a suffix on the bar's label | `14-17` in the box; ` WAR/MNK` appended to the label |
-| **Show Check** | a prefix on the bar's own label, and the bar's own fill color | the `/check` tier, colored, jammed into one string: `EP-DC `; the bar fills in that color, or a left-to-right low-to-high gradient when the range straddles two tiers |
+| **Show Check** | a prefix on the bar's own label, and the bar's own fill color | the `/check` tier jammed into one string: `EP-DC `, drawn in the label's own color like the name beside it; the bar fills in the tier's color, or a left-to-right low-to-high gradient when the range straddles two tiers |
 | **Show Weakness/Resist** | a row under the panel | an icon and a percentage each: `<Fire>+25% <Ice>-50%` |
 
 The target's **name always draws**, whatever mobdb knows about it or doesn't —
@@ -527,6 +527,12 @@ than about the mob.
 It leads the label — before the name — because it is read first: whether to
 engage at all is answered before anything else on the panel matters.
 
+**The prefix draws in the label's own color, same as the name and job around
+it** (**Text Color**, with the shared outline) — it used to be tinted with its
+tier, which made the label read as a colored word glued to a white one at every
+size. The tier's color is not lost: it fills the whole HP bar underneath, where
+it says the same thing at a glance without breaking the line of text into two.
+
 **The bands are interpolated between the two published endpoints**, not looked
 up. The server derives the tier from the experience the kill would award and
 that curve flattens with level, which is why Too Weak is 7 levels down at 1 and
@@ -537,10 +543,9 @@ end of the curve.
 
 **A level *range* that straddles a boundary is jammed into one string** —
 `EP-DC` for a Lv.14-17 mob at level 20 — instead of printing each end in its own
-color the way it used to when this sat on its own line above the bar: the label
-is one string in one color now, so the *low* tier's color wins, the same color
-the dash between the two used to ride on. mobdb gives most mobs a range, and
-picking one end to color would still be wrong about the other half of the spawn.
+color the way it used to when this sat on its own line above the bar. mobdb
+gives most mobs a range, and naming one end and not the other would be wrong
+about half the spawn; the text says both, and the bar under it colors both.
 
 **The bar itself fills in a gradient for a straddling range** — low tier's color
 on the left, high tier's on the right — instead of picking one end the way the
@@ -571,12 +576,12 @@ entry with the fresh answer, same as it replaces everything else `checkinfo` kee
 independent of the difficulty message and applies to whichever tier a mob names, not just `IT`. Low
 Evasion and Low Defense never draw anything: a mob checking *worse* than expected is not worth
 flagging the way one checking better is, and the plain tier already says how the fight reads
-overall. The suffix is text only, in the same color as the tier it trails — it does not need a color
-of its own, and mobdb's estimate never carries one, since it has no condition data to draw one from.
+overall. The suffix is text only, trailing the tier in the label — it never changes the bar's color,
+and mobdb's estimate never carries one at all, since it has no condition data to draw one from.
 
-The colors are this project's own reference palette — gray, green, blue, white,
+The bar colors are this project's own reference palette — gray, green, blue, white,
 gold, orange, dark red, purple — rather than `/check`'s own chat colors: the
-tier now fills the whole bar, not just a couple of letters next to other text,
+tier fills the whole bar, not a couple of letters next to other text,
 so every tier needs a shade that reads as its own threat level on sight, and no
 two tiers share one. `IT` alone stands in for three shades of "incredibly
 tough" the reference chart draws separately — mobdb's own estimate has no
@@ -585,9 +590,8 @@ given mob is, and `IT` takes the darkest of the three rather than inventing a
 split the estimate can't support. A captured check can and does tell them
 apart — see the `+`/`++` suffix above — but reuses `IT`'s one color for all
 three rather than needing a shade of its own for each. They are not settings: this is one fixed
-chart, not a palette to retint. Opacity still comes from **Text Color**'s
-alpha for the label, and from the bar's own fill state (`full`/`incomplete`/
-`empty`) for the bar, like every other bar color.
+chart, not a palette to retint. Opacity comes from the bar's own fill state
+(`full`/`incomplete`/`empty`), like every other bar color.
 
 ### Where the icons sit
 

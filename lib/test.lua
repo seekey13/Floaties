@@ -569,10 +569,10 @@ for key, want in pairs({ TW='TW', EP='EP', DC='DC', EM='EM', T='T', VT='VT', IT=
     local t = mobinfo.CHECK[key];
     assert(t ~= nil and t.text == want, key .. ' abbreviates as ' .. want);
     assert(t.color ~= nil and t.color.r ~= nil and t.color.a == nil,
-        key .. ' carries rgb and no alpha -- drawText takes the opacity from cfg.text.color');
+        key .. ' carries rgb and no alpha -- drawBar takes the opacity from cfg.states');
 end
 
--- Every tier gets its own shade now that the color also fills the HP bar itself, not just the
+-- Every tier gets its own shade now that the color fills the HP bar itself rather than tinting the
 -- label text: two tiers sharing a color would paint two different threat levels the same on a bar.
 local seen = {};
 for _, key in ipairs({ 'TW', 'EP', 'DC', 'EM', 'T', 'VT', 'IT', 'ITG' }) do
@@ -616,7 +616,10 @@ local full = mobinfo.panel(LINKER, ALL_LINES, jobname, 20, 'Tough Mist Lizard');
 assert(label_text(full.label) == '??? Tough Mist Lizard WAR',
     'check + name + job, got ' .. tostring(label_text(full.label)));
 assert(full.tag == '14-17', 'the level tag box, got ' .. tostring(full.tag));
-assert(full.hp_color == mobinfo.CHECK.ITG.color, 'the HP bar fills in the same color as the check prefix');
+assert(full.hp_color == mobinfo.CHECK.ITG.color, 'the tier colors the HP bar');
+for _, seg in ipairs(full.label) do
+    assert(seg.color == nil, 'no label segment carries a color -- the whole label draws in cfg.text.color');
+end
 assert(full.hp_color2 == nil, 'a notorious monster is one tier (ITG), not a straddle -- no gradient');
 assert(icons(full.left) == 'PassiveHQ Link', 'threat flanks left, got ' .. icons(full.left));
 assert(icons(full.right) == 'Sight Sound Scent', 'senses flank right, got ' .. icons(full.right));

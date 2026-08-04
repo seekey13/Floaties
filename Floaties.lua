@@ -689,8 +689,10 @@ end
 -- Draws `text` centered in the box (left, top, width, height) at `size` px, with the shared
 -- outline and bold treatment. `size` nil (config.label_size' answer for a box too short to hold a
 -- legible glyph) draws nothing, as does text too big for the box it was given.
--- `color` overrides the fill's rgb (the check tiers, which carry a meaning in their color); the
--- alpha still comes from cfg.text.color, so the shared text opacity governs every string alike.
+-- `color` overrides the fill's rgb for a segment that carries one; the alpha still comes from
+-- cfg.text.color, so the shared text opacity governs every string alike. Nothing sets it today --
+-- the check tier used to, and now says its color on the HP bar instead -- but the segment shape
+-- still carries the field, so the two segment drawers pass it through rather than dropping it.
 local function drawText(draw_list, left, top, width, height, text, size, cfg, color)
     if (size == nil) then return; end
 
@@ -847,11 +849,12 @@ local function drawInfoLine(draw_list, left, top, width, row, segments, size, ga
 end
 
 --[[
-* Multi-color sibling of drawLabel: the HP bar's own label, when it is the check-tier/name/job
+* Segmented sibling of drawLabel: the HP bar's own label, when it is the check-tier/name/job
 * segments mobinfo.panel builds rather than a single barText string. Same shrink-to-fit sizing as
 * drawLabel (derived from the bar's drawn height, shrunk again if the combined text overflows the
 * bar), but walks a list of segments left to right the way drawInfoLine lays out an icon group,
-* each drawn via drawText with its own optional color override.
+* each drawn via drawText with its own optional color override -- none of them carries one today,
+* so the whole label draws in cfg.text.color and reads as one string.
 *
 * Solved, not iterated, same as drawLabel: textWidth is linear in size except for bold's fixed
 * extra pixel per segment, so two samples of lineWidth (at size 0, where only the fixed pixels

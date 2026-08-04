@@ -98,12 +98,13 @@ end
 --[[
 * /check tiers: the abbreviation drawn, and the color it is drawn in.
 *
-* This is the project's own reference palette, not `/check`'s chat colors: the tier now paints the
-* HP bar's fill (M.panel's `hp_color`) as well as prefixing its label, so every tier needs a shade
-* that reads as a distinct threat level at a glance on a bar, not just a distinct abbreviation next
-* to other text. The old palette (borrowed from Ashita's `checker` addon so a check in the log and
-* a panel could not disagree) deliberately painted VT and IT the same color, which was fine for two
-* letters side by side but would have painted two different danger levels' worth of bar identically.
+* This is the project's own reference palette, not `/check`'s chat colors: the tier paints the HP
+* bar's fill (M.panel's `hp_color`) and nothing else -- the label's prefix is plain text in
+* cfg.text.color -- so every tier needs a shade that reads as a distinct threat level at a glance on
+* a bar, not just a distinct abbreviation next to other text. The old palette (borrowed from
+* Ashita's `checker` addon so a check in the log and a panel could not disagree) deliberately
+* painted VT and IT the same color, which was fine for two letters side by side but would have
+* painted two different danger levels' worth of bar identically.
 *
 * IT alone stands for three tiers the reference chart draws separately (IT, IT+, IT++): mobdb's
 * level-difference estimate (check_tier) has no condition data at all, so it can never say which of
@@ -114,8 +115,7 @@ end
 * checkinfo's `plus` (see checkinfo.lua); it reuses that tier's one color rather than needing a
 * second entry here, since the suffix is text, not a new threat level.
 *
-* No alpha: like the bar colors in config.defaults these carry rgb only, and drawText takes the
-* opacity from cfg.text.color so the shared text alpha still governs them; the bar fill takes its
+* No alpha: like the bar colors in config.defaults these carry rgb only, and the fill takes its
 * opacity from cfg.states the same way every other bar color does (see drawBar).
 *
 * ponytail: a constant, not seven color pickers in the config window -- this is one reference chart,
@@ -364,9 +364,10 @@ end
 *   tag   - the level-range/fixed-level text for the tag box left of the bar, or `nil`. A captured
 *           check (`chk`) snaps this to the single level it reported, in place of mobdb's range,
 *           whenever it gave a usable one (see `chk` below); otherwise mobdb's M.level_text.
-*   hp_color - the check tier's color (M.CHECK[...].color), for the HP bar's own fill -- the same
-*           color the check prefix on `label` draws in, so the bar and its label can never disagree
-*           about what the mob checks as. `nil` under the exact conditions the check prefix itself
+*   hp_color - the check tier's color (M.CHECK[...].color), for the HP bar's own fill -- the only
+*           place the tier's color is drawn. The prefix on `label` carries no color of its own and
+*           draws in cfg.text.color like the name it sits next to, so the bar says the tier in color
+*           and the label says it in letters. `nil` under the exact conditions the check prefix itself
 *           is left off `label` (Show Check off, or neither a captured check nor a mobdb entry with
 *           a player level to check against), since there is then nothing to color the bar with
 *           either.
@@ -418,7 +419,11 @@ function M.panel(res, mob, jobname, level, name, chk)
             -- The +/++ suffix only ever comes from a captured check (chk.plus) -- mobdb's
             -- estimate (M.check_text) has no condition data to draw one from at all.
             local plus = (tier ~= nil and chk.plus or 0);
-            label[#label + 1] = { text = text.text .. string.rep('+', plus) .. ' ', color = text.color };
+            -- No `color`: the prefix draws in cfg.text.color, the same as the name and job it sits
+            -- with, so the label reads as one string instead of a tinted word glued to a white one.
+            -- The tier's color is not lost -- it paints the whole HP bar underneath (hp_color), which
+            -- says the same thing louder than three letters ever did.
+            label[#label + 1] = { text = text.text .. string.rep('+', plus) .. ' ' };
             hp_color, hp_color2 = text.color, text.color2;
         end
     end
