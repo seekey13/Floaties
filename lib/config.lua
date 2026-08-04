@@ -25,6 +25,11 @@ M.defaults = {
     show_while_engaged = true,  -- show when entity status is Engaged
     show_while_idle    = true,  -- show when entity status is Idle
     show_party         = true,  -- draw panels over party members too, not just self
+    -- Switch the client's own nameplate off over party members 1..5, leaving their panel as the
+    -- only thing above their head (see updateNameMask). Off by default: it writes to the client's
+    -- entities rather than drawing something of our own, so it is opt-in. Your own plate is not
+    -- touched -- that is `noname`'s job.
+    hide_party_names   = false,
     show_target        = true,  -- draw a panel over whatever you have targeted, ungated
     show_enemy_list    = true,  -- draw a panel over every mob you've personally hit/affected, ungated
     enemy_list_max     = 8,     -- cap on how many enemy-list panels draw in one frame

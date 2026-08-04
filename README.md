@@ -112,6 +112,63 @@ gate on. It reserves space out of the bar the same way, through the same
 `M.slot_width` — the box just holds different text depending on which panel
 kind is drawing it.
 
+## Hiding party nameplates
+
+**Hide Party Nameplates** (off) switches the client's own name off over party
+members `P1`..`P5`, leaving their panel as the only thing above their head. The
+plate otherwise repeats what the panel already says, in the space the panel
+wants.
+
+It works by setting bit `0x08` of each member's entity `Render.Flags2` — the
+client's own "name hidden" mask, the same one Ashita's `noname` addon sets on
+the local player. Nothing is drawn over or around the plate: the game is told
+not to draw it.
+
+**Your own name is not touched.** That is `noname`'s job, and two addons writing
+one flag on one entity would just fight over it.
+
+It is **independent of Show Party Members**, not nested under it: hiding plates
+without drawing panels is a legitimate combination, and tying them together
+would un-hide names the moment panels were switched off.
+
+Consequences of it being a live edit to the client rather than something
+Floaties draws:
+
+- **The bit is re-set every frame**, because the client rebuilds an entity's
+  render flags wholesale on spawn and on zone.
+- **Names come back the moment you switch it (or the addon) off**, because the
+  bit is cleared explicitly rather than left for the client's next rebuild to
+  drop. A member leaving the party gets theirs back the same frame.
+- **Unloading restores every plate still hidden.** Leaving the bit set would
+  strand party members nameless with nothing running to explain it and no way
+  back short of zoning.
+
+### Why it also patches one byte of the client
+
+Setting the bit once a frame is not enough on its own. The client's entity
+update runs `and ecx, 0FFFFFFF7h` / `mov [eax+128h], ecx` — `+0x128` is
+`Render.Flags2`, `0xF7` is `~0x08` — so every entity update packet (`0x00D` /
+`0x00E`) strips the mask straight back off. The plate then draws for the frame
+between that clear and the next per-frame write: **a one-frame flash of the
+name**, every update, which is what this looked like before the patch.
+
+So the immediate is patched from `0xF7` to `0xF8`, which leaves bit `0x08`
+alone — the same byte, and the same value, `noname` writes for the local
+player. The per-frame write stays: the patch stops the client clearing the mask,
+it does not set it in the first place, and it does not cover the wholesale
+rebuild on spawn or zone.
+
+Because it is a write into the client's code rather than into an entity:
+
+- **It is applied only while the setting is on**, and restored the moment it
+  goes off or the addon unloads. Off means the client is untouched.
+- **It defers to `noname`.** If that byte already reads `0xF8`, Floaties takes
+  the benefit and claims no ownership, so unloading Floaties cannot rip
+  `noname`'s patch out from under it.
+- **If the signature is not found** (`FFXiMain.dll` is packed on disk, so this
+  can only be resolved at runtime) it says so once in the log, and hiding still
+  works — with the one-frame flash back.
+
 ## Distance scaling
 
 **Scale With Distance** (on) shrinks panels as their entity moves away and grows

@@ -240,6 +240,162 @@ local check_list = {};
 
 local claimed_list = {};
 
+----------------------------------------------------------------------------------------------------
+-- Party nameplate hiding. The client's own name over a party member's head duplicates what that
+-- member's panel already says, and sits in exactly the space the panel wants -- so this switches
+-- the plate off per entity, leaving the panel as the only thing over their head.
+--
+-- Bit 0x08 of an entity's Render.Flags2 is the client's own "name hidden" mask -- the same one
+-- Ashita's `noname` addon sets on the local player (addons/noname/noname.lua). It is per entity,
+-- so it reaches any index, and it is what the game itself toggles, so nothing here is drawing or
+-- suppressing a plate on its own.
+--
+-- Slots 1..5 only: masking slot 0 is `noname`'s job, and doing it here too would mean two addons
+-- fighting over one flag on one entity.
+----------------------------------------------------------------------------------------------------
+
+local NAME_MASK = 0x08;
+
+-- Setting the bit once a frame is not enough on its own: the client's own entity update clears it
+-- back out, and the plate renders in the gap between that clear and the next d3d_present write --
+-- one frame of name, every time an entity update packet (0x00D/0x00E) lands on a masked member.
+-- That is the flash.
+--
+-- The instruction doing it is `and ecx, 0FFFFFFF7h` / `mov [eax+128h], ecx` -- +0x128 is
+-- Render.Flags2 (Ashita's own entity_t: VTable, movement, ..., Render at +0x120), and 0xF7 is
+-- ~0x08. Patching the immediate to 0xF8 leaves bit 0x08 alone, so the client stops fighting the
+-- mask instead of us out-writing it. The per-frame write above still has to happen -- the flags are
+-- rebuilt wholesale on spawn and zone, which no patch to this one instruction covers.
+--
+-- Byte-identical to what `noname` writes, deliberately: the two addons patch the same byte, so
+-- writing the same value means whichever loads second is a no-op rather than a conflict.
+--
+-- ponytail: it also clears bits 0-2, which the original did not (0xF8 is ~0x07). `and ecx, -1`
+-- (0xFF) would preserve the mask without that side effect, but this is the byte `noname` has
+-- shipped for years across every entity in the game, so the tested value wins over the tidier one.
+local NAME_PATCH_SIG = '83E1F789882801000033C0668B4608';
+
+local name_patch_ptr = nil;     -- nil = not scanned yet, 0 = scanned and missed (never rescanned)
+local name_patched   = false;   -- whether *this* addon wrote the patch, so it only restores its own
+local name_patch_on  = false;   -- last requested state, so the patch is touched on change only
+
+--[[
+* Applies or restores the one-byte patch that stops the client clearing the name mask.
+*
+* Called on change only (see updateNameMask), not per frame: it is a code patch, so with the
+* setting off the client is left completely untouched rather than carrying a patch for a feature
+* nobody switched on.
+*
+* @param {boolean} on - true to patch, false to restore.
+--]]
+local function patchNameClear(on)
+    if (not on) then
+        -- Restores only what this addon wrote. If `noname` owns the byte instead, handing it back
+        -- to 0xF7 here would break *its* hiding on our unload -- so ownership, not the byte's
+        -- current value, decides.
+        if (name_patched) then
+            ashita.memory.write_uint8(name_patch_ptr + 0x02, 0xF7);
+            name_patched = false;
+        end
+        return;
+    end
+
+    if (name_patch_ptr == nil) then
+        -- FFXiMain.dll is packed on disk, so this can only be confirmed at runtime -- same reason
+        -- lib/targets.lua's scans are. A miss degrades to the old one-frame flash, so say so once
+        -- rather than failing the whole feature.
+        name_patch_ptr = ashita.memory.find('FFXiMain.dll', 0, NAME_PATCH_SIG, 0, 0);
+        if (name_patch_ptr == 0) then
+            print('[Floaties] name-mask signature not found -- hidden party nameplates will flash back on entity updates.');
+        end
+    end
+
+    -- Already 0xF8 means `noname` got here first: take the benefit and claim no ownership, so its
+    -- patch survives our unload.
+    if (name_patch_ptr ~= 0 and ashita.memory.read_uint8(name_patch_ptr + 0x02) == 0xF7) then
+        ashita.memory.write_uint8(name_patch_ptr + 0x02, 0xF8);
+        name_patched = true;
+    end
+end
+
+-- Target indices the mask is currently set on, so it can be cleared back off the exact entities it
+-- was set on. Not derivable from the party at clear time -- the member who *left* is precisely the
+-- one no longer in it.
+local masked = {};
+
+--[[
+* Sets or clears the name mask on one entity.
+*
+* @param {number} index - target index; 0 (empty slot) is a no-op.
+* @param {boolean} on - true to hide the name, false to restore it.
+* @return {boolean} whether the entity was there to write to.
+--]]
+local function setNameMask(index, on)
+    local ent = index ~= 0 and GetEntity(index) or nil;
+    if (ent == nil or ent.ActorPointer == 0) then
+        return false;
+    end
+
+    local flags = ent.Render.Flags2;
+    ent.Render.Flags2 = on and bit.bor(flags, NAME_MASK) or bit.band(flags, bit.bnot(NAME_MASK));
+    return true;
+end
+
+--[[
+* Brings the set of masked nameplates in line with the setting, once a frame.
+*
+* Re-set every frame rather than once on party change: the client rebuilds an entity's render flags
+* on its own updates (which is the whole reason `noname` patches FFXiMain to stop it -- see its
+* load handler), so a one-shot write survives only until the next update and the plate flickers
+* back. Writing the same bit that is already set costs one compare.
+*
+* Cleared explicitly rather than left to that same rebuild: "the client will drop it eventually" is
+* not something to hand the user as an off switch, and it would leave a member's name gone for
+* however long the next update takes.
+*
+* Called before every early return in d3d_present, so switching the addon off (or the setting off)
+* gives names back on the spot instead of only once panels are drawing again.
+--]]
+local function updateNameMask(party)
+    local want = config.settings.enabled and config.settings.hide_party_names;
+    local now  = {};
+
+    -- On change only: patching is not idempotent bookkeeping, it is a write into the client's code.
+    if (want ~= name_patch_on) then
+        name_patch_on = want;
+        patchNameClear(want);
+    end
+
+    if (want) then
+        for i = 1, 5 do
+            if (party:GetMemberIsActive(i) == 1) then
+                local index = party:GetMemberTargetIndex(i);
+                if (index ~= 0) then
+                    now[index] = true;
+                end
+            end
+        end
+    end
+
+    -- Unmask first, so a member leaving and the index being reused within the same frame cannot
+    -- clear the bit right back off the entity the second pass just set it on.
+    for index in pairs(masked) do
+        if (not now[index]) then
+            -- Dropped either way: a member who zoned out leaves an unreadable entity behind, and
+            -- retrying that write every frame forever would never succeed anyway. The mask goes
+            -- with the entity.
+            setNameMask(index, false);
+            masked[index] = nil;
+        end
+    end
+
+    for index in pairs(now) do
+        if (setNameMask(index, true)) then
+            masked[index] = true;
+        end
+    end
+end
+
 --[[
 * Every server id currently "yours": slot 0 (you) unconditionally, plus your pet/avatar/automaton,
 * which has no party slot of its own and is only reachable through your own entity's
@@ -1202,6 +1358,11 @@ local function drawConfigWindow()
         imgui.Separator();
         imgui.Text('Party Panel');
         checkbox('Show Party Members', cfg, 'show_party');
+
+        -- Independent of Show Party Members on purpose: hiding the plates without drawing panels is
+        -- a legitimate (if odd) combination, and tying them would silently un-hide names the moment
+        -- panels were switched off.
+        checkbox('Hide Party Nameplates', cfg, 'hide_party_names');
         slider(imgui.SliderFloat, 'Party Height Offset', cfg, 'party_height_offset', -4, 4);
         slider(imgui.SliderInt, 'Party Width', cfg.sizes.party, 'width', 40, 300);
         for _, key in ipairs(config.bar_order) do
@@ -1304,6 +1465,21 @@ ashita.events.register('load', 'floaties_load', function ()
     end
 end);
 
+-- Hidden nameplates are a live edit to the client's own entities, not addon state: unloading with
+-- the bit still set leaves party members nameless with nothing left running to explain why, and no
+-- way back short of a zone. Restore whatever is still masked on the way out.
+ashita.events.register('unload', 'floaties_unload', function ()
+    for index in pairs(masked) do
+        setNameMask(index, false);
+    end
+    masked = {};
+
+    -- The code patch outlives the addon otherwise -- a byte left changed in FFXiMain with nothing
+    -- loaded that knows why.
+    name_patch_on = false;
+    patchNameClear(false);
+end);
+
 -- 0x00A is zone-in; the zone id sits at 0x30. Same hook and offset mobdb reloads its own data on.
 -- 0x00B is zone-out. check_list is cleared on both, matching checker.lua's own zone handling: a
 -- server id is only unique within one zone instance, so nothing recorded under the old one can be
@@ -1362,6 +1538,10 @@ ashita.events.register('d3d_present', 'floaties_present', function ()
     -- Before every early return below, so the config window's status line keeps updating while
     -- the addon is disabled or the panel is gated off.
     updateGateState(mm, player, party);
+
+    -- Same placement, same reason: this owns un-hiding as well as hiding, so it cannot sit behind
+    -- a return that a disabled addon takes. It reads the master switch itself.
+    updateNameMask(party);
 
     drawConfigWindow();
 
