@@ -70,7 +70,7 @@ end
 --[[
 * Whether an entity should get a target panel drawn over it.
 *
-* Not NewUI's isEnemy: a trust or pet you targeted is fine to draw, so the party scan covers only
+* Not Floaties's isEnemy: a trust or pet you targeted is fine to draw, so the party scan covers only
 * slots 0..5 -- the ones drawMember already draws -- to stop a second panel stacking on the first.
 *
 * @param {userdata|nil} ent - entity from GetEntity(index).

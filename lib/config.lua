@@ -1,5 +1,5 @@
 --[[
-* Persisted NewUI settings + derived layout math.
+* Persisted Floaties settings + derived layout math.
 *
 * Derived math (bar_width, panel_height) is kept as pure functions taking a
 * plain settings table so it stays testable (see test.lua) and can never
@@ -14,6 +14,9 @@ local M = {};
 
 M.defaults = {
     enabled            = true,
+    -- Whether the config window itself was open at last save, so a reload (or relog) puts it back
+    -- the way it was left instead of always starting closed.
+    config_visible     = false,
     -- Gates are purely enabling (see M.visible), so all three off means the self/party panels
     -- never draw. All three on: visible in normal play, hidden while dead, zoning or resting.
     -- They do not reach the target panel -- having a target is its own answer to whether it
@@ -22,7 +25,14 @@ M.defaults = {
     show_while_engaged = true,  -- show when entity status is Engaged
     show_while_idle    = true,  -- show when entity status is Idle
     show_party         = true,  -- draw panels over party members too, not just self
+    -- Switch the client's own nameplate off over party members 1..5, leaving their panel as the
+    -- only thing above their head (see updateNameMask). Off by default: it writes to the client's
+    -- entities rather than drawing something of our own, so it is opt-in. Your own plate is not
+    -- touched -- that is `noname`'s job.
+    hide_party_names   = false,
     show_target        = true,  -- draw a panel over whatever you have targeted, ungated
+    show_enemy_list    = true,  -- draw a panel over every mob you've personally hit/affected, ungated
+    enemy_list_max     = 8,     -- cap on how many enemy-list panels draw in one frame
 
     -- Vertical world nudge from the nameplate anchor (top of the model), positive = downward,
     -- since the height axis points down. 0 puts the panel's top edge level with the model's head,
@@ -43,11 +53,10 @@ M.defaults = {
     -- one off what was picked.
     panel = {
         offset       = 2,           -- padding: panel edge -> bar edge, all sides
-        rounding     = 6,
-        rounded      = true,        -- corner rounding on/off (magnitude stays in `rounding`)
+        rounding     = 6,           -- 0 turns rounding off; no separate on/off switch
         -- Black at 100/255: a scrim dark enough to hold the bars off the world behind them
-        -- without becoming a solid slab over it. The border is fully transparent -- the panel
-        -- reads as its own shape, and `border_visible` is left on for the bar outlines.
+        -- without becoming a solid slab over it. The border is fully transparent -- borders draw
+        -- unconditionally now, so alpha alone (not a checkbox) is what hides one.
         bg           = { r = 0, g = 0, b = 0, a = 100/255 },
         border_color = { r = 0, g = 0, b = 0, a = 0 },
     },
@@ -63,12 +72,12 @@ M.defaults = {
     },
 
     gap            = 1,      -- vertical gap between the 3 bars
-    border_visible = true,   -- shared toggle for panel border + bar borders
 
-    -- Party slot tag ("P1".."P5") in a box left of the bars, inside the panel. The panel keeps its
-    -- configured width, so this takes its space out of the bars. Your own panel and target panels
-    -- get no tag and reserve no box -- slot 0 needs no telling apart, and an arbitrary entity has
-    -- no party slot.
+    -- Tag box left of the bars, inside the panel: "P1".."P5" for a party member, or a mob's level
+    -- (range or fixed) for a target -- see mobinfo.panel's `tag`. The panel keeps its configured
+    -- width, so this takes its space out of the bars. Your own panel gets no tag and reserves no
+    -- box -- slot 0 needs no telling apart. `enabled` below is the party tag's own switch; a
+    -- target panel's tag is gated by `mob.level` instead (see the `mob` block below).
     slot = {
         enabled = true,
         size    = 21,   -- text height in px; the box's width is derived from it (M.slot_box)
@@ -80,7 +89,8 @@ M.defaults = {
     -- rather than drawn blank, so switching one on does not guarantee content. Target panels only:
     -- party members are not mobs.
     mob = {
-        level  = true,   -- Lv.14-17 WAR, labelling the HP bar until the mob is damaged
+        level  = true,   -- the tag box (14-17, or a fixed level), plus a job suffix on the label
+        check  = true,   -- EP/DC/T... prefix on the HP bar's own label, colored by the lower tier
         detect = true,   -- aggro/passive + Link flanking left, the senses flanking right
         resist = true,   -- element icon + percentage, on a row under the panel
         -- Row height in px: the text size, and the icons' side. The second piece of text with a
@@ -91,7 +101,7 @@ M.defaults = {
     },
 
     bars = {
-        rounded      = true,   -- corner rounding on/off for all 3 bars (magnitude is the fixed BAR_ROUNDING constant)
+        rounding     = 3,      -- corner rounding for all 3 bars; 0 turns it off, no separate switch
         border_color = { r = 0, g = 0, b = 0, a = 150/255 },   -- shared across hp/mp/tp outlines
 
         -- Each bar has one color, shared by all three panel kinds; opacity comes from `states`
@@ -151,7 +161,7 @@ M.gates = { 'show_in_combat', 'show_while_engaged', 'show_while_idle' };
 
 --[[
 * Whether the self and party panels should be drawn at all, from the visibility
-* gates. The target panel is not gated -- see drawPanels in NewUI.lua.
+* gates. The target panel is not gated -- see drawPanels in Floaties.lua.
 *
 * Each gate purely *enables*: the panel shows when at least one enabled gate's
 * condition is currently true, and is hidden otherwise. Enabling several is a
@@ -191,23 +201,27 @@ function M.slot_box(cfg)
 end
 
 --[[
-* Horizontal space the slot indicator takes out of a panel's content: the box plus one bar gap
-* beside it, so the box sits off the bars by the same distance the bars sit off each other.
+* Horizontal space the tag box takes out of a panel's content: the box plus one bar gap beside
+* it, so the box sits off the bars by the same distance the bars sit off each other.
 *
-* @param {boolean} has_slot - whether this panel kind has a slot at all (false for target).
-* @return {number} 0 when there is no slot or the indicator is off, so bar_width lands back on
-*                  exactly its old value rather than near it.
+* Trusts the caller's decision outright -- whoever built (or withheld) the tag string already
+* knows whether this panel has one. Target panels get a tag too now, gated by `cfg.mob.level`
+* rather than `cfg.slot.enabled` (see mobinfo.panel's `tag`), so re-deciding off `slot.enabled`
+* here would either duplicate that gate or fight it.
+*
+* @param {boolean} has_tag - whether this panel has a tag box to draw at all.
+* @return {number} 0 when there is no tag, so bar_width lands back on exactly its old value
+*                  rather than near it.
 --]]
-function M.slot_width(cfg, has_slot)
-    -- has_slot first: callers that never show one (and test fixtures) need no `slot` table.
-    if (not has_slot or not cfg.slot.enabled) then
+function M.slot_width(cfg, has_tag)
+    if (not has_tag) then
         return 0;
     end
     return M.slot_box(cfg) + cfg.gap;
 end
 
-function M.bar_width(cfg, size, has_slot)
-    return size.width - 2 * cfg.panel.offset - M.slot_width(cfg, has_slot);
+function M.bar_width(cfg, size, has_tag)
+    return size.width - 2 * cfg.panel.offset - M.slot_width(cfg, has_tag);
 end
 
 -- Clamps on the scale curve. Fixed, not settings: they stop a far panel vanishing and a near one
@@ -294,7 +308,7 @@ function M.load()
     -- under plain lua for test.lua. Nested tables need no wrap -- copy/merge
     -- recurse through table_mt directly.
     M.settings = settings.load(T(M.defaults));
-    settings.register('settings', 'newui_settings_update', function (s)
+    settings.register('settings', 'floaties_settings_update', function (s)
         M.settings = s;
     end);
     return M.settings;

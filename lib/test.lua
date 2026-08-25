@@ -1,12 +1,12 @@
 --[[
-* Self-check for stats.lua. Run headless: lua test.lua
+* Self-check for stats.lua. Run headless from the repo root: lua lib/test.lua
 --]]
 
-local stats     = require('stats');
-local config    = require('config');
-local nameplate = require('nameplate');
-local mobinfo   = require('mobinfo');
-local checkinfo = require('checkinfo');
+local stats     = require('lib.stats');
+local config    = require('lib.config');
+local nameplate = require('lib.nameplate');
+local mobinfo   = require('lib.mobinfo');
+local checkinfo = require('lib.checkinfo');
 
 local function fakeParty(active, hpp, mpp, tp, hp, mp)
     return {
@@ -166,31 +166,40 @@ for _, kind in ipairs(config.size_order) do
     assert(config.panel_height(config.defaults, size, { 'hp' }) > 0, kind .. ' cannot lay out an hp bar');
 end
 
--- Party slot indicator: the box plus one bar gap comes out of the bars, never out of the panel,
--- and only for a panel kind that has a slot at all.
+-- Tag box (party slot, or now a target's level -- see mobinfo.panel): the box plus one bar gap
+-- comes out of the bars, never out of the panel, for any panel kind whose caller decided it has
+-- one. slot_width trusts that decision (has_tag) outright -- cfg.slot.enabled is the party tag's
+-- own switch, checked by the caller that builds the tag string (drawMember), not re-checked here.
 local slotcfg = { panel = { offset = 4 }, gap = 2, slot = { enabled = true, size = 12 } };
 local offcfg  = { panel = { offset = 4 }, gap = 2, slot = { enabled = false, size = 12 } };
 
 assert(config.slot_box(slotcfg) == 18, 'box width = floor(1.5 * text size), got ' .. tostring(config.slot_box(slotcfg)));
 assert(config.slot_width(slotcfg, true) == 20, 'reserved width = box + one gap, got ' .. tostring(config.slot_width(slotcfg, true)));
-assert(config.slot_width(slotcfg, false) == 0, 'a panel with no slot reserves nothing');
-assert(config.slot_width(offcfg, true) == 0, 'the indicator off reserves nothing');
+assert(config.slot_width(slotcfg, false) == 0, 'a panel with no tag reserves nothing, whatever slot.enabled says');
 
--- Exactly the old width when off, not merely close to it: switching the tag off must not nudge
--- bars by a rounding remainder.
-assert(config.bar_width(offcfg, SELF, true) == config.bar_width(offcfg, SELF), 'off must match the no-slot width exactly');
+-- The behavior change this task makes: has_tag alone decides now. slot.enabled is a real setting
+-- still (drawMember reads it to decide whether to build a tag string at all), but slot_width no
+-- longer re-checks it -- a caller that hands in has_tag=true gets charged for the box regardless.
+assert(config.slot_width(offcfg, true) == 20, 'has_tag alone decides -- slot.enabled is not read here anymore, got ' .. tostring(config.slot_width(offcfg, true)));
+assert(config.slot_width(offcfg, false) == 0, 'still nothing with no tag, whatever slot.enabled says');
+
+-- Exactly the old width when there is no tag, not merely close to it: no tag must not nudge bars
+-- by a rounding remainder.
+assert(config.bar_width(slotcfg, SELF, false) == config.bar_width(slotcfg, SELF), 'no tag must match the untagged width exactly');
 assert(config.bar_width(slotcfg, SELF, true) == 200 - 2 * 4 - 20, 'bars give up box + gap, got ' .. tostring(config.bar_width(slotcfg, SELF, true)));
-assert(config.bar_width(slotcfg, sizes.target, false) == 192, 'the target panel keeps its full bar width');
+assert(config.bar_width(slotcfg, sizes.target, false) == 192, 'the target panel keeps its full bar width when it has no tag');
 
--- The defaults ship with it on, so they are the case that has to lay out: box floor(1.5*21)=31
--- plus the 1px gap, out of the bars only.
+-- The defaults ship with the party indicator on, so they are the case that has to lay out: box
+-- floor(1.5*21)=31 plus the 1px gap, out of the bars only.
 assert(config.slot_width(config.defaults, true) == 32, 'default reserved width, got ' .. tostring(config.slot_width(config.defaults, true)));
 assert(config.bar_width(config.defaults, SELF, true) == 196 - 32, 'a default party panel gives up box + gap, got ' .. tostring(config.bar_width(config.defaults, SELF, true)));
-assert(config.bar_width(config.defaults, config.defaults.sizes.target, false) == 296, 'the default target panel reserves nothing');
+assert(config.bar_width(config.defaults, config.defaults.sizes.target, false) == 296, 'the default target panel reserves nothing when it has no tag');
 assert(config.label_size(config.defaults, config.defaults.slot.size) ~= nil, 'the default slot text must clear Min Text Size, or the tag never prints');
 
 -- The panel's own footprint is untouched -- the space is taken from the bars inside it.
-assert(config.panel_height(slotcfg, SELF) == config.panel_height(offcfg, SELF), 'the tag must not change panel height');
+-- panel_height never reads cfg.slot at all, so this holds regardless of whether a tag is drawn.
+local notagcfg = { panel = { offset = 4 }, gap = 2 };
+assert(config.panel_height(slotcfg, SELF) == config.panel_height(notagcfg, SELF), 'a tag must not change panel height');
 
 -- Mob reference lines hang *below* the panel, so they cost it no height at all: a target panel is
 -- the same shape whether the mob has three lines or none, and panel_height counts bars only.
@@ -411,7 +420,7 @@ local jobs = { [1] = 'WAR', [2] = 'MNK' };
 local function jobname(id) return jobs[id]; end
 
 -- Detection and resistance lines are segments, drawn as mobdb's icons. These two flatten a line to
--- what NewUI draws when a texture is missing (alt in the icon's place) and to the icon names it
+-- what Floaties draws when a texture is missing (alt in the icon's place) and to the icon names it
 -- asks for -- one assertion per line either way, and the fallback wording is exactly the text the
 -- lines used to be, so the readings below did not have to change with the shape.
 local function text(line)
@@ -431,17 +440,11 @@ local function icons(line)
     return table.concat(out, ' ');
 end
 
--- Level and job. The job is dropped entirely at Job 0 rather than printing a placeholder -- most
--- low-level fauna carries no job.
-assert(mobinfo.level_job(BOMB, jobname) == 'Lv.8-10', 'job 0 prints the range alone, got ' .. tostring(mobinfo.level_job(BOMB, jobname)));
-assert(mobinfo.level_job({ MinLevel=14, MaxLevel=17, Job=1 }, jobname) == 'Lv.14-17 WAR',
-    'range + main job, got ' .. tostring(mobinfo.level_job({ MinLevel=14, MaxLevel=17, Job=1 }, jobname)));
-assert(mobinfo.level_job({ MinLevel=14, MaxLevel=17, Job=1, SubJob=2 }, jobname) == 'Lv.14-17 WAR/MNK', 'sub job is appended');
-assert(mobinfo.level_job({ MinLevel=14, MaxLevel=17, Job=1, SubJob=0 }, jobname) == 'Lv.14-17 WAR', 'sub job 0 is not a job');
-assert(mobinfo.level_job({ Level=75, MinLevel=75, MaxLevel=75, Job=1 }, jobname) == 'Lv.75 WAR', 'a fixed level prints once, not as a range');
-assert(mobinfo.level_job({ MinLevel=1, MaxLevel=2, Job=1 }, nil) == 'Lv.1-2', 'no job lookup means no job');
-assert(mobinfo.level_job({ MinLevel=1, MaxLevel=2, Job=99 }, jobname) == 'Lv.1-2 ?', 'an unknown job id must not error');
-assert(mobinfo.level_job(nil, jobname) == nil, 'an unknown mob has no level line');
+-- The bare level tag: no `Lv.` prefix, no job -- that lives in M.panel's label now, not here.
+assert(mobinfo.level_text(BOMB) == '8-10', 'a range prints both ends, got ' .. tostring(mobinfo.level_text(BOMB)));
+assert(mobinfo.level_text({ Level=75, MinLevel=75, MaxLevel=75 }) == '75', 'a fixed level prints once, not as a range');
+assert(mobinfo.level_text({ MinLevel=1, MaxLevel=2 }) == '1-2', 'got ' .. tostring(mobinfo.level_text({ MinLevel=1, MaxLevel=2 })));
+assert(mobinfo.level_text(nil) == nil, 'an unknown mob has no level tag');
 
 -- Threat: what happens when you walk up to it. Aggro/Passive always prints -- "detects nothing" and
 -- "does not aggro" are different facts, and a vanishing group would read as missing data rather
@@ -502,6 +505,83 @@ assert(mobinfo.resist({ Modifiers={ Fire=1, Ice=1 } }) == nil, 'a mob that takes
 assert(mobinfo.resist({}) == nil, 'a row with no modifiers has no line');
 assert(mobinfo.resist(nil) == nil, 'an unknown mob has no resist line');
 
+-- Check tiers. Both published endpoints are asserted on every boundary, in both directions -- the
+-- bands are interpolated between level 1 and level 75, so a sign or an off-by-one in the
+-- interpolation shows up as one side of a boundary landing in the neighbouring tier.
+local function tier(level, mob) return mobinfo.check_tier(level, mob); end
+
+-- Level 1: EM 0, T +1..+4, VT +5, IT +6. Only the upper bands are asserted here -- the lower ones
+-- at level 1 sit at mob levels below 1, which no mob has.
+assert(tier(1, 1) == 'EM', 'your own level is the even match, and only it');
+assert(tier(1, 2) == 'T',  'one up at level 1 is tough');
+assert(tier(1, 5) == 'T',  'four up is still tough at level 1, got ' .. tier(1, 5));
+assert(tier(1, 6) == 'VT', 'five up is very tough at level 1, got ' .. tier(1, 6));
+assert(tier(1, 7) == 'IT', 'six up is incredibly tough at level 1, got ' .. tier(1, 7));
+
+-- Level 75: TW at -20, EP -19..-8, DC -7..-1, EM 0, T +1..+3, VT +4..+7, IT +8. The bands widen
+-- downward and narrow upward, which is the whole reason this is interpolated rather than fixed.
+assert(tier(75, 55) == 'TW', 'twenty down at 75 is too weak, got ' .. tier(75, 55));
+assert(tier(75, 56) == 'EP', 'nineteen down is easy prey, got ' .. tier(75, 56));
+assert(tier(75, 67) == 'EP', 'eight down is still easy prey, got ' .. tier(75, 67));
+assert(tier(75, 68) == 'DC', 'seven down is a decent challenge at 75, got ' .. tier(75, 68));
+assert(tier(75, 74) == 'DC', 'one down too');
+assert(tier(75, 75) == 'EM', 'even match is exact at every level');
+assert(tier(75, 76) == 'T',  'one up is tough');
+assert(tier(75, 78) == 'T',  'three up is still tough, got ' .. tier(75, 78));
+assert(tier(75, 79) == 'VT', 'four up is very tough at 75 and merely tough at 1, got ' .. tier(75, 79));
+assert(tier(75, 82) == 'VT', 'seven up is still very tough, got ' .. tier(75, 82));
+assert(tier(75, 83) == 'IT', 'eight up is incredibly tough, got ' .. tier(75, 83));
+
+-- Level 20, where every boundary is interpolated rather than an endpoint: TW at -10, EP -9..-4,
+-- DC -3..-1, T +1..+4, VT +5..+6, IT +7. A sign error in the interpolation lands these in the
+-- neighbouring tier while both endpoints above still pass.
+assert(tier(20, 10) == 'TW', 'ten down at 20 is too weak, got ' .. tier(20, 10));
+assert(tier(20, 11) == 'EP', 'nine down is easy prey, got ' .. tier(20, 11));
+assert(tier(20, 16) == 'EP', 'four down is still easy prey, got ' .. tier(20, 16));
+assert(tier(20, 17) == 'DC', 'three down is a decent challenge, got ' .. tier(20, 17));
+assert(tier(20, 24) == 'T',  'four up is tough, got ' .. tier(20, 24));
+assert(tier(20, 26) == 'VT', 'six up is very tough, got ' .. tier(20, 26));
+assert(tier(20, 27) == 'IT', 'seven up is incredibly tough, got ' .. tier(20, 27));
+
+-- Past the cap the boundaries hold at their level-75 values rather than running off the curve.
+assert(tier(99, 79) == 'TW' and tier(99, 80) == 'EP', 'above 75 the bands stop widening');
+
+-- The line itself. mobdb gives a range, and a range that straddles a boundary prints both ends --
+-- one tier for a Lv.14-17 mob would be wrong about half the spawn -- jammed into one string and
+-- the low tier's color, the shape the bar label prefixes itself with.
+assert(mobinfo.check_text({ MinLevel=14, MaxLevel=16 }, 20).text == 'EP', 'a range inside one tier collapses to that tier alone');
+local straddle = mobinfo.check_text({ MinLevel=14, MaxLevel=17 }, 20);
+assert(straddle.text == 'EP-DC', 'both ends jammed into one string, got ' .. tostring(straddle.text));
+assert(straddle.color == mobinfo.CHECK.EP.color, 'the low tier\'s color, got ' .. tostring(straddle.color));
+assert(straddle.color2 == mobinfo.CHECK.DC.color, 'the high tier\'s color rides along for the bar gradient, got ' .. tostring(straddle.color2));
+assert(mobinfo.check_text({ MinLevel=14, MaxLevel=16 }, 20).color2 == nil, 'a range inside one tier has no second color -- nothing to gradient toward');
+assert(mobinfo.check_text({ Level=20 }, 20).text == 'EM', 'a fixed level is its own range');
+assert(mobinfo.check_text({ Level=20, MinLevel=1, MaxLevel=99 }, 20).text == 'EM', 'a fixed level wins over the range');
+assert(mobinfo.check_text({ MinLevel=14, MaxLevel=17, Notorious=true }, 20).text == '???',
+    'an NM is never gauged, whatever its range says');
+assert(mobinfo.check_text({ MinLevel=1, MaxLevel=2 }, nil) == nil, 'no player level, nothing to compare');
+assert(mobinfo.check_text({ MinLevel=1, MaxLevel=2 }, 0) == nil, 'level 0 is not logged in yet');
+assert(mobinfo.check_text({ Job=1 }, 20) == nil, 'a row with no level in it has no check line');
+assert(mobinfo.check_text(nil, 20) == nil, 'an unknown mob has no check line');
+
+-- Each tier draws in its own color, and the abbreviations are the ones /check prints.
+for key, want in pairs({ TW='TW', EP='EP', DC='DC', EM='EM', T='T', VT='VT', IT='IT', ITG='???' }) do
+    local t = mobinfo.CHECK[key];
+    assert(t ~= nil and t.text == want, key .. ' abbreviates as ' .. want);
+    assert(t.color ~= nil and t.color.r ~= nil and t.color.a == nil,
+        key .. ' carries rgb and no alpha -- drawBar takes the opacity from cfg.states');
+end
+
+-- Every tier gets its own shade now that the color fills the HP bar itself rather than tinting the
+-- label text: two tiers sharing a color would paint two different threat levels the same on a bar.
+local seen = {};
+for _, key in ipairs({ 'TW', 'EP', 'DC', 'EM', 'T', 'VT', 'IT', 'ITG' }) do
+    local c      = mobinfo.CHECK[key].color;
+    local packed = c.r .. ',' .. c.g .. ',' .. c.b;
+    assert(seen[packed] == nil, key .. ' shares a color with ' .. tostring(seen[packed]));
+    seen[packed] = key;
+end
+
 -- Lookup: index first (dynamic spawns are keyed by it), then name.
 local db = { Indices = { [382] = BONES }, Names = { ['Bomb'] = BOMB } };
 assert(mobinfo.find(db, 382, 'Bomb') == BONES, 'the index entry wins over the name');
@@ -512,49 +592,158 @@ assert(mobinfo.find(db, 17, nil) == nil, 'a nameless entity yields nothing');
 assert(mobinfo.find(nil, 17, 'Bomb') == nil, 'no zone data yields nothing');
 
 -- Panel assembly: each part keyed by where it draws, not by which toggle made it -- the bar's own
--- label, the two groups flanking the bar, and the rows hung underneath.
-local ALL_LINES   = { level = true, detect = true, resist = true };
-local NO_LINES    = { level = false, detect = false, resist = false };
-local ONLY_LEVEL  = { level = true, detect = false, resist = false };
-local ONLY_DETECT = { level = false, detect = true, resist = false };
+-- label (check tier + name + job), the tag box (the level), the two groups flanking the bar, and
+-- the rows hung underneath.
+local ALL_LINES   = { level = true, check = true, detect = true, resist = true };
+local NO_LINES    = { level = false, check = false, detect = false, resist = false };
+local ONLY_LEVEL  = { level = true, check = false, detect = false, resist = false };
+local ONLY_DETECT = { level = false, check = false, detect = true, resist = false };
+local ONLY_CHECK  = { level = false, check = true, detect = false, resist = false };
 
 local LINKER = { MinLevel=14, MaxLevel=17, Job=1, Aggro=false, Notorious=true, Link=true,
                  Sight=true, Sound=true, Scent=true };
 
-local full = mobinfo.panel(LINKER, ALL_LINES, jobname);
-assert(full.label == 'Lv.14-17 WAR', 'the level is the bar label, got ' .. tostring(full.label));
+-- label segments carry their own spacing (the check tier trails a space, the job leads one), so
+-- they concatenate directly -- unlike text() above, which puts a space between every segment.
+local function label_text(label)
+    if (label == nil) then return nil; end
+    local out = {};
+    for i, seg in ipairs(label) do out[i] = seg.text; end
+    return table.concat(out);
+end
+
+local full = mobinfo.panel(LINKER, ALL_LINES, jobname, 20, 'Tough Mist Lizard');
+assert(label_text(full.label) == '??? Tough Mist Lizard WAR',
+    'check + name + job, got ' .. tostring(label_text(full.label)));
+assert(full.tag == '14-17', 'the level tag box, got ' .. tostring(full.tag));
+assert(full.hp_color == mobinfo.CHECK.ITG.color, 'the tier colors the HP bar');
+for _, seg in ipairs(full.label) do
+    assert(seg.color == nil, 'no label segment carries a color -- the whole label draws in cfg.text.color');
+end
+assert(full.hp_color2 == nil, 'a notorious monster is one tier (ITG), not a straddle -- no gradient');
 assert(icons(full.left) == 'PassiveHQ Link', 'threat flanks left, got ' .. icons(full.left));
 assert(icons(full.right) == 'Sight Sound Scent', 'senses flank right, got ' .. icons(full.right));
 assert(#full.rows == 0, 'a mob with no modifiers hangs no rows');
 
-local bomb = mobinfo.panel(BOMB, ALL_LINES, jobname);
-assert(bomb.label == 'Lv.8-10', 'got ' .. tostring(bomb.label));
+local bomb = mobinfo.panel(BOMB, ALL_LINES, jobname, 12, 'Bomb');
+-- 'EP-DC', not 'EP- DC': check_text concatenates the two tiers into one string now that they
+-- share the bar label instead of drawing as two colored segments above it.
+assert(label_text(bomb.label) == 'EP-DC Bomb', 'the range straddles a boundary, got ' .. tostring(label_text(bomb.label)));
+assert(bomb.tag == '8-10', 'got ' .. tostring(bomb.tag));
+assert(bomb.hp_color == mobinfo.CHECK.EP.color, 'a straddling range colors the bar with the low tier, same as the label');
+assert(bomb.hp_color2 == mobinfo.CHECK.DC.color, 'and carries the high tier too, for the bar\'s gradient fill');
 assert(icons(bomb.left) == 'AggroNQ', 'no link, so the left group is the aggro icon alone');
 assert(icons(bomb.right) == 'Sight Magic', 'got ' .. icons(bomb.right));
 assert(#bomb.rows == 1, 'the resistance list is the row under the panel');
 assert(text(bomb.rows[1]) == 'Fire+25% Ice-50% Wind-50% Earth-50% Lightning-50% Water-50% Light-50% Dark-50%',
     'got ' .. tostring(text(bomb.rows[1])));
 
+local nolevel = mobinfo.panel(BOMB, ALL_LINES, jobname, nil, 'Bomb');
+assert(label_text(nolevel.label) == 'Bomb', 'no player level leaves the check segment out, got ' .. tostring(label_text(nolevel.label)));
+assert(nolevel.tag == '8-10', 'the tag does not depend on the check level');
+assert(nolevel.hp_color == nil, 'no check segment means no bar color either');
+assert(nolevel.hp_color2 == nil, 'and no second color for a gradient that has no first');
+
+assert(label_text(mobinfo.panel(LINKER, ALL_LINES, nil, 20, 'Tough Mist Lizard').label) == '??? Tough Mist Lizard',
+    'no jobname function means no job suffix, got '
+    .. tostring(label_text(mobinfo.panel(LINKER, ALL_LINES, nil, 20, 'Tough Mist Lizard').label)));
+
+-- The name shows for every target, mobdb entry or not: a player reads their own name, an
+-- unrecognized mob reads its raw name -- only the check prefix, job suffix and tag require res.
+local player = mobinfo.panel(nil, ALL_LINES, jobname, 20, 'PlayerName');
+assert(label_text(player.label) == 'PlayerName', 'a player (or unknown mob) gets a name-only label, got ' .. tostring(label_text(player.label)));
+assert(player.tag == nil, 'no res means no tag');
+assert(#player.left == 0 and #player.right == 0 and #player.rows == 0, 'no res means no detect/resist groups either');
+assert(player.hp_color == nil, 'no res means no check color either');
+
+local noNameNoRes = mobinfo.panel(nil, ALL_LINES, jobname, 20, nil);
+assert(noNameNoRes.label ~= nil and #noNameNoRes.label == 0,
+    'no name and no res still hands back an (empty) label, not nil -- mob is not nil');
+
 -- Each toggle still owns exactly what it names, and nothing else moves when one is off.
-local lvl = mobinfo.panel(BOMB, ONLY_LEVEL, jobname);
-assert(lvl.label == 'Lv.8-10' and #lvl.left == 0 and #lvl.right == 0 and #lvl.rows == 0,
-    'level alone is the label and nothing else');
+local lvl = mobinfo.panel(LINKER, ONLY_LEVEL, jobname, 20, 'Tough Mist Lizard');
+assert(label_text(lvl.label) == 'Tough Mist Lizard WAR', 'level alone adds the job suffix, not the check prefix, got ' .. tostring(label_text(lvl.label)));
+assert(lvl.tag == '14-17' and #lvl.left == 0 and #lvl.right == 0 and #lvl.rows == 0,
+    'level alone is the tag + job suffix, and nothing else');
+assert(lvl.hp_color == nil, 'level alone does not color the bar -- that is Show Check\'s toggle');
 
-local det = mobinfo.panel(BOMB, ONLY_DETECT, jobname);
-assert(det.label == nil and icons(det.left) == 'AggroNQ' and icons(det.right) == 'Sight Magic',
+local det = mobinfo.panel(BOMB, ONLY_DETECT, jobname, 12, 'Bomb');
+assert(label_text(det.label) == 'Bomb', 'detect alone leaves the name-only label, got ' .. tostring(label_text(det.label)));
+assert(det.tag == nil, 'detect alone has no tag');
+assert(icons(det.left) == 'AggroNQ' and icons(det.right) == 'Sight Magic',
     'detect alone is the icons, and the bar keeps its own label');
+assert(det.hp_color == nil, 'detect alone does not color the bar either');
 
--- The empty shape is always the full shape: every caller indexes these three, so none of them may
--- ever be nil, whatever went missing upstream.
-for _, empty in ipairs({ mobinfo.panel(BOMB, NO_LINES, jobname),
-                         mobinfo.panel(nil, ALL_LINES, jobname),
-                         mobinfo.panel(BOMB, nil, jobname) }) do
-    assert(empty.label == nil, 'nothing to say means no label');
-    assert(#empty.left == 0 and #empty.right == 0 and #empty.rows == 0, 'and no groups');
-end
+local chk = mobinfo.panel(BOMB, ONLY_CHECK, jobname, 12, 'Bomb');
+assert(label_text(chk.label) == 'EP-DC Bomb', 'check alone prefixes the bar label -- it does not borrow the level toggle, got ' .. tostring(label_text(chk.label)));
+assert(chk.tag == nil and #chk.left == 0 and #chk.rows == 0, 'check alone adds no tag and no other groups');
+assert(chk.hp_color == mobinfo.CHECK.EP.color, 'check alone still colors the bar, same as the label prefix');
+assert(chk.hp_color2 == mobinfo.CHECK.DC.color, 'and still carries the high tier for the gradient');
 
-local shipped = mobinfo.panel(BOMB, config.defaults.mob, jobname);
-assert(shipped.label ~= nil and #shipped.left > 0 and #shipped.rows == 1, 'the defaults ship every toggle on');
+-- left/right/rows are always present so the caller indexes them without guarding; label/tag are
+-- the two pieces that go nil, and only when there is truly nothing to build (mob itself nil).
+local none = mobinfo.panel(BOMB, nil, jobname, 12, 'Bomb');
+assert(none.label == nil and none.tag == nil, 'no toggle table at all means no label or tag');
+assert(#none.left == 0 and #none.right == 0 and #none.rows == 0, 'and no groups');
+assert(none.hp_color == nil, 'and no bar color');
+
+local nolines = mobinfo.panel(BOMB, NO_LINES, jobname, 12, nil);
+assert(nolines.label ~= nil and #nolines.label == 0, 'every toggle off (and no name) is an empty label, not a missing one');
+assert(nolines.tag == nil and #nolines.left == 0 and #nolines.right == 0 and #nolines.rows == 0);
+assert(nolines.hp_color == nil, 'every toggle off means no bar color either');
+
+local shipped = mobinfo.panel(BOMB, config.defaults.mob, jobname, 12, 'Bomb');
+assert(shipped.label ~= nil and #shipped.label > 0 and shipped.tag ~= nil and #shipped.left > 0 and #shipped.rows == 1,
+    'the defaults ship every toggle on');
+assert(shipped.hp_color == mobinfo.CHECK.EP.color, 'the defaults color the bar too');
+
+-- A captured check (checkinfo's entry, `chk`) overrides mobdb's estimate: exact tier and level
+-- instead of a range, and never a straddle gradient even though BOMB's own range (8-10 at level 12)
+-- straddles EP/DC on its own.
+local checked = mobinfo.panel(BOMB, ALL_LINES, jobname, 12, 'Bomb', { level = 25, tier = 'IT' });
+assert(label_text(checked.label) == 'IT Bomb', 'the checked tier wins over the mobdb estimate, got ' .. tostring(label_text(checked.label)));
+assert(checked.tag == '25', 'the checked level snaps the tag to one number, got ' .. tostring(checked.tag));
+assert(checked.hp_color == mobinfo.CHECK.IT.color, 'the bar fills in the checked tier\'s color');
+assert(checked.hp_color2 == nil, 'one checked tier is never a straddle, even if mobdb\'s range would have been');
+
+-- checkinfo's plus (0-2, High Evasion/High Defense) trails the tier abbreviation as `+`/`++`, and
+-- still colors the bar in the plain tier's one color -- the suffix is text, not a new threat level.
+local checkedPlus1 = mobinfo.panel(BOMB, ALL_LINES, jobname, 12, 'Bomb', { level = 25, tier = 'IT', plus = 1 });
+assert(label_text(checkedPlus1.label) == 'IT+ Bomb', 'one plus trails the tier as a single +, got ' .. tostring(label_text(checkedPlus1.label)));
+assert(checkedPlus1.hp_color == mobinfo.CHECK.IT.color, 'the plus does not change the bar color');
+
+local checkedPlus2 = mobinfo.panel(BOMB, ALL_LINES, jobname, 12, 'Bomb', { level = 25, tier = 'IT', plus = 2 });
+assert(label_text(checkedPlus2.label) == 'IT++ Bomb', 'both High Evasion and High Defense is a double ++, got ' .. tostring(label_text(checkedPlus2.label)));
+
+-- The mobdb estimate never carries a suffix -- it has no condition data to derive one from -- even
+-- for a tier that would otherwise take one were it a captured check.
+local estimateOnly = mobinfo.panel(BOMB, ALL_LINES, jobname, 12, 'Bomb');
+assert(not label_text(estimateOnly.label):find('%+'), 'the estimate path never appends a plus, got ' .. tostring(label_text(estimateOnly.label)));
+
+-- A checked mob mobdb has never heard of (res is nil) still gets the exact tier and level -- /check
+-- does not need mobdb to work, and job/detect/resist stay off since none of that is in a check.
+local checkedNoRes = mobinfo.panel(nil, ALL_LINES, jobname, 20, 'Unrecognized Mob', { level = 30, tier = 'VT' });
+assert(label_text(checkedNoRes.label) == 'VT Unrecognized Mob', 'got ' .. tostring(label_text(checkedNoRes.label)));
+assert(checkedNoRes.tag == '30', 'the tag needs no mobdb entry when chk supplies the level');
+assert(checkedNoRes.hp_color == mobinfo.CHECK.VT.color, 'the bar colors from chk alone too');
+assert(#checkedNoRes.left == 0 and #checkedNoRes.right == 0 and #checkedNoRes.rows == 0,
+    'no res still means no job suffix and no detect/resist groups');
+
+-- A level of 0 is the server declining to give one (an NM's check, in practice): the tag falls back
+-- to mobdb's range when there is one, and to nothing when there isn't -- same as no chk at all.
+local checkedNoLevel = mobinfo.panel(BOMB, ALL_LINES, jobname, 12, 'Bomb', { level = 0, tier = 'ITG' });
+assert(label_text(checkedNoLevel.label) == '??? Bomb', 'the tier still wins with no usable level, got ' .. tostring(label_text(checkedNoLevel.label)));
+assert(checkedNoLevel.tag == '8-10', 'mobdb\'s range is the fallback when chk gives no usable level');
+
+local checkedNoLevelNoRes = mobinfo.panel(nil, ALL_LINES, jobname, 12, 'Unrecognized Mob', { level = 0, tier = 'ITG' });
+assert(checkedNoLevelNoRes.tag == nil, 'no usable level and no mobdb entry leaves no tag at all');
+
+-- Show Check off leaves the checked tier out of the label and the bar uncolored, same as the
+-- mobdb-estimate path -- the toggle still owns the whole prefix, whichever source supplied it.
+local checkedNoToggle = mobinfo.panel(BOMB, ONLY_LEVEL, jobname, 12, 'Bomb', { level = 25, tier = 'IT' });
+assert(label_text(checkedNoToggle.label) == 'Bomb', 'check off means no prefix even with a captured check, got ' .. tostring(label_text(checkedNoToggle.label)));
+assert(checkedNoToggle.hp_color == nil, 'and no bar color either');
+assert(checkedNoToggle.tag == '25', 'the level tag is Show Level & Job\'s toggle, independent of Show Check');
 
 -- The loader. A missing file is the normal case -- mobdb ships ~245 zones and may not be
 -- installed at all -- so it must land on nil rather than throwing.
@@ -566,8 +755,8 @@ fh:write("return { Names = { ['Bomb'] = { MinLevel = 8, MaxLevel = 10 } }, Indic
 fh:close();
 local loaded = mobinfo.load(tmp);
 assert(loaded ~= nil, 'a mobdb zone file must load under stock lua');
-assert(mobinfo.level_job(mobinfo.find(loaded, 1, 'Bomb')) == 'Lv.8-10', 'names survive the round trip');
-assert(mobinfo.level_job(mobinfo.find(loaded, 382, 'Bomb')) == 'Lv.5-8', 'indices survive the round trip');
+assert(mobinfo.level_text(mobinfo.find(loaded, 1, 'Bomb')) == '8-10', 'names survive the round trip');
+assert(mobinfo.level_text(mobinfo.find(loaded, 382, 'Bomb')) == '5-8', 'indices survive the round trip');
 
 fh = io.open(tmp, 'w');
 fh:write('this is not lua');
@@ -603,18 +792,51 @@ checkinfo.record(list, fakeEnt(0x10, 100, 0, 500), 20, 0x43, 0xAB);
 assert(list[500].level == 20, 'level is recorded as given, got ' .. tostring(list[500].level));
 assert(list[500].type == 'like a decent challenge', 'type resolves through M.TYPES, got ' .. tostring(list[500].type));
 assert(list[500].message == 'High Evasion', 'message resolves through M.CONDITIONS, got ' .. tostring(list[500].message));
+assert(list[500].tier == 'DC', 'type 0x43 maps to mobinfo\'s DC tier, got ' .. tostring(list[500].tier));
+assert(list[500].plus == 1, 'a single "High" in the condition is one plus, got ' .. tostring(list[500].plus));
 
 -- 0xAE is a real condition id and reads as an empty string, not "unrecognized".
 checkinfo.record(list, fakeEnt(0x10, 100, 0, 501), 20, 0x44, 0xAE);
 assert(list[501] ~= nil and list[501].message == '', 'condition 0xAE is the empty string, not missing');
+assert(list[501].tier == 'EM', 'type 0x44 maps to EM, got ' .. tostring(list[501].tier));
+assert(list[501].plus == 0, 'the average condition (0xAE) is no plus, got ' .. tostring(list[501].plus));
 
 -- Impossible to gauge: the server sends no usable type at all, so there is nothing to resolve.
 checkinfo.record(list, fakeEnt(0x10, 100, 0, 502), 0, 0xFF, 0xF9);
 assert(list[502].type == nil and list[502].message == 'Impossible to gauge!', 'an NM check has no type, only the ITG message');
+assert(list[502].tier == 'ITG', 'an NM check still gets a tier, matching mobinfo.CHECK.ITG');
+assert(list[502].plus == 0, 'an NM check has no condition to count, got ' .. tostring(list[502].plus));
+
+-- Both High Evasion and High Defense (0xAA) is two pluses; either alone is one; Low never counts,
+-- even paired with a High (0xAC, 0xB0) -- only "checks better than expected" is worth flagging.
+checkinfo.record(list, fakeEnt(0x10, 100, 0, 506), 20, 0x43, 0xAA);
+assert(list[506].plus == 2, 'High Evasion, High Defense is two pluses, got ' .. tostring(list[506].plus));
+checkinfo.record(list, fakeEnt(0x10, 100, 0, 507), 20, 0x43, 0xAD);
+assert(list[507].plus == 1, 'High Defense alone is one plus, got ' .. tostring(list[507].plus));
+checkinfo.record(list, fakeEnt(0x10, 100, 0, 508), 20, 0x43, 0xAC);
+assert(list[508].plus == 1, 'High Evasion, Low Defense is one plus -- Low does not count, got ' .. tostring(list[508].plus));
+checkinfo.record(list, fakeEnt(0x10, 100, 0, 509), 20, 0x43, 0xB0);
+assert(list[509].plus == 1, 'Low Evasion, High Defense is one plus, got ' .. tostring(list[509].plus));
+checkinfo.record(list, fakeEnt(0x10, 100, 0, 510), 20, 0x43, 0xAF);
+assert(list[510].plus == 0, 'Low Defense alone is no plus, got ' .. tostring(list[510].plus));
+checkinfo.record(list, fakeEnt(0x10, 100, 0, 511), 20, 0x43, 0xB1);
+assert(list[511].plus == 0, 'Low Evasion alone is no plus, got ' .. tostring(list[511].plus));
+checkinfo.record(list, fakeEnt(0x10, 100, 0, 512), 20, 0x43, 0xB2);
+assert(list[512].plus == 0, 'Low Evasion, Low Defense is no plus, got ' .. tostring(list[512].plus));
+
+-- 0x40 and 0x47 are the chart's two ends; 0x41 ("incredibly easy prey") has no tier of its own
+-- below EP in this project's chart, and lands on EP the same as 0x42 ("easy prey").
+checkinfo.record(list, fakeEnt(0x10, 100, 0, 503), 20, 0x40, 0xAB);
+assert(list[503].tier == 'TW', 'type 0x40 maps to TW, got ' .. tostring(list[503].tier));
+checkinfo.record(list, fakeEnt(0x10, 100, 0, 504), 20, 0x41, 0xAB);
+assert(list[504].tier == 'EP', 'type 0x41 has no tier below EP, got ' .. tostring(list[504].tier));
+checkinfo.record(list, fakeEnt(0x10, 100, 0, 505), 20, 0x47, 0xAB);
+assert(list[505].tier == 'IT', 'type 0x47 maps to IT, got ' .. tostring(list[505].tier));
 
 -- A re-check overwrites rather than stacking a second entry for the same server id.
 checkinfo.record(list, fakeEnt(0x10, 100, 0, 500), 25, 0x44, 0xAA);
 assert(list[500].level == 25 and list[500].type == 'like an even match', 're-checking overwrites the old entry');
+assert(list[500].tier == 'EM', 'the tier is overwritten along with everything else');
 
 -- Pruning: only the entity that is now at 0% hp loses its entry; everything else survives.
 checkinfo.prune(list, nil);
@@ -629,3 +851,66 @@ checkinfo.clear(list);
 assert(next(list) == nil, 'clear empties the whole list');
 
 print('checkinfo.lua ok');
+
+-- enemylist.lua: personally-claimed mob tracking, keyed by server id -- mirrors checkinfo.lua's
+-- shape. No per-entry data beyond membership, so recording an already-tracked mob is a no-op.
+local enemylist = require('lib.enemylist');
+
+local elist = {};
+enemylist.record(elist, nil);
+assert(next(elist) == nil, 'recording a nil entity must not add anything');
+
+enemylist.record(elist, fakeEnt(0x10, 100, 0, 700));
+assert(elist[700] == true, 'a recorded mob is tracked by its server id');
+
+enemylist.record(elist, fakeEnt(0x10, 100, 0, 700));
+assert(elist[700] == true, 'recording the same mob twice is a no-op, not an error');
+
+enemylist.prune(elist, nil);
+assert(elist[700] == true, 'pruning a nil entity must not touch the list');
+
+enemylist.prune(elist, fakeEnt(0x10, 50, 0, 700));
+assert(elist[700] == true, 'a mob still above 0% hp must not be pruned');
+
+enemylist.prune(elist, fakeEnt(0x10, 0, 0, 700));
+assert(elist[700] == nil, 'a mob at 0% hp is pruned');
+
+enemylist.record(elist, fakeEnt(0x10, 100, 0, 701));
+enemylist.record(elist, fakeEnt(0x10, 100, 0, 702));
+enemylist.clear(elist);
+assert(next(elist) == nil, 'clear empties the whole list');
+
+print('enemylist.lua ok');
+
+-- resolve_index: server id -> live entity index, via an injected get_server_id lookup (same
+-- injection pattern nameplate.lua uses for its memory reader) so this is testable without a real
+-- entity manager.
+local function fakeServerIds(map)
+    return function (index) return map[index] or 0; end;
+end
+
+-- Fast path: a non-PC server id (0x1000000 bit set) encodes its own index in the low 12 bits.
+local FAST_ID = 0x1000000 + 0x123;
+assert(enemylist.resolve_index(fakeServerIds({ [0x123] = FAST_ID }), FAST_ID) == 0x123,
+    'the fast path decodes the index straight out of the server id');
+
+-- The bit trick alone is not trusted -- it must be verified against get_server_id, since a stale
+-- server id can still carry that bit pattern after the entity at that index changed.
+assert(enemylist.resolve_index(fakeServerIds({ [0x123] = 999 }), FAST_ID) == 0,
+    'an unverified fast-path guess must fall through to the full scan, not be trusted blind');
+
+-- >= 0x900 wraps back by 0x100, matching HXUI's/Sidekick's own shortcut.
+local WRAP_ID = 0x1000000 + 0x905;
+assert(enemylist.resolve_index(fakeServerIds({ [0x805] = WRAP_ID }), WRAP_ID) == 0x805,
+    'an index >= 0x900 wraps back by 0x100 before verification');
+
+-- No fast-path bit set at all: falls straight to the full walk.
+local SLOW_ID = 12345;
+assert(enemylist.resolve_index(fakeServerIds({ [42] = SLOW_ID }), SLOW_ID) == 42,
+    'a server id with no fast-path bit is found by the full walk');
+
+-- Not found anywhere.
+assert(enemylist.resolve_index(fakeServerIds({}), SLOW_ID) == 0,
+    'an id that matches nothing yields 0');
+
+print('enemylist.lua resolve_index ok');

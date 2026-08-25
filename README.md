@@ -1,4 +1,4 @@
-# NewUI
+# Floaties
 
 Ashita v4 addon. Draws a styled HP/MP/TP unit-frame panel that tracks your
 character in 3D space, anchored to the nameplate.
@@ -48,7 +48,7 @@ known.
 
 Size is the one setting that is **not** shared between the three panel kinds.
 Self, party and target each own a width and a height per bar, under `sizes` in
-the settings file and in their own block in `/newui config`:
+the settings file and in their own block in `/floaties config`:
 
 | Panel | Settings | Defaults |
 |---|---|---|
@@ -103,8 +103,71 @@ Text Size**, including once the distance scale has shrunk it there, the tag drop
 out the same way a bar label does; the reserved space stays, so the bars don't
 jump as you walk away.
 
-Target panels never get one either — an arbitrary entity has no party slot — so
-that panel also reserves no space and keeps its full bar width.
+**Target panels get a tag box too, but a different one.** Instead of a party
+slot it holds the target's level — a range (`14-17`) or a fixed number (`50`,
+also what a checked mob's exact level shows as — see **The check tier**), no
+`Lv.` prefix and no job — gated by **Show Level & Job** (`cfg.mob.level`)
+rather than by this setting, since an arbitrary entity has no party slot to
+gate on. It reserves space out of the bar the same way, through the same
+`M.slot_width` — the box just holds different text depending on which panel
+kind is drawing it.
+
+## Hiding party nameplates
+
+**Hide Party Nameplates** (off) switches the client's own name off over party
+members `P1`..`P5`, leaving their panel as the only thing above their head. The
+plate otherwise repeats what the panel already says, in the space the panel
+wants.
+
+It works by setting bit `0x08` of each member's entity `Render.Flags2` — the
+client's own "name hidden" mask, the same one Ashita's `noname` addon sets on
+the local player. Nothing is drawn over or around the plate: the game is told
+not to draw it.
+
+**Your own name is not touched.** That is `noname`'s job, and two addons writing
+one flag on one entity would just fight over it.
+
+It is **independent of Show Party Members**, not nested under it: hiding plates
+without drawing panels is a legitimate combination, and tying them together
+would un-hide names the moment panels were switched off.
+
+Consequences of it being a live edit to the client rather than something
+Floaties draws:
+
+- **The bit is re-set every frame**, because the client rebuilds an entity's
+  render flags wholesale on spawn and on zone.
+- **Names come back the moment you switch it (or the addon) off**, because the
+  bit is cleared explicitly rather than left for the client's next rebuild to
+  drop. A member leaving the party gets theirs back the same frame.
+- **Unloading restores every plate still hidden.** Leaving the bit set would
+  strand party members nameless with nothing running to explain it and no way
+  back short of zoning.
+
+### Why it also patches one byte of the client
+
+Setting the bit once a frame is not enough on its own. The client's entity
+update runs `and ecx, 0FFFFFFF7h` / `mov [eax+128h], ecx` — `+0x128` is
+`Render.Flags2`, `0xF7` is `~0x08` — so every entity update packet (`0x00D` /
+`0x00E`) strips the mask straight back off. The plate then draws for the frame
+between that clear and the next per-frame write: **a one-frame flash of the
+name**, every update, which is what this looked like before the patch.
+
+So the immediate is patched from `0xF7` to `0xF8`, which leaves bit `0x08`
+alone — the same byte, and the same value, `noname` writes for the local
+player. The per-frame write stays: the patch stops the client clearing the mask,
+it does not set it in the first place, and it does not cover the wholesale
+rebuild on spawn or zone.
+
+Because it is a write into the client's code rather than into an entity:
+
+- **It is applied only while the setting is on**, and restored the moment it
+  goes off or the addon unloads. Off means the client is untouched.
+- **It defers to `noname`.** If that byte already reads `0xF8`, Floaties takes
+  the benefit and claims no ownership, so unloading Floaties cannot rip
+  `noname`'s patch out from under it.
+- **If the signature is not found** (`FFXiMain.dll` is packed on disk, so this
+  can only be resolved at runtime) it says so once in the log, and hiding still
+  works — with the one-frame flash back.
 
 ## Distance scaling
 
@@ -151,13 +214,13 @@ ones. **Show Target** in the config window turns it off; it has its own
 
 **One bar, HP only.** Party panels can show MP and TP because the party packets
 carry them. For an arbitrary entity the client is told a single number — an HP
-percent — and nothing else, so there is no MP or TP to draw. The label is that
-percent, via the same `hp_raw == 0` fallback party members' labels already use,
-and prints with a trailing `%` for exactly that reason — except while the mob is
-at full health, when the bar carries its level instead (see **Target reference
-lines**). The panel shrinks to fit the one bar and stays that shape: every piece
-of mob reference is drawn *around* it, never inside, so none of it changes the
-panel's geometry.
+percent — and nothing else, so there is no MP or TP to draw. The bar's label is
+the target's name, prefixed with its `/check` tier and suffixed with its job
+when mobdb has an entry (see **Target reference lines**), and the HP percent is
+appended once the mob takes damage — a full bar already says "100%" without it.
+The panel shrinks to fit the one bar and stays that shape: every piece of mob
+reference is drawn *around* it, never inside, so none of it changes the panel's
+geometry.
 
 **Which target.** The cursor target (`<t>`) first; when nothing is selected, the
 battle target (`<bt>`) instead, so clearing your target mid-fight doesn't blank
@@ -253,9 +316,10 @@ differently from "`get_bt` has nothing".
 
 Both gate conditions are evaluated once per frame into a single state table,
 *before* any of the early returns, so it keeps updating while the addon is
-disabled or the panel is gated off. The top line of `/newui config` shows it
-live — **In Combat / Engaged / Idle** in green when true, red when false,
-followed by the raw entity status and what `<bt>` currently resolves to:
+disabled or the panel is gated off. The **Debug** collapsing section at the
+bottom of `/floaties config` shows it live — **In Combat / Engaged / Idle** in
+green when true, red when false, followed by the raw entity status and what
+`<bt>` currently resolves to:
 
 ```
 In Combat: true  Engaged: true  Idle: false  | status=1
@@ -269,8 +333,7 @@ Target panel: shown
 together**, not the gates alone — so a gate reading false while a panel is on
 screen is visible as a contradiction rather than something to infer. With no gate
 enabled it reads `hidden -- no gate enabled, so nothing can enable it`; with the
-addon switched off it reads `hidden -- addon switched off; tick Enabled below, or
-/newui`.
+addon switched off it reads `hidden -- addon switched off; tick Enabled above`.
 
 `Target panel:` is the second decision, and it is deliberately a second line: the
 gates do not reach it, so folding both into one `Panel:` verdict would have it
@@ -279,9 +342,11 @@ read `hidden` while a target panel was plainly on screen. It is `shown` when
 filters above — which is exactly the `target:` line reading anything but `none`
 or ` REJECTED`.
 
-`Enabled` is the master switch `/newui` toggles, and it is persisted. It reports
-here and has its own checkbox because leaving it out of both is what let it be
-off and invisible at the same time: the line meant to answer "is this a gate
+`Enabled` is the master switch, a checkbox at the top of **Debug** and
+persisted. It lives there, not among the regular settings above it, because the
+question "is the addon even on?" is exactly the one Debug's other lines answer
+— and leaving it out of the same section that reports "hidden" is what let it
+be off and invisible at the same time: the line meant to answer "is this a gate
 problem?" said `shown` over an empty screen for as long as the setting stayed
 off.
 
@@ -300,21 +365,25 @@ name. `bt: none` means `get_bt` returned nothing.
 
 `target:` is the same treatment for the target panel, so an NPC you have clicked
 reads as ` REJECTED` with `flags=0x2` rather than looking identical to targeting
-nothing at all. `/newui bt` prints all of it to the log.
+nothing at all. `/floaties bt` prints all of it to the log.
 
 **Show While Engaged** tests a similar condition through a supported Ashita API
 with no signature involved. The battle-target gate is the one that stays true
 while a claimed mob is alive but you are disengaged.
 
-Every visual property is configurable via `/newui config` and persists across
+Every visual property is configurable via `/floaties config` and persists across
 sessions — per-panel widths and bar heights (see **Panel sizes**), and shared
 padding/rounding/colors/border/text color.
 
 The default panel is black at `100/255` alpha with a fully transparent **Panel
 Border Color**: the frame reads as its own shape against the world rather than an
-outlined box. **Border Visible** stays on regardless — it also controls the bar
-outlines, which do use theirs (black at `150/255`). To get a panel outline back,
-raise the border color's alpha rather than looking for a second toggle.
+outlined box. Both borders draw unconditionally now — there is no visibility
+checkbox for either — so a transparent alpha is what hides the panel border,
+while the bar border stays visible at its own default (black at `150/255`). To
+get a panel outline back, raise **Panel Border Color**'s alpha rather than
+looking for a separate toggle; the same goes for **Panel Rounding** and **Bar
+Rounding**, which turn their rounding off at `0` instead of a checkbox next to
+them.
 
 Labels carry a separate outline color from their fill: **Text Outline Color**
 draws the number a second time one pixel out in each direction, underneath, so a
@@ -377,51 +446,152 @@ frame — reading left to right as one sentence: what it does to you, what it is
 what it sees you with.
 
 ```
-<Passive> <Link>  [═══════ Lv.14-17 WAR/MNK ═══════]  <Sight> <Sound> <Scent>
-                    <Fire>+25% <Ice>-50% <Dark>-50%
+            14-17
+<Passive> <Link> [═ EP-DC Tough Mist Lizard WAR/MNK ═] <Sight> <Sound> <Scent>
+                   <Fire>+25% <Ice>-50% <Dark>-50%
 ```
 
-Three toggles in `/newui config` feed it:
+Four toggles in `/floaties config` feed it:
 
 | Setting | Contributes | Drawn as |
 |---|---|---|
 | **Show Detection** | the icon groups flanking the bar | left of it: aggro/passive, then Link. Right of it: TrueSight, Sight, Sound, Scent, Magic, JA, Blood |
-| **Show Level & Job** | the bar's own label | `Lv.14-17 WAR/MNK`, in place of the HP percent |
+| **Show Level & Job** | the tag box, and a suffix on the bar's label | `14-17` in the box; ` WAR/MNK` appended to the label |
+| **Show Check** | a prefix on the bar's own label, and the bar's own fill color | the `/check` tier jammed into one string: `EP-DC `, drawn in the label's own color like the name beside it; the bar fills in the tier's color, or a left-to-right low-to-high gradient when the range straddles two tiers |
 | **Show Weakness/Resist** | a row under the panel | an icon and a percentage each: `<Fire>+25% <Ice>-50%` |
 
-**Show Detection** owns both groups because they answer the same question from
-two sides — Link sits with the aggro flag rather than with the senses, since it
-is not one, and the two of them together are the pull decision. Each toggle
-still owns exactly what it names: **Show Detection** alone draws the icons and
-leaves the bar its percent, **Show Level & Job** alone relabels the bar and draws
-no icons.
+The target's **name always draws**, whatever mobdb knows about it or doesn't —
+it is the entity's own display name, not mobdb data, so a player or an
+unrecognized mob still gets a label instead of a blank bar. **Show Check** and
+**Show Level & Job**'s job suffix are the only pieces of the label that need a
+mobdb entry; the tag box needs one too.
+
+**Show Detection** owns both icon groups because they answer the same question
+from two sides — Link sits with the aggro flag rather than with the senses,
+since it is not one, and the two of them together are the pull decision. Each
+toggle still owns exactly what it names: **Show Detection** alone draws the
+icons and leaves the label alone, **Show Level & Job** alone adds the tag box
+and the job suffix (no check prefix), and **Show Check** alone prefixes the
+label (no tag box, no job).
 
 Resistances stay on their own row under the panel. That list has no fixed
 length, so flanking with it would shove the bar off-center by however many
 damage types the mob happens to have.
 
-All three ship on. They draw on the target panel only — party members are not
+All four ship on. They draw on the target panel only — party members are not
 mobs, and a PC you have targeted has no entry either.
 
-### The level on the bar
+### The label on the bar
 
-**A full-health mob shows its level where the `100%` used to be, and switches to
-the percent the moment it takes damage.**
+**The label is the target's name, with the check tier prefixed and the job
+suffixed when mobdb has an entry, and the HP percent appended once the mob
+takes damage.** A full bar already says "100%" without it; the fill stops
+resolving 71% from 64% the moment there is damage on it, which is when the
+percent starts saying something the fill does not — so it is left off at full
+health and appended from the first hit onward.
 
-`100%` over a full bar is the bar repeating itself — the fill already says it —
-while the level is shown nowhere else on screen. Once there is damage on it that
-stops being true: the fill no longer resolves 71% from 64%, and the percent is
-the number being read. So the swap happens on the first hit and stays.
+**The name is not mobdb data.** It is the entity's own display name, always
+known, so a player you have targeted or a mob mobdb has never heard of still
+gets a label — just without the check prefix or job suffix, which do need an
+entry.
 
 **The label shrinks to fit rather than being dropped.** A number always fitted
-the bar; `Lv.14-17 WAR/MNK` is as long as the mob's job pairing makes it, and a
-label that vanished would leave the bar saying nothing at all. The size solves
-directly out of the width — no iteration — starting from the bar-height size
-every label uses.
+the bar; the full label (`EP-DC Tough Mist Lizard WAR/MNK`) is as long as the
+check tier, the name, and the mob's job pairing make it, and a label that
+vanished would leave the bar saying nothing at all. The size solves directly
+out of the combined width of every segment — no iteration — starting from the
+bar-height size every label uses.
 
 A bar too *short* still drops its text rather than shrinking it to mush. That is
 the other failure — no glyph is legible at any width — and **Min Text Size**
 already owns it.
+
+### The check tier
+
+**Show Check** prefixes the bar's label with the `/check` tier, and fills the
+bar itself in that tier's color — your main job level against the mob's level
+from mobdb, so it is the one piece of the panel that is about *you* rather
+than about the mob.
+
+| | Abbreviation | Level difference at 1 | at 75 |
+|---|---|---|---|
+| Too Weak to be Worthwhile | `TW` | 7+ below | 20+ below |
+| Easy Prey | `EP` | 3–6 below | 8–19 below |
+| Decent Challenge | `DC` | 1–2 below | 1–7 below |
+| Even Match | `EM` | same level | same level |
+| Tough | `T` | 1–4 above | 1–3 above |
+| Very Tough | `VT` | 5 above | 4–7 above |
+| Incredibly Tough | `IT` | 6+ above | 8+ above |
+| Impossible to Gauge | `???` | any notorious monster | |
+
+It leads the label — before the name — because it is read first: whether to
+engage at all is answered before anything else on the panel matters.
+
+**The prefix draws in the label's own color, same as the name and job around
+it** (**Text Color**, with the shared outline) — it used to be tinted with its
+tier, which made the label read as a colored word glued to a white one at every
+size. The tier's color is not lost: it fills the whole HP bar underneath, where
+it says the same thing at a glance without breaking the line of text into two.
+
+**The bands are interpolated between the two published endpoints**, not looked
+up. The server derives the tier from the experience the kill would award and
+that curve flattens with level, which is why Too Weak is 7 levels down at 1 and
+20 down at 75. A straight line between the two reproduces it within a level
+across the whole range for one line of arithmetic instead of a 75×75 table.
+Above 75 the boundaries hold at their level-75 values rather than running off the
+end of the curve.
+
+**A level *range* that straddles a boundary is jammed into one string** —
+`EP-DC` for a Lv.14-17 mob at level 20 — instead of printing each end in its own
+color the way it used to when this sat on its own line above the bar. mobdb
+gives most mobs a range, and naming one end and not the other would be wrong
+about half the spawn; the text says both, and the bar under it colors both.
+
+**The bar itself fills in a gradient for a straddling range** — low tier's color
+on the left, high tier's on the right — instead of picking one end the way the
+label has to. The gradient spans the whole bar width and holds still as HP
+drains; the fill just reveals less of it, the same way the flat fill for a
+single-tier mob always did. A mob that does not straddle a boundary still fills
+flat, in that one tier's color, same as ever.
+
+**A notorious monster reads `???` whatever its level says.** `/check` refuses to
+gauge an NM, and printing the tier mobdb's range implies would be inventing an
+answer the game withholds.
+
+**A mob you have actually /checked overrides all of the above with the real answer.** Everything
+this section describes — the interpolated bands, the straddling range, the gradient fill — is an
+*estimate* from mobdb's level data; once `checkinfo`'s captured list (see **Check capture**) holds
+an entry for the target, its exact tier and level win instead. The label prefix collapses to that
+one tier (never `EP-DC` — a check answers with exactly one tier, so the bar fills flat in its color,
+never a gradient) and the tag box snaps from a range to the single level `/check` reported, once it
+gave a usable one — the server sends `0` in place of a level for an NM's response, so that box keeps
+mobdb's range in that case instead of showing nothing. Both hold **even for a mob mobdb has no entry
+for at all**: `/check` needs no mobdb data to work, so an unrecognized mob you have checked still
+gets an exact tier and level, just no job suffix or detection/resistance rows — those really do come
+only from mobdb, and `/check` has nothing to say about them. Re-checking a mob replaces the captured
+entry with the fresh answer, same as it replaces everything else `checkinfo` keeps for that server id.
+
+**A captured check's tier also carries a `+`/`++` suffix for High Evasion and High Defense** —
+`IT+` for one, `IT++` for both — since retail's condition ("High Evasion, High Defense", etc.) is
+independent of the difficulty message and applies to whichever tier a mob names, not just `IT`. Low
+Evasion and Low Defense never draw anything: a mob checking *worse* than expected is not worth
+flagging the way one checking better is, and the plain tier already says how the fight reads
+overall. The suffix is text only, trailing the tier in the label — it never changes the bar's color,
+and mobdb's estimate never carries one at all, since it has no condition data to draw one from.
+
+The bar colors are this project's own reference palette — gray, green, blue, white,
+gold, orange, dark red, purple — rather than `/check`'s own chat colors: the
+tier fills the whole bar, not a couple of letters next to other text,
+so every tier needs a shade that reads as its own threat level on sight, and no
+two tiers share one. `IT` alone stands in for three shades of "incredibly
+tough" the reference chart draws separately — mobdb's own estimate has no
+condition data at all, so there is no way for it to tell which of the three a
+given mob is, and `IT` takes the darkest of the three rather than inventing a
+split the estimate can't support. A captured check can and does tell them
+apart — see the `+`/`++` suffix above — but reuses `IT`'s one color for all
+three rather than needing a shade of its own for each. They are not settings: this is one fixed
+chart, not a palette to retint. Opacity comes from the bar's own fill state
+(`full`/`incomplete`/`empty`), like every other bar color.
 
 ### Where the icons sit
 
@@ -464,9 +634,11 @@ a panel, where a number lining up under the wrong icon is the likelier reading.
 ### Placement
 
 The rows sit one **Bar Gap** under the panel's bottom edge, each centered on the
-same anchor the panel is, and **none of the reference costs the panel any height
-or width** — a target panel is exactly the same shape whether the mob has
-everything to say or nothing.
+same anchor the panel is. **None of the reference costs the panel any height or
+width** — a target panel is exactly the same shape whether the mob has everything
+to say or nothing. (The check tier no longer has a placement of its own — it
+lives inside the bar label now, so it costs nothing beyond what the label
+already costs.)
 
 That is the point of it all being outside. A resistance list has no natural
 width: a mob weak and resistant to eight damage types is a long line at any
@@ -512,9 +684,9 @@ dynamic spawns (the `0x700`+ range) differ per zone instance and are keyed by
 index, everything else by name. Client name markers are stripped before the name
 lookup.
 
-The config window's `mob data:` line reports the loaded zone and whether a file
-was found, so "every line ticked and still nothing under the bar" can be told
-apart from "mobdb isn't installed":
+The config window's **Debug** section carries a `mob data:` line reporting the
+loaded zone and whether a file was found, so "every line ticked and still
+nothing under the bar" can be told apart from "mobdb isn't installed":
 
 ```
 mob data: zone 100, loaded
@@ -549,17 +721,33 @@ retinting them.
 ## Check capture
 
 `/check`'s answer is captured off the wire and kept, keyed by the checked entity's server id, so
-re-targeting it later does not require a re-check to know what it already said. Not drawn anywhere
-yet — this is the list a target-panel branch reads from later; see `checkinfo.lua`.
+re-targeting it later does not require a re-check to know what it already said. The target panel
+reads this list — see **The check tier** — and prefers it over mobdb's estimate whenever an entry
+exists; see `checkinfo.lua`.
 
 The client's Message Basic packet (`0x0029`) is what `/check` (and the `checker` addon) both read;
-NewUI listens for it too, alongside the check pair `checker.lua` uses to tell a check response from
+Floaties listens for it too, alongside the check pair `checker.lua` uses to tell a check response from
 the hundreds of other messages that packet carries. A recognized response overwrites any existing
 entry for that server id — a re-check is the freshest truth, not a second opinion kept alongside the
 first — and records the level, the resolved difficulty (`"like a decent challenge"`, etc.) and the
 resolved condition (`"High Evasion"`, etc.). A notorious monster's response carries no difficulty at
 all — the server withholds it — so that entry's type is `nil` and its message reads `"Impossible to
 gauge!"` instead.
+
+Alongside that resolved text, each entry also carries a `tier` — one of mobinfo's own chart keys
+(`TW`/`EP`/.../`IT`, or `ITG` for the notorious case), mapped straight from Message Basic's difficulty
+code. A captured check already names one exact tier, so this is a lookup table next to the ones that
+resolve the display text, not the level-difference math `mobinfo.check_tier` runs for an estimate.
+Retail's message set has one code (`"like incredibly easy prey"`) this project's seven-tier chart has
+no room for below `EP`; it lands on `EP` there too, the same call `checker.lua`'s own colors make (it
+leaves that one code uncolored rather than giving it `EP`'s tint, but does not invent an eighth tier
+for it either).
+
+Each entry also carries `plus` (`0`-`2`): how many of "High Evasion" / "High Defense" the resolved
+condition names, counted off that same resolved string rather than a second lookup keyed on the raw
+message id — the one combined condition (`"High Evasion, High Defense"`) just matches twice. "Low"
+never counts. The target panel trails this many `+` onto the tier abbreviation; see **The check
+tier**.
 
 **The whole list is discarded on zone** (packets `0x00A` and `0x00B`, the same pair `checker.lua`
 itself clears its widescan cache on): a server id is only unique within one zone instance, so
@@ -568,22 +756,50 @@ nothing recorded under the old one can mean the same entity after a zone change.
 **One entry is discarded when that entity reaches 0% hp.** This piggybacks on the target-entity read
 `updateGateState` already does every frame for the gate diagnostics, rather than a separate scan —
 so a checked mob that dies while it is your target is pruned for free, but one that dies off-target
-lingers in the list until the next zone clears it. That gap is intentional for now: NewUI only ever
+lingers in the list until the next zone clears it. That gap is intentional for now: Floaties only ever
 knows what it is currently looking at, and a full-entity sweep to close it is easy to add later if
 the UI branch that reads this list needs it.
+
+## Enemy list
+
+Every mob you (or your pet, avatar, or automaton) have personally damaged or affected gets
+the exact same panel the current target does -- HP bar, name, check tier, level tag, detection
+icons, resist row -- floating over it, independent of what is currently targeted. **Show Enemy
+List** in `/floaties config` turns it off; **Enemy List Max** caps how many draw in one frame.
+
+**What counts as "yours."** Built off the Action packet (`0x0028`), the same one that carries
+melee swings, weaponskills, job abilities, and spells (including each Dia/Poison tick, which
+re-sends this packet with the caster as the actor) -- filtered to actions whose actor is you or your
+pet/avatar/automaton. A trust's own actions are not checked separately -- a trust only ever acts
+against something you are already acting against, so your own hit already covers whatever a trust's
+hit would add. A party member landing a hit does not add anything either; only your own (and your
+pet's) actions do. Any action counts, hit or miss -- a swing that whiffs still means you're fighting
+it, so the packet's own hit/miss/parry/evade code is never read.
+
+This is **not** a ranked hate/enmity display. The server does not send real enmity numbers to the
+client during normal play (the only exact read is casting Libra), so nothing here claims to know
+where you stand on a mob's hate list -- only that you've hit it.
+
+**No double panel.** A mob that is both your current target and on this list only ever gets the
+target panel -- the enemy-list loop skips whatever index `target_index` currently is, the same way
+the target panel already skips party members in slots `0..5`.
+
+Ungated, same reasoning as the target panel: having hit something already answers "should this
+draw" -- gating it on your own idle/engaged/combat status would hide a mob you just pulled until
+your own status caught up.
 
 ## Commands
 
 | Command | Effect |
 |---|---|
-| `/newui` | Toggle on/off. Persisted, and the same setting as the **Enabled** checkbox in the config window |
-| `/newui height <n>` | Your own vertical nudge from the nameplate anchor. Positive is downward. Default `0.228` |
-| `/newui config` | Toggle the settings window |
-| `/newui bt` | Print the current gate state (in combat / engaged / idle, raw status, resolved `<bt>` and target, or why either was rejected) |
+| `/floaties` or `/float` | Toggle the settings window. The **Enabled** checkbox in its **Debug** section is the on/off switch, persisted. Whether the window itself is open is also persisted, so a `/lua reload` or relog leaves it exactly as you left it |
+| `/floaties height <n>` | Your own vertical nudge from the nameplate anchor. Positive is downward. Default `0.228` |
+| `/floaties config` | Same as the bare command, kept as an alias |
+| `/floaties bt` | Print the current gate state (in combat / engaged / idle, raw status, resolved `<bt>` and target, or why either was rejected) |
 
 `0.0` puts the panel's top edge level with the top of the model, i.e. directly under the
 nameplate; nudge from there. Self, party and target have separate offsets (`Self Height
-Offset` / `Party Height Offset` / `Target Height Offset` in `/newui config`); the command
+Offset` / `Party Height Offset` / `Target Height Offset` in `/floaties config`); the command
 only touches your own. They default to `0.228` / `0.125` / `0.125` — everything hangs a
 little below the plate, your own taller panel slightly further.
 
@@ -605,14 +821,15 @@ back to the entity's feet position for that frame.
 
 ## Files
 
-- `NewUI.lua` — projection, ImGui rendering, gate state, config window, commands
-- `nameplate.lua` — actor → skeleton → bone walk for the model-top anchor (memory reader injected, so it tests headless)
+- `Floaties.lua` — projection, ImGui rendering, gate state, config window, commands
+- `lib/nameplate.lua` — actor → skeleton → bone walk for the model-top anchor (memory reader injected, so it tests headless)
 - `lib/targets.lua` — Ashita's target library, vendored unmodified (only `get_bt` is used)
-- `stats.lua` — HP/MP/TP normalization, TP segment math, and the target's entity read + targetability test (no Ashita dependencies)
-- `config.lua` — settings defaults, load/save, derived layout math (no Ashita dependencies except load/save)
-- `mobinfo.lua` — mobdb zone-data loader and the reference rows, built as icon/text segments (no Ashita dependencies — it picks the icon names, `NewUI.lua` loads and draws them)
-- `checkinfo.lua` — the `/check` capture list keyed by server id: what counts as a check response, and its zone/death cleanup (no Ashita dependencies — `NewUI.lua` unpacks the packet and resolves the entity)
-- `test.lua` — self-check for `stats.lua`, `config.lua`, `nameplate.lua`, `mobinfo.lua` and `checkinfo.lua`; run with `lua test.lua`
+- `lib/stats.lua` — HP/MP/TP normalization, TP segment math, and the target's entity read + targetability test (no Ashita dependencies)
+- `lib/config.lua` — settings defaults, load/save, derived layout math (no Ashita dependencies except load/save)
+- `lib/mobinfo.lua` — mobdb zone-data loader, the reference rows, and the `/check` tier math, built as icon/text segments (no Ashita dependencies — it picks the icon names and the tier colors, `Floaties.lua` loads and draws them)
+- `lib/checkinfo.lua` — the `/check` capture list keyed by server id: what counts as a check response, and its zone/death cleanup (no Ashita dependencies — `Floaties.lua` unpacks the packet and resolves the entity)
+- `lib/enemylist.lua` — the enemy list: which mobs you've personally hit, keyed by server id, plus server-id-to-index resolution (no Ashita dependencies — `Floaties.lua` decodes the Action packet, decides who counts as "you", and resolves indices through an injected reader)
+- `lib/test.lua` — self-check for `lib/stats.lua`, `lib/config.lua`, `lib/nameplate.lua`, `lib/mobinfo.lua`, `lib/checkinfo.lua` and `lib/enemylist.lua`; run with `lua lib/test.lua` from the repo root
 - `docs/` — research notes this was built from (gitignored)
 
 ## Notes
@@ -626,7 +843,7 @@ characters.
 ## Credits
 
 **atom0s** — the Ashita v4 addon framework and its bundled ImGui/settings
-libraries underpin all of NewUI; two pieces of it are used directly:
+libraries underpin all of Floaties; two pieces of it are used directly:
 
 - `lib/targets.lua` — Ashita's own target library, vendored here unmodified
   (see **On the battle-target gate**).

@@ -1,6 +1,6 @@
 --[[
 * Captures what /check reported about an entity, keyed by its server id, so a re-target does not
-* need a re-check to know what was already learned. Pure -- NewUI.lua unpacks the Message Basic
+* need a re-check to know what was already learned. Pure -- Floaties.lua unpacks the Message Basic
 * packet (0x0029) and resolves the entity, and hands the raw fields in here; this module owns the
 * decision of what counts as a check response and how its codes read.
 *
@@ -9,8 +9,11 @@
 * stay loadable under stock lua (see CLAUDE.md), and chat's coloring is a presentation detail for
 * whichever UI branch reads this list later, not a fact worth freezing into the capture.
 *
-* Nothing here is wired to the target panel yet -- that is a later branch's job. This module only
-* builds and maintains the list.
+* The target panel (mobinfo.panel) reads this list to show an exact tier and level in place of its
+* own mobdb-derived estimate once a mob has been checked -- see `tier` on M.record's entry below.
+* It also reads `plus`, the one piece of a /check response mobdb's estimate has no way to produce
+* at all: retail tells a High Evasion / High Defense mob apart from a plain one of the same tier,
+* and this project's chart draws that as `+`/`++` trailing the tier abbreviation.
 --]]
 
 local M = {};
@@ -46,6 +49,41 @@ M.TYPES = {
 -- the difficulty entirely rather than sending one from M.TYPES, so there is no type to resolve.
 local IMPOSSIBLE_TO_GAUGE = 0xF9;
 
+-- M.TYPES' codes, mapped straight to mobinfo.lua's own tier chart (M.CHECK's keys) -- a captured
+-- check already names one exact tier, so this is a lookup, not the diff-from-level math
+-- mobinfo.check_tier does for an estimate. A plain string key, not a require of mobinfo: the two
+-- modules describe the same seven tiers without one depending on the other to do it.
+--
+-- 0x41 ("like incredibly easy prey") is the one code with no tier of its own below EP -- the
+-- game's own message set distinguishes it from 0x42's "easy prey", but this project's chart does
+-- not carry an eighth tier for it, and checker.lua's own colors make the same call: 0x42 alone
+-- gets its tint (color1(2, ...)), while 0x41 is left uncolored.
+local CHECK_TIER = {
+    [0x40] = 'TW',
+    [0x41] = 'EP',
+    [0x42] = 'EP',
+    [0x43] = 'DC',
+    [0x44] = 'EM',
+    [0x45] = 'T',
+    [0x46] = 'VT',
+    [0x47] = 'IT',
+};
+
+--[[
+* How many of "High Evasion" / "High Defense" a resolved condition string names -- 0, 1, or 2.
+* "Low" never counts: a mob checking worse than expected is not worth flagging the way one checking
+* better is, and the base tier already says how the fight reads overall. Counted off the resolved
+* string rather than the raw message id so the one combined condition (0xAA, "High Evasion, High
+* Defense") does not need a second table entry alongside M.CONDITIONS to know it is worth two.
+*
+* @param {string} condition - one of M.CONDITIONS' values.
+* @return {number} 0-2.
+--]]
+local function plus_count(condition)
+    local _, n = condition:gsub('High', '');
+    return n;
+end
+
 --[[
 * Records one /check response against the entity it was about. Overwrites any existing entry for
 * that server id -- a re-check is the freshest truth about that entity, not a second opinion to
@@ -69,7 +107,7 @@ function M.record(list, ent, level, ptype, message)
     end
 
     if (message == IMPOSSIBLE_TO_GAUGE) then
-        list[ent.ServerId] = { level = level, type = nil, message = 'Impossible to gauge!' };
+        list[ent.ServerId] = { level = level, type = nil, message = 'Impossible to gauge!', tier = 'ITG', plus = 0 };
         return;
     end
 
@@ -78,7 +116,7 @@ function M.record(list, ent, level, ptype, message)
         return;
     end
 
-    list[ent.ServerId] = { level = level, type = t, message = c };
+    list[ent.ServerId] = { level = level, type = t, message = c, tier = CHECK_TIER[ptype], plus = plus_count(c) };
 end
 
 --[[

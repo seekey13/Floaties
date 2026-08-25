@@ -11,30 +11,30 @@ it documents *why* each rule exists, and is expected to be updated in the same
 commit as any behavior change.
 
 The repo root **is** the addon directory: it must be installed as
-`Ashita/addons/NewUI/`, and Ashita loads `NewUI.lua` because the file matches
-the folder name.
+`Ashita/addons/Floaties/`, and Ashita loads `Floaties.lua` because the file
+matches the folder name.
 
 ## Commands
 
 There is no build step. Lua 5.4 is on PATH:
 
 ```sh
-lua test.lua                        # run the whole self-check (from the repo root)
-luac -p NewUI.lua lib/targets.lua   # syntax-check the files test.lua cannot load
+lua lib/test.lua                     # run the whole self-check (from the repo root)
+luac -p Floaties.lua lib/targets.lua # syntax-check the files test.lua cannot load
 ```
 
-`test.lua` is a flat list of `assert`s, not a framework — there is no way to run
+`lib/test.lua` is a flat list of `assert`s, not a framework — there is no way to run
 a single case; delete/comment lines locally if you need to isolate one. It exits
 non-zero on the first failure and prints `<file>.lua ok` per module otherwise.
 
 Only in-game verification covers rendering, projection, and the memory reads in
-`lib/targets.lua`; `/newui config` shows live gate/target state for that.
+`lib/targets.lua`; `/floaties config` shows live gate/target state for that.
 
 ## Architecture
 
 ### The headless boundary
 
-The single most important constraint: **`NewUI.lua` is the only file that may
+The single most important constraint: **`Floaties.lua` is the only file that may
 touch Ashita globals** (`AshitaCore`, `ashita.*`, `imgui`, `ffi`, `d3d8`,
 `GetEntity`, `require('common')`). Everything else stays loadable under plain
 Lua so `test.lua` can exercise it headless. Consequences to preserve:
@@ -49,25 +49,43 @@ Lua so `test.lua` can exercise it headless. Consequences to preserve:
   testable.
 - `mobinfo.lua` — pure, *including* its `loadfile` of mobdb's zone data: those
   files are plain `return { ... }` tables with no globals in them, so the loader
-  tests headless too. `NewUI.lua` supplies the path (`GetInstallPath`) and a
+  tests headless too. `Floaties.lua` supplies the path (`GetInstallPath`) and a
   job-id → abbreviation function; nothing here reads `AshitaCore`. mobdb is a
   data dependency, never a load-order one — a missing file is `nil` and the
   reference just doesn't draw. A line is an array of `{ icon, alt, text }`
   segments: choosing *which* mobdb icon a flag means is a decision and lives
-  here, loading and drawing the PNG is `NewUI.lua`'s, and `alt` is the word to
+  here, loading and drawing the PNG is `Floaties.lua`'s, and `alt` is the word to
   print when the texture is missing (mobdb's data and its icons install
   separately, so either can be absent on its own). `M.panel` keys its result by
-  *where* each piece draws (`label`, `left`, `right`, `rows`) rather than by
-  which toggle produced it, so `drawPanel` places them without knowing which
-  flag any of them came from — and all four keys are always present, so it
-  indexes instead of guarding.
+  *where* each piece draws (`label`, `tag`, `hp_color`, `hp_color2`, `left`,
+  `right`, `rows`) rather than by which toggle produced it, so `drawPanel`
+  places them without knowing which flag any of them came from — `left`,
+  `right`, and `rows` are always present so the caller indexes instead of
+  guarding, while `label` and `tag` are the two pieces that go `nil`, and only
+  when there is truly nothing to build them from. `M.panel` optionally takes a
+  `chk` argument — one entity's captured `/check` (see `checkinfo.lua`) — which
+  overrides mobdb's level-range/tier *estimate* with the exact level and tier
+  the server actually reported, whenever one exists. `hp_color2` carries the
+  *high* tier's color only when a mobdb-estimated range straddles a tier
+  boundary, so `drawBar` can fill the HP bar low-to-high as a gradient instead
+  of collapsing the straddle into one color the way the text label does.
+- `checkinfo.lua` — pure. Captures what `/check` (Message Basic, packet
+  `0x0029`) said about an entity, keyed by server id, so a re-target doesn't
+  need a re-check to know what was already learned. `Floaties.lua` unpacks the
+  packet and resolves the entity via `GetEntity`; this module owns deciding
+  whether a message/type code pair is actually a check response and how its
+  codes read (condition/type tables re-expressed as plain strings, since `bit`
+  and `chat`'s colored `T{}` values are LuaJIT/Ashita-only). Entries are pruned
+  when the entity dies (`M.prune`) and the whole list is cleared on zone change
+  (`M.clear`, wired to packets `0x00A`/`0x00B`), since a server id is only
+  unique within one zone instance.
 - `lib/targets.lua` — Ashita's own target library, **vendored unmodified**. Do
   not edit it; it is diffable against upstream/Sidekick's `lib/core/targets.lua`.
   It hard-`error`s at load when its byte signatures miss, so it is `require`d
   inside a `pcall` and a miss degrades one gate instead of killing the addon.
 
 New logic with a decision in it belongs in `stats.lua` or `config.lua` with
-asserts in `test.lua`; `NewUI.lua` should stay glue, drawing, and Ashita I/O.
+asserts in `test.lua`; `Floaties.lua` should stay glue, drawing, and Ashita I/O.
 
 ### Per-frame flow (`d3d_present`)
 
