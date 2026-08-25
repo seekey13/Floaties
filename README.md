@@ -10,12 +10,14 @@ raw current value as text:
 
 | Bar | Source | Label | Default color | Label on by default |
 |---|---|---|---|---|
-| HP | `party:GetMemberHPPercent(i)` | current HP | light red | yes |
+| HP | `party:GetMemberHPPercent(i)` | current HP | light red | no |
 | MP | `party:GetMemberMPPercent(i)` | current MP | light yellow | no |
 | TP | `party:GetMemberTP(i)`, drawn as 3 separate bars (1000 TP each) | current TP (0-3000) | light blue | no |
 
-Only HP prints its number by default — it is the one being read — while the
-shorter MP and TP bars stay clean. **Show MP / TP Text** turns theirs back on.
+No bar prints its number by default: at the heights the panels ship at a digit
+is most of the bar it sits in, and the fill is already the read. **Show HP / MP /
+TP Text** turns each back on — HP first, if you want one, since its number is the
+one being read.
 
 The TP row is three individual bars side by side rather than one bar with
 dividers, spaced by the same `gap` used between rows. The label is centered
@@ -55,7 +57,7 @@ live under **Party Panel** instead:
 | Setting | Default | What it draws |
 |---|---|---|
 | **Show My Pet** | on | Your own avatar / automaton / wyvern / jug pet / luopan |
-| **Show Party Pets** | off | Every other party member's pet |
+| **Show Party Pets** | on | Every other party member's pet |
 | **Share Pet Info** | on | Swaps pet MP/TP with the other Floaties sessions on this PC |
 
 Two switches, not one, because the two cost very different amounts of screen:
@@ -133,12 +135,15 @@ fourth kind — they draw with the party's (see **Pet panels**):
 
 | Panel | Settings | Defaults |
 |---|---|---|
-| Self | Width, HP / MP / TP Height | 200 — 18 / 10 / 16 |
-| Party | Width, HP / MP / TP Height | 150 — 14 / 7 / 10 |
-| Target | Width, HP Height | 300 — 20 |
+| Self | Width, HP / MP / TP Height | 200 — 8 / 6 / 10 |
+| Party | Width, HP / MP / TP Height | 150 — 8 / 6 / 10 |
+| Target | Width, HP Height | 300 — 23 |
 
-The defaults size by how closely each is read: the target panel is the widest,
-then your own, then the five party panels that are on screen all at once.
+The defaults size by how closely each is read: the target panel is the widest
+and by far the tallest — it is the thing being read at a glance — then your own,
+then the five party panels that are on screen all at once. Self and party ship
+the same bar heights and differ only in width; the split is still per kind, so
+raising one does not raise the other.
 
 Target lists one height because it draws one bar — see below. Every other visual
 property (padding, rounding, bar colors, fill alphas, borders, text color) stays
@@ -157,7 +162,7 @@ shorter panel at whatever heights that kind is set to.
 
 ## Party slot indicator
 
-**Party Slot Indicator** (on) draws that member's party slot — `P1` through `P5`,
+**Party Slot Indicator** (off) draws that member's party slot — `P1` through `P5`,
 the same slots `<p1>`..`<p5>` address — in a box on the left of the panel, and
 shifts the bars right to make room.
 
@@ -168,7 +173,9 @@ bars keep the full width rather than sitting beside a blank space.
 The box takes its space **out of the bars, not out of the panel**: `width` stays
 what you set it to, so the bars shift right and shorten by the box plus one gap.
 Growing the frame instead would resize every panel the moment the box was ticked.
-At the default `21`px text and `1` gap that is 32px of the party panel's 150.
+At the default `21`px text and `0` gap that is 31px of the party panel's 150.
+It ships off: a party panel already sits over the member it belongs to, so `P3`
+repeats what the panel's own position says, at the bars' expense.
 
 It is separated from the bars by the same **Bar Gap** the bars are separated from
 each other by, and sits inside the same panel padding, so the left edge lines up
@@ -201,7 +208,7 @@ drawing over. Everything from **How it works** down applies to both.
 
 ### Party members and pets
 
-**Hide Party Nameplates** (off) switches the client's own name off over party
+**Hide Party Nameplates** (on) switches the client's own name off over party
 members `P1`..`P5` **and over every party member's pet, yours included**, leaving
 their panel as the only thing above their head. The plate otherwise repeats what
 the panel already says, in the space the panel wants.
@@ -214,7 +221,7 @@ shape with a name as without; and it shrinks with the panel but bottoms out at
 nameplate. A name wider than the panel overhangs both sides evenly instead of
 being dropped.
 
-**Party Name Size** (`14`) sets its text height. It follows the same rule as
+**Party Name Size** (`25`) sets its text height. It follows the same rule as
 **Info Text Size** but is a knob of its own: a name line and a target's reference
 rows are the same *shape* of line, and sizing one to taste shouldn't resize the
 other. Targets have their own **Target Name Size** for the same reason (see **The
@@ -234,9 +241,9 @@ the mob's name above its frame, with the check tier prefixed and the job suffixe
 (see **The name above the panel**), so the plate is the same name twice in the
 same space.
 
-**On by default, unlike the party one**, because the duplication it removes is
-one this addon created: a mob panel puts a name up there whether or not you asked
-for a second one. The party plate duplicates a panel you can read without it.
+**On by default, like the party one**: both plates duplicate a name the panel
+under them already prints, and the mob's is the duplication this addon created —
+a mob panel puts a name up there whether or not you asked for a second one.
 
 **It follows the panels, not the target.** A plate is hidden because a panel
 actually drew a name over that mob this frame — so a mob off screen, one capped
@@ -517,13 +524,13 @@ Every visual property is configurable via `/floaties config` and persists across
 sessions — per-panel widths and bar heights (see **Panel sizes**), and shared
 padding/rounding/colors/border/text color.
 
-The default panel is black at `100/255` alpha with a fully transparent **Panel
-Border Color**: the frame reads as its own shape against the world rather than an
-outlined box. Both borders draw unconditionally now — there is no visibility
-checkbox for either — so a transparent alpha is what hides the panel border,
-while the bar border stays visible at its own default (black at `150/255`). To
-get a panel outline back, raise **Panel Border Color**'s alpha rather than
-looking for a separate toggle; the same goes for **Panel Rounding** and **Bar
+The default panel is black at `125/255` alpha, edged by a black **Panel Border
+Color** at `100/255`: enough scrim to hold the bars off the world behind them,
+with a soft edge so the frame still reads as its own shape against a bright zone.
+The bar border shares that `100/255`. Both borders draw unconditionally — there
+is no visibility checkbox for either — so a transparent alpha is what hides one:
+drop **Panel Border Color** to `0` for the borderless look, and raise it again
+rather than looking for a separate toggle; the same goes for **Panel Rounding** and **Bar
 Rounding**, which turn their rounding off at `0` instead of a checkbox next to
 them.
 
@@ -542,7 +549,7 @@ see **Party slot indicator**.)
 
 A bar that cannot hold a legible digit drops its label instead of drawing mush.
 That happens when the size the bar would give works out under **Min Text Size**
-(`12`). It is decided per bar, not per panel: a short TP row can go quiet while
+(`1`). It is decided per bar, not per panel: a short TP row can go quiet while
 the HP row above it still prints. Raise **Min Text Size** to drop labels sooner,
 lower it to keep them further out.
 
@@ -552,12 +559,18 @@ glyph at all versus a long string in a bar that is tall enough for it — and on
 the first is worth going quiet over. See **The level on the bar**, which is what
 made the distinction matter.
 
-The floor defaults to `12` because ImGui rasterizes its font at 13px and scales
-down from there: a label that prints at 12 or above is drawn at about the size
-the atlas actually holds, while below it the digits lose enough pixels to read as
-texture rather than numbers and the 1px outline underneath ends up wider than the
-strokes it is outlining. At the shipped bar heights it also means the labels fade
-out with distance a step before the bars themselves stop being readable.
+**The floor ships at `1`, which is the floor switched off** — nothing this addon
+ships with prints a number inside a bar (see the label column above), so a floor
+tall enough to keep one crisp would only be dropping the slot tag and clipping the
+mob reference rows at range, which are the two other things it gates.
+
+Raise it back toward `12` if you switch a bar label on. That is the useful value
+because ImGui rasterizes its font at 13px and scales down from there: a label that
+prints at 12 or above is drawn at about the size the atlas actually holds, while
+below it the digits lose enough pixels to read as texture rather than numbers and
+the 1px outline underneath ends up wider than the strokes it is outlining. At the
+shipped bar heights, which are short, a label left on with the floor at `1` prints
+exactly that mush rather than going quiet.
 
 Label size and origin are both snapped to whole pixels, to stop the text
 shimmering while the camera moves: a glyph asked for at a fractional size or
@@ -574,9 +587,11 @@ over its bar's width and hide it.
 
 **Show HP / MP / TP Text** switch a bar's number off without touching its
 height, for the case where the bar itself is worth keeping and the digits on it
-are not. HP ships on, MP and TP off. They are independent of the size rules above
-— a bar hides its label if either the toggle is off or the bar is too short for
-it.
+are not. **All three ship off** — at the shipped bar heights a digit is most of
+the bar it sits in, and the fill is already the read. They are independent of the
+size rules above — a bar hides its label if either the toggle is off or the bar is
+too short for it — so switching one on at those heights wants **Min Text Size**
+raised with it (see **Label size**).
 
 Sizing the text uses `ImDrawList`'s second `AddText`, the one taking a font and
 a size.
@@ -621,8 +636,12 @@ Resistances stay on their own row under the panel. That list has no fixed
 length, so flanking with it would shove the bar off-center by however many
 damage types the mob happens to have.
 
-All four ship on. They draw on the target panel only — party members are not
-mobs, and a PC you have targeted has no entry either.
+**Three of the four ship on; Show Level & Job ships off.** mobdb's level range
+is an estimate wide enough (`14-17`) to be worth less than the space its box takes
+out of the bars, and **Show Check** already puts the relative-difficulty read on
+the panel. Switch it on to see the exact level a captured `/check` reports — that
+one is not an estimate (see **The check tier**). All four draw on the target panel
+only — party members are not mobs, and a PC you have targeted has no entry either.
 
 ### The name above the panel
 
@@ -648,17 +667,19 @@ entry.
 **It shrinks with the panel but bottoms out at Min Text Size**, the same rule a
 party member's stand-in nameplate follows.
 
-**Target Name Size** (`14`) sets its text height, separately from **Party Name
-Size**. The two are the same *shape* of line but not the same length — a target's
-carries the check tier and the job pairing on top of the name — and it is the one
-you read from a distance you are not standing at. They ship equal, so the split
-costs nothing until you use it.
+**Target Name Size** (`34`) sets its text height, separately from **Party Name
+Size** (`25`). The two are the same *shape* of line but not the same length — a
+target's carries the check tier and the job pairing on top of the name — and it is
+the one you read from a distance you are not standing at, which is why it ships
+larger rather than equal.
 
 #### Aggressive mobs get a different color
 
-**An aggressive mob's name line draws in Aggro Name Color** (`#FF8C8C`) instead
-of **Text Color** — the HP bar's own red, because the line is saying the thing
-the bar under it is already colored for: this one walks over to you.
+**An aggressive mob's name line draws in Aggro Name Color** (`#FFBABA`) instead
+of **Text Color** — a paler take on the HP bar's own red, because the line is
+saying the thing the bar under it is already colored for: this one walks over to
+you. Paler than the bar itself, because a whole name line at the bar's saturation
+reads as an error message rather than a warning.
 
 **The whole line takes the tint**, check tier and job suffix included. Those two
 are drawn in the name's color on purpose so the three read as one string (see
@@ -818,8 +839,9 @@ Nothing clips any of it, either — icons and text are drawn straight onto the
 world, not into a box, and the shared text outline is what keeps them readable
 over it.
 
-**Info Text Size** (`14`) is the row height — the text size and the icons' side
-alike. Unlike a bar label, **the rows do not drop out at distance — they hold at
+**Info Text Size** (`32`) is the row height — the text size and the icons' side
+alike. It ships large because these rows are read at the range you decide whether
+to pull from, not at the range you are standing at. Unlike a bar label, **the rows do not drop out at distance — they hold at
 Min Text Size and stop shrinking there.** A label that goes quiet still
 leaves a bar behind it that reads at any size, while these lines carry facts
 nothing else shows — a mob's level and what it aggros to is exactly what you want
@@ -961,15 +983,16 @@ your own status caught up.
 | Command | Effect |
 |---|---|
 | `/floaties` or `/float` | Toggle the settings window. The **Enabled** checkbox in its **Debug** section is the on/off switch, persisted. Whether the window itself is open is also persisted, so a `/lua reload` or relog leaves it exactly as you left it |
-| `/floaties height <n>` | Your own vertical nudge from the nameplate anchor. Positive is downward. Default `0.228` |
+| `/floaties height <n>` | Your own vertical nudge from the nameplate anchor. Positive is downward. Default `0.15` |
 | `/floaties config` | Same as the bare command, kept as an alias |
 | `/floaties bt` | Print the current gate state (in combat / engaged / idle, raw status, resolved `<bt>` and target, or why either was rejected) |
 
 `0.0` puts the panel's top edge level with the nameplate anchor bone, i.e. directly under the
 nameplate; nudge from there. Self, party and target have separate offsets (`Self Height
 Offset` / `Party Height Offset` / `Target Height Offset` in `/floaties config`); the command
-only touches your own. They default to `0.228` / `0.125` / `0.125` — everything hangs a
-little below the plate, your own taller panel slightly further.
+only touches your own. They default to `0.15` / `0.1` / `0.129` — everything hangs a
+little below the plate, your own slightly further, since your model is the one the
+camera is closest to and its plate has the most room under it.
 
 ## Nameplate anchor
 

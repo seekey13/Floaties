@@ -1138,9 +1138,42 @@ end
 local TARGET_BARS = { 'hp' };
 
 -- Where the Floaties sessions on this PC swap pet numbers. Ashita's settings library has already
--- created this directory by the time anything draws, so there is nothing to mkdir.
-local function shareDir()
-    return ('%sconfig/addons/floaties/'):fmt(AshitaCore:GetInstallPath());
+-- created this directory by the time anything draws, so there is nothing to mkdir. Resolved once at
+-- load rather than per call: the install path is fixed for the process, and the two callers below
+-- are both on the frame path (up to six times a frame between them).
+local SHARE_DIR = ('%sconfig/addons/floaties/'):fmt(AshitaCore:GetInstallPath());
+
+--[[
+* Resolves one party slot's pet, or nil when that slot has no live one.
+*
+* Pets hold no party slot of their own -- they are reachable only through their owner's target
+* index. This goes through the entity manager's accessor rather than the owner entity's
+* PetTargetIndex field: it takes any owner index, so one call covers slot 0 and slots 1..5 alike.
+*
+* The inactive-slot check comes first because GetMemberTargetIndex returns 0 for an empty slot, and
+* GetPetTargetIndex(0) then reads entity 0's pet field rather than answering "no pet" -- which a
+* zone or a brief desync is enough to hit.
+*
+* @param {number} i - the *owner's* party slot, 0 .. 5.
+* @return {number|nil} the pet's target index, and the pet entity -- or nil for neither.
+--]]
+local function livePet(mm, party, i)
+    if (party:GetMemberIsActive(i) == 0) then
+        return nil;
+    end
+
+    local index = mm:GetEntity():GetPetTargetIndex(party:GetMemberTargetIndex(i));
+    local pet   = index ~= 0 and GetEntity(index) or nil;
+
+    -- 0% is the corpse rule the target and enemy-list panels already follow: a dismissed or dead
+    -- pet lingers in the entity table for a while. An empty bar over it reads as a live pet that is
+    -- about to die rather than one that already has, and publishing it would put a full MP bar over
+    -- a body on somebody else's box.
+    if (pet == nil or pet.HPPercent == 0) then
+        return nil;
+    end
+
+    return index, pet;
 end
 
 --[[
@@ -1154,17 +1187,13 @@ end
 * line, so neither side needs a teardown path for a dismissed pet, a zone, a logout or a crash.
 --]]
 local function publishPet(mm, party)
-    local index = mm:GetEntity():GetPetTargetIndex(party:GetMemberTargetIndex(0));
-    local pet   = index ~= 0 and GetEntity(index) or nil;
-
-    -- Same corpse rule drawPet uses: a dismissed pet lingers in the entity table, and publishing it
-    -- would put a full MP bar over a body on the other box.
-    if (pet == nil or pet.HPPercent == 0) then
+    local _, pet = livePet(mm, party, 0);
+    if (pet == nil) then
         return;
     end
 
     local player = mm:GetPlayer();
-    petshare.publish(shareDir(), party:GetMemberName(0), pet.ServerId,
+    petshare.publish(SHARE_DIR, party:GetMemberName(0), pet.ServerId,
                      player:GetPetMPPercent(), player:GetPetTP());
 end
 
@@ -1187,19 +1216,8 @@ end
 * @param {number} i - the *owner's* party slot, 0 .. 5.
 --]]
 local function drawPet(mm, party, i, view, proj, vp)
-    if (party:GetMemberIsActive(i) == 0) then
-        return;
-    end
-
-    -- The entity manager's accessor rather than the owner entity's PetTargetIndex field: it takes
-    -- any owner index, so one call covers slot 0 and slots 1..5 alike.
-    local index = mm:GetEntity():GetPetTargetIndex(party:GetMemberTargetIndex(i));
-    local pet   = index ~= 0 and GetEntity(index) or nil;
-
-    -- 0% is the corpse rule the target and enemy-list panels already follow: a dismissed or dead
-    -- pet lingers in the entity table for a while, and an empty bar over it reads as a live pet
-    -- that is about to die rather than one that already has.
-    if (pet == nil or pet.HPPercent == 0) then
+    local index, pet = livePet(mm, party, i);
+    if (pet == nil) then
         return;
     end
 
@@ -1217,7 +1235,7 @@ local function drawPet(mm, party, i, view, proj, vp)
         -- newly swapped avatar from wearing the previous one's numbers for a poll.
         local sid, mp, tp;
         if (cfg.share_pet) then
-            sid, mp, tp = petshare.get(shareDir(), party:GetMemberName(i));
+            sid, mp, tp = petshare.get(SHARE_DIR, party:GetMemberName(i));
         end
 
         if (sid == pet.ServerId) then

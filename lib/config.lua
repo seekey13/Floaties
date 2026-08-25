@@ -29,12 +29,13 @@ M.defaults = {
     -- Pets (avatar / automaton / wyvern / jug pet / luopan / charmed mob) get a party-sized panel
     -- of their own. Split in two because the two halves cost different amounts of screen: your own
     -- pet is one more panel and is the one you actually manage, while a full party of summoners is
-    -- six -- so yours ships on and everyone else's ships off. They share the party panel's size and
+    -- six -- both ship on, but the expensive half is the one worth being able to switch off on its
+    -- own without losing the pet you are steering. They share the party panel's size and
     -- height offset outright rather than carrying their own: a pet is a party-member-shaped thing,
     -- and a third set of sliders to keep in step with the party's is a setting nobody would want to
     -- have to match up.
     show_pet           = true,   -- your own pet
-    show_party_pets    = false,  -- every other party member's pet
+    show_party_pets    = true,   -- every other party member's pet
     -- Publish our own pet's MP/TP to config/addons/floaties/ and read what the other Floaties
     -- sessions on this PC publish, so a second box's avatar draws the same three bars its own
     -- session does instead of the lone HP percent an entity carries (see lib/petshare.lua). One
@@ -42,10 +43,11 @@ M.defaults = {
     -- exchange is worthless unless both ends are in it.
     share_pet          = true,
     -- Switch the client's own nameplate off over party members 1..5, leaving their panel as the
-    -- only thing above their head (see updateNameMask). Off by default: it writes to the client's
-    -- entities rather than drawing something of our own, so it is opt-in. Your own plate is not
-    -- touched -- that is `noname`'s job.
-    hide_party_names   = false,
+    -- only thing above their head (see updateNameMask). On by default, the same call the target
+    -- panels make below: a panel that draws a member's name already replaced their plate, and
+    -- leaving both up is the same name twice. Your own plate is not touched -- that is
+    -- `noname`'s job.
+    hide_party_names   = true,
 
     -- Same, for every mob a target or enemy-list panel is actually drawing over: that panel already
     -- prints the mob's name above its frame (with the check tier and job on it), so the client's
@@ -62,14 +64,14 @@ M.defaults = {
     -- same *kind* of line -- outside the frame, holding at text.min_size instead of shrinking away
     -- -- but one is a nameplate standing in for the client's and the other is reference data under
     -- a target, and sizing the plate to taste should not resize a mob's resist row with it.
-    name_size          = 14,
+    name_size          = 25,
 
     -- The same, for the name line over a target/enemy-list panel. Its own knob rather than sharing
     -- name_size: a stand-in plate and a target's name line are the same *shape* of line, but the
     -- target one is longer by however much the check tier and job pairing add, and it is the one
-    -- you read at a distance you are not standing at. Defaults equal, so the split costs nothing
-    -- until you use it.
-    target_name_size   = 14,
+    -- you read at a distance you are not standing at -- so it ships larger than the party's
+    -- rather than equal to it.
+    target_name_size   = 34,
     show_target        = true,  -- draw a panel over whatever you have targeted, ungated
     show_enemy_list    = true,  -- draw a panel over every mob you've personally hit/affected, ungated
     enemy_list_max     = 8,     -- cap on how many enemy-list panels draw in one frame
@@ -77,11 +79,11 @@ M.defaults = {
     -- Vertical world nudge from the nameplate anchor (top of the model), positive = downward,
     -- since the height axis points down. 0 puts the panel's top edge level with the model's head,
     -- i.e. directly under the nameplate. Split self from party so your own panel can sit clear of
-    -- the ones over everyone else -- self hangs slightly lower, since its taller bars would
-    -- otherwise crowd the plate.
-    height_offset        = 0.228,  -- self (party slot 0)
-    party_height_offset  = 0.125,  -- everyone else (slots 1..5)
-    target_height_offset = 0.125,  -- current target
+    -- the ones over everyone else -- self hangs slightly lower, since your own model is the one
+    -- the camera is closest to and its plate is the one with the most room under it.
+    height_offset        = 0.15,   -- self (party slot 0)
+    party_height_offset  = 0.1,    -- everyone else (slots 1..5)
+    target_height_offset = 0.129,  -- current target
 
     -- Distance scaling, on: panels keep their proportion to the nameplate above them instead of
     -- staying a fixed pixel size at every range.
@@ -94,11 +96,12 @@ M.defaults = {
     panel = {
         offset       = 2,           -- padding: panel edge -> bar edge, all sides
         rounding     = 6,           -- 0 turns rounding off; no separate on/off switch
-        -- Black at 100/255: a scrim dark enough to hold the bars off the world behind them
-        -- without becoming a solid slab over it. The border is fully transparent -- borders draw
-        -- unconditionally now, so alpha alone (not a checkbox) is what hides one.
-        bg           = { r = 0, g = 0, b = 0, a = 100/255 },
-        border_color = { r = 0, g = 0, b = 0, a = 0 },
+        -- Black at 125/255: a scrim dark enough to hold the bars off the world behind them
+        -- without becoming a solid slab over it, with a black border at 100/255 to keep the
+        -- scrim's own edge readable against a bright zone. Borders draw unconditionally, so
+        -- alpha alone (not a checkbox) is what hides one -- set it to 0.
+        bg           = { r = 0, g = 0, b = 0, a = 125/255 },
+        border_color = { r = 0, g = 0, b = 0, a = 100/255 },
     },
 
     -- The one thing *not* shared between panel kinds: width, and each bar's height. Target
@@ -106,20 +109,22 @@ M.defaults = {
     -- Sized by importance: target widest (it is the thing being read at a glance), then self,
     -- then the five party panels, which are on screen all at once and are mostly glanced at.
     sizes = {
-        self   = { width = 200, hp = 18, mp = 10, tp = 16 },
-        party  = { width = 150, hp = 14, mp = 7,  tp = 10 },
-        target = { width = 300, hp = 20 },
+        self   = { width = 200, hp = 8, mp = 6, tp = 10 },
+        party  = { width = 150, hp = 8, mp = 6, tp = 10 },
+        target = { width = 300, hp = 23 },
     },
 
-    gap            = 1,      -- vertical gap between the 3 bars
+    gap            = 0,      -- vertical gap between the 3 bars; 0 stacks them flush
 
     -- Tag box left of the bars, inside the panel: "P1".."P5" for a party member, or a mob's level
     -- (range or fixed) for a target -- see mobinfo.panel's `tag`. The panel keeps its configured
     -- width, so this takes its space out of the bars. Your own panel gets no tag and reserves no
     -- box -- slot 0 needs no telling apart. `enabled` below is the party tag's own switch; a
     -- target panel's tag is gated by `mob.level` instead (see the `mob` block below).
+    -- Off by default: the box's width comes out of the bars, and a party panel already sits over
+    -- the member it belongs to, so "P3" is telling you what the panel's own position says.
     slot = {
-        enabled = true,
+        enabled = false,
         size    = 21,   -- text height in px; the box's width is derived from it (M.slot_box)
     },
 
@@ -129,36 +134,44 @@ M.defaults = {
     -- rather than drawn blank, so switching one on does not guarantee content. Target panels only:
     -- party members are not mobs.
     mob = {
-        level  = true,   -- the tag box (14-17, or a fixed level), plus a job suffix on the label
+        -- Off by default, unlike the other three: mobdb's level *range* is an estimate wide enough
+        -- ("14-17") to be worth less than the space it takes in the tag box, and `check` below
+        -- already puts the relative-difficulty read on the bar. Switch it on to get the exact
+        -- level a captured /check reports (see checkinfo.lua).
+        level  = false,
         check  = true,   -- EP/DC/T... prefix on the HP bar's own label, colored by the lower tier
         detect = true,   -- aggro/passive + Link flanking left, the senses flanking right
         resist = true,   -- element icon + percentage, on a row under the panel
         -- Row height in px: the text size, and the icons' side. The second piece of text with a
         -- size of its own (see slot.size), but unlike the others it holds at text.min_size instead
         -- of dropping out below it (M.info_row) -- the panel widens to hold whatever the lines come
-        -- out as rather than the text shrinking to fit.
-        size   = 14,
+        -- out as rather than the text shrinking to fit. Ships large (32): these rows are the only
+        -- thing on the panel carrying facts nothing else shows, and they are read at the range you
+        -- decide whether to pull from, not at the range you are standing at.
+        size   = 32,
 
         -- The name line over an aggressive mob draws in this instead of text.color -- the whole
         -- line, tier and job included, so it still reads as one string rather than a tinted word
         -- glued to a white one (the same call the check prefix makes, see mobinfo.panel).
         --
-        -- #FF8C8C, the HP bar's own red: the line is saying "this one walks over to you", which is
-        -- the same warning the bar under it is already colored for. Not gated by `detect` -- that
-        -- switch owns the icon groups, and this is a tint on a line that draws either way. Set it
-        -- to text.color's white to switch it off; there is no separate toggle for one color.
-        aggro_color = { r = 1, g = 140/255, b = 140/255 },
+        -- #FFBABA, a paler take on the HP bar's own red: the line is saying "this one walks over to
+        -- you", which is the same warning the bar under it is already colored for -- lifted off the
+        -- bar's exact tint because a whole name line at full saturation reads as an error message.
+        -- Not gated by `detect` -- that switch owns the icon groups, and this is a tint on a line
+        -- that draws either way. Set it to text.color's white to switch it off; there is no
+        -- separate toggle for one color.
+        aggro_color = { r = 1, g = 186/255, b = 186/255 },
     },
 
     bars = {
         rounding     = 3,      -- corner rounding for all 3 bars; 0 turns it off, no separate switch
-        border_color = { r = 0, g = 0, b = 0, a = 150/255 },   -- shared across hp/mp/tp outlines
+        border_color = { r = 0, g = 0, b = 0, a = 100/255 },   -- shared across hp/mp/tp outlines
 
         -- Each bar has one color, shared by all three panel kinds; opacity comes from `states`
         -- below, height from `sizes` above. `label` silences that bar's number, height untouched.
-        -- Only HP is labelled: its number is the one being read, and MP/TP keep their (shorter)
-        -- bars without digits crowding them.
-        hp = { color = { r = 1, g = 140/255, b = 140/255 }, label = true },
+        -- All three ship silent: at the heights above, a digit is most of the bar it sits in, and
+        -- the fill is already the read -- switch HP's on if you want the number as well.
+        hp = { color = { r = 1, g = 140/255, b = 140/255 }, label = false },
         mp = { color = { r = 1, g = 1, b = 140/255 }, label = false },
         tp = { color = { r = 141/255, g = 1, b = 1 }, label = false },
     },
@@ -167,18 +180,22 @@ M.defaults = {
     -- `full` = fully filled (HP/MP fill, and a TP segment past its threshold).
     -- `incomplete` = a TP segment still charging toward its threshold.
     -- `empty` = the background track behind any bar's fill.
-    states = { full = 1.0, empty = 0.2, incomplete = 0.5 },
+    states = { full = 1.0, empty = 0.15, incomplete = 0.5 },
 
     -- Outline alpha 0 skips the outline pass; `bold` is a second fill stamped a pixel right, not
     -- a bold face (the atlas is Ashita's, built before any addon loads). Size is not configured --
     -- it comes from the bar (M.label_size); `min_size` is the floor under which it is dropped.
-    -- 12 sits just under the 13px ImGui rasterizes at, so a label that does print is drawn at or
-    -- near the atlas size instead of being downsampled into texture -- and a bar too short to
-    -- carry a crisp digit goes quiet rather than printing mush. It also gates the slot tag.
+    -- It also gates the slot tag, and is the floor the mob rows hold at instead of dropping.
+    --
+    -- 1 is that floor switched off: nothing this ships with prints a number inside a bar (see
+    -- bars.*.label), so a floor tall enough to keep one crisp would only be dropping the slot tag
+    -- and clipping the reference rows at range. Raise it back toward 12 -- just under the 13px
+    -- ImGui rasterizes its atlas at -- if you switch a bar label on, or the short bars above will
+    -- print digits downsampled into mush rather than going quiet.
     text = {
         color         = { r = 1, g = 1, b = 1, a = 1 },
         outline_color = { r = 0, g = 0, b = 0, a = 1 },
-        min_size      = 12,
+        min_size      = 1,
         bold          = true,
     },
 };

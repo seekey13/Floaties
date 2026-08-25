@@ -159,7 +159,7 @@ print('stats.lua ok');
 -- config.lua: derived layout math must match the defaults' expected geometry.
 local SELF = config.defaults.sizes.self;
 assert(config.bar_width(config.defaults, SELF) == 196, 'bar width = size.width - 2*offset, got ' .. tostring(config.bar_width(config.defaults, SELF)));
-assert(config.panel_height(config.defaults, SELF) == 50, 'panel height = sum(bar heights) + 2*gap + 2*offset, got ' .. tostring(config.panel_height(config.defaults, SELF)));
+assert(config.panel_height(config.defaults, SELF) == 28, 'panel height = 8+6+10 + 2*gap(0) + 2*offset(2), got ' .. tostring(config.panel_height(config.defaults, SELF)));
 
 local custom     = { panel = { offset = 10 }, gap = 5 };
 local customSize = { width = 200, hp = 20, mp = 30, tp = 40 };
@@ -170,12 +170,12 @@ assert(config.panel_height(custom, customSize) == 20 + 30 + 40 + 2 * 5 + 2 * 10,
 -- and gap. Nothing may reach back to a single global width or bar height.
 local sizes = {
     self   = { width = 100, hp = 16, mp = 16, tp = 16 },
-    party  = { width = 60,  hp = 8,  mp = 8,  tp = 8  },
+    party  = { width = 60,  hp = 9,  mp = 9,  tp = 9  },
     target = { width = 200, hp = 24 },
 };
 assert(config.bar_width(config.defaults, sizes.party) == 56, 'party width is its own, got ' .. tostring(config.bar_width(config.defaults, sizes.party)));
 assert(config.bar_width(config.defaults, sizes.target) == 196, 'target width is its own, got ' .. tostring(config.bar_width(config.defaults, sizes.target)));
-assert(config.panel_height(config.defaults, sizes.party) == 8 * 3 + 2 * 1 + 2 * 2, 'party heights are its own, got ' .. tostring(config.panel_height(config.defaults, sizes.party)));
+assert(config.panel_height(config.defaults, sizes.party) == 9 * 3 + 2 * config.defaults.gap + 2 * 2, 'party heights are its own, got ' .. tostring(config.panel_height(config.defaults, sizes.party)));
 assert(config.panel_height(config.defaults, sizes.target, { 'hp' }) == 24 + 2 * 2, 'target height is its own, got ' .. tostring(config.panel_height(config.defaults, sizes.target, { 'hp' })));
 
 -- Every kind in size_order must actually lay out, target included -- a missing entry is a nil
@@ -209,10 +209,11 @@ assert(config.bar_width(slotcfg, SELF, false) == config.bar_width(slotcfg, SELF)
 assert(config.bar_width(slotcfg, SELF, true) == 200 - 2 * 4 - 20, 'bars give up box + gap, got ' .. tostring(config.bar_width(slotcfg, SELF, true)));
 assert(config.bar_width(slotcfg, sizes.target, false) == 192, 'the target panel keeps its full bar width when it has no tag');
 
--- The defaults ship with the party indicator on, so they are the case that has to lay out: box
--- floor(1.5*21)=31 plus the 1px gap, out of the bars only.
-assert(config.slot_width(config.defaults, true) == 32, 'default reserved width, got ' .. tostring(config.slot_width(config.defaults, true)));
-assert(config.bar_width(config.defaults, SELF, true) == 196 - 32, 'a default party panel gives up box + gap, got ' .. tostring(config.bar_width(config.defaults, SELF, true)));
+-- The defaults ship the party indicator *off*, but a target's tag is gated by cfg.mob.level rather
+-- than slot.enabled, so the defaults still have to lay a box out: floor(1.5*21)=31 plus the gap
+-- (0 as shipped), out of the bars only.
+assert(config.slot_width(config.defaults, true) == 31, 'default reserved width, got ' .. tostring(config.slot_width(config.defaults, true)));
+assert(config.bar_width(config.defaults, SELF, true) == 196 - 31, 'a default party panel gives up box + gap, got ' .. tostring(config.bar_width(config.defaults, SELF, true)));
 assert(config.bar_width(config.defaults, config.defaults.sizes.target, false) == 296, 'the default target panel reserves nothing when it has no tag');
 assert(config.label_size(config.defaults, config.defaults.slot.size) ~= nil, 'the default slot text must clear Min Text Size, or the tag never prints');
 
@@ -224,17 +225,23 @@ assert(config.panel_height(slotcfg, SELF) == config.panel_height(notagcfg, SELF)
 -- Mob reference lines hang *below* the panel, so they cost it no height at all: a target panel is
 -- the same shape whether the mob has three lines or none, and panel_height counts bars only.
 local TARGET = config.defaults.sizes.target;
-assert(config.panel_height(config.defaults, TARGET, { 'hp' }) == 20 + 2 * 2,
+assert(config.panel_height(config.defaults, TARGET, { 'hp' }) == 23 + 2 * 2,
     'lines must not enter the panel height, got ' .. tostring(config.panel_height(config.defaults, TARGET, { 'hp' })));
 
 -- The row holds at Min Text Size instead of dropping out below it, the way a bar label does: a
 -- label leaves a bar behind it that still reads, while a blanked reference line reads as missing
 -- data at exactly the range the panel is smallest.
-local MIN_INFO = config.defaults.text.min_size;
-assert(config.info_row(config.defaults, 1) == 14, 'at 1:1 the row is the configured size');
-assert(config.info_row(config.defaults, nil) == 14, 'no scale is 1:1');
-assert(config.info_row(config.defaults, 1.5) == 21, 'scaling up is not clamped');
-assert(config.info_row(config.defaults, 0.35) == MIN_INFO, 'the smallest scale holds at the floor, got ' .. tostring(config.info_row(config.defaults, 0.35)));
+--
+-- The floor itself takes a fixture rather than the defaults: they ship text.min_size = 1, which is
+-- the floor switched off (nothing shipped prints a number inside a bar), so the shipped values
+-- cannot demonstrate a floor binding.
+local floored  = { mob = { size = 20 }, text = { min_size = 12 } };
+local MIN_INFO = floored.text.min_size;
+assert(config.info_row(config.defaults, 1) == 32, 'at 1:1 the row is the configured size');
+assert(config.info_row(config.defaults, nil) == 32, 'no scale is 1:1');
+assert(config.info_row(config.defaults, 1.5) == 48, 'scaling up is not clamped');
+assert(config.info_row(floored, 0.35) == MIN_INFO, 'the smallest scale holds at the floor, got ' .. tostring(config.info_row(floored, 0.35)));
+assert(config.info_row(config.defaults, 0.35) == 32 * 0.35, 'the shipped floor of 1 never binds -- the row just scales, got ' .. tostring(config.info_row(config.defaults, 0.35)));
 
 -- The floor is never *above* what was configured: an Info Text Size dragged below Min Text Size is
 -- honoured rather than bumped up to a size nobody asked for.
@@ -250,9 +257,9 @@ assert(config.info_row({ mob = { size = 40 }, text = { min_size = 12 } }, 0.35) 
 -- An explicit size (the party name line) takes mob.size's place entirely -- same floor rule, so
 -- the two lines shrink and bottom out alike without one resizing the other.
 assert(config.info_row(config.defaults, 1, 30) == 30, 'an explicit size overrides mob.size');
-assert(config.info_row(config.defaults, 0.1, 30) == MIN_INFO,
-    'an explicit size still holds at the floor, got ' .. tostring(config.info_row(config.defaults, 0.1, 30)));
-assert(config.info_row(config.defaults, 0.1, 8) == 8, 'and is still its own floor under it');
+assert(config.info_row(floored, 0.1, 30) == MIN_INFO,
+    'an explicit size still holds at the floor, got ' .. tostring(config.info_row(floored, 0.1, 30)));
+assert(config.info_row(floored, 0.1, 8) == 8, 'and is still its own floor under it');
 assert(config.info_row(config.defaults, 1, nil) == config.info_row(config.defaults, 1),
     'nil size is mob.size, so the reference rows are untouched');
 
@@ -277,8 +284,8 @@ assert(config.mp_jobs[18] == nil, 'PUP itself has no mp pool');
 assert(config.pet_mp_jobs[3] == nil, 'WHM summons nothing to give an mp bar to');
 
 -- Hiding a bar shrinks the panel by that bar's height plus one gap.
-assert(config.panel_height(config.defaults, SELF, { 'hp', 'tp' }) == 39,
-    'two-bar panel = 18+16 + 1*1 + 2*2, got ' .. tostring(config.panel_height(config.defaults, SELF, { 'hp', 'tp' })));
+assert(config.panel_height(config.defaults, SELF, { 'hp', 'tp' }) == 22,
+    'two-bar panel = 8+10 + 1*gap(0) + 2*2, got ' .. tostring(config.panel_height(config.defaults, SELF, { 'hp', 'tp' })));
 
 -- Label size comes from the bar, never from a setting of its own, so the text can never be taller
 -- than what it sits in -- at any bar height and at any distance scale.
@@ -289,11 +296,18 @@ end
 
 -- Below the floor there is no legible size left, so the bar drops its label rather than drawing
 -- mush -- whether it got there by being configured short or by scaling far away.
-local MIN = config.defaults.text.min_size;
-assert(config.label_size(config.defaults, MIN) == MIN, 'the shortest bar that fits the floor still prints it');
-assert(config.label_size(config.defaults, MIN - 1) == nil, 'one pixel under the floor drops the label');
-assert(config.label_size(config.defaults, 16 * 0.5) == nil, 'a 16px bar scaled to half drops its label');
-assert(config.label_size(config.defaults, 16 * 1.5) ~= nil, 'a 16px bar scaled up keeps it');
+local floorcfg = { text = { min_size = 12 } };
+local MIN      = floorcfg.text.min_size;
+assert(config.label_size(floorcfg, MIN) == MIN, 'the shortest bar that fits the floor still prints it');
+assert(config.label_size(floorcfg, MIN - 1) == nil, 'one pixel under the floor drops the label');
+assert(config.label_size(floorcfg, 16 * 0.5) == nil, 'a 16px bar scaled to half drops its label');
+assert(config.label_size(floorcfg, 16 * 1.5) ~= nil, 'a 16px bar scaled up keeps it');
+
+-- The shipped floor is 1, i.e. off: every bar label the defaults could draw is switched off at
+-- bars.*.label, so the floor is not the thing keeping mush off the panel -- turning a label back
+-- on is what would need this raised again.
+assert(config.label_size(config.defaults, 16 * 0.5) == 8, 'the shipped floor of 1 keeps a scaled-down label, got ' .. tostring(config.label_size(config.defaults, 16 * 0.5)));
+assert(config.label_size(config.defaults, 0.5) == nil, 'and still drops one that has no whole pixel left');
 
 -- Whole-pixel sizes: a size that drifts by fractions as the camera moves resamples the same glyph
 -- every frame, which is what shimmering text is.
@@ -774,8 +788,9 @@ assert(nolines.tag == nil and #nolines.left == 0 and #nolines.right == 0 and #no
 assert(nolines.hp_color == nil, 'every toggle off means no bar color either');
 
 local shipped = mobinfo.panel(BOMB, config.defaults.mob, jobname, 12, 'Bomb');
-assert(shipped.label ~= nil and #shipped.label > 0 and shipped.tag ~= nil and #shipped.left > 0 and #shipped.rows == 1,
-    'the defaults ship every toggle on');
+assert(shipped.label ~= nil and #shipped.label > 0 and #shipped.left > 0 and #shipped.rows == 1,
+    'the defaults ship check, detect and resist on');
+assert(shipped.tag == nil, 'and level off, so no tag box comes out of the target panel\'s bars');
 assert(shipped.hp_color == mobinfo.CHECK.EP.color, 'the defaults color the bar too');
 
 -- A captured check (checkinfo's entry, `chk`) overrides mobdb's estimate: exact tier and level

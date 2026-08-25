@@ -81,6 +81,9 @@ local last_publish = 0;
 *
 * @param {string} dir - the shared directory, trailing separator included.
 * @param {string} name - our own character name.
+* @param {number} sid - the pet's server id, so a reader can tell a swapped avatar from this one.
+* @param {number} mp - the pet's MP percent, off our own player block.
+* @param {number} tp - the pet's raw TP, off the same block.
 --]]
 function M.publish(dir, name, sid, mp, tp)
     local now = os.clock();
@@ -111,6 +114,8 @@ local cache = {};
 * avatars leaves the old id in the file until the next write, and MP belonging to the wrong pet is
 * worse than no MP bar at all.
 *
+* @param {string} dir - the shared directory, trailing separator included.
+* @param {string} name - the party member's character name, which is what names their file.
 * @return {number|nil} server id, MP percent, raw TP -- all nil with no file, or a stale one.
 --]]
 function M.get(dir, name)
