@@ -35,6 +35,12 @@ M.defaults = {
     -- have to match up.
     show_pet           = true,   -- your own pet
     show_party_pets    = false,  -- every other party member's pet
+    -- Publish our own pet's MP/TP to config/addons/floaties/ and read what the other Floaties
+    -- sessions on this PC publish, so a second box's avatar draws the same three bars its own
+    -- session does instead of the lone HP percent an entity carries (see lib/petshare.lua). One
+    -- switch covers both halves: a session that will not publish has no business reading, and the
+    -- exchange is worthless unless both ends are in it.
+    share_pet          = true,
     -- Switch the client's own nameplate off over party members 1..5, leaving their panel as the
     -- only thing above their head (see updateNameMask). Off by default: it writes to the client's
     -- entities rather than drawing something of our own, so it is opt-in. Your own plate is not

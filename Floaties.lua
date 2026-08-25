@@ -19,6 +19,7 @@ local nameplate = require('lib.nameplate');
 local mobinfo   = require('lib.mobinfo');
 local checkinfo = require('lib.checkinfo');
 local enemylist = require('lib.enemylist');
+local petshare  = require('lib.petshare');
 
 local C   = ffi.C;
 local dev = d3d.get_device();
@@ -1152,6 +1153,37 @@ end
 -- always this one bar. Hoisted out of the frame loop rather than built per call.
 local TARGET_BARS = { 'hp' };
 
+-- Where the Floaties sessions on this PC swap pet numbers. Ashita's settings library has already
+-- created this directory by the time anything draws, so there is nothing to mkdir.
+local function shareDir()
+    return ('%sconfig/addons/floaties/'):fmt(AshitaCore:GetInstallPath());
+end
+
+--[[
+* Publishes our own pet's MP/TP for the other Floaties sessions on this PC (see lib/petshare.lua).
+*
+* Called from d3d_present rather than from drawPet, and ahead of the visibility gates, because what
+* we publish is for somebody else's screen: switching off Show My Pet, or standing somewhere the
+* gates hide panels, must not take the extra bars off the *other* box.
+*
+* Nothing is written while no pet is out -- petshare's staleness window is what retires the last
+* line, so neither side needs a teardown path for a dismissed pet, a zone, a logout or a crash.
+--]]
+local function publishPet(mm, party)
+    local index = mm:GetEntity():GetPetTargetIndex(party:GetMemberTargetIndex(0));
+    local pet   = index ~= 0 and GetEntity(index) or nil;
+
+    -- Same corpse rule drawPet uses: a dismissed pet lingers in the entity table, and publishing it
+    -- would put a full MP bar over a body on the other box.
+    if (pet == nil or pet.HPPercent == 0) then
+        return;
+    end
+
+    local player = mm:GetPlayer();
+    petshare.publish(shareDir(), party:GetMemberName(0), pet.ServerId,
+                     player:GetPetMPPercent(), player:GetPetTP());
+end
+
 --[[
 * Draws a party-sized panel over one party member's pet, when they have one out.
 *
@@ -1195,8 +1227,22 @@ local function drawPet(mm, party, i, view, proj, vp)
         s    = stats.read_pet(pet, player:GetPetMPPercent(), player:GetPetTP());
         bars = config.pet_bars(party:GetMemberMainJob(0));
     else
-        s    = stats.read_entity(pet);
-        bars = TARGET_BARS;
+        -- Another member's pet is one HP percent as far as this client is concerned -- unless that
+        -- member is a Floaties session on this same PC, in which case it has published the MP and
+        -- TP its own player block gave it (see lib/petshare.lua). The id check is what keeps a
+        -- newly swapped avatar from wearing the previous one's numbers for a poll.
+        local sid, mp, tp;
+        if (cfg.share_pet) then
+            sid, mp, tp = petshare.get(shareDir(), party:GetMemberName(i));
+        end
+
+        if (sid == pet.ServerId) then
+            s    = stats.read_pet(pet, mp, tp);
+            bars = config.pet_bars(party:GetMemberMainJob(i));
+        else
+            s    = stats.read_entity(pet);
+            bars = TARGET_BARS;
+        end
     end
 
     -- Your own pet gets its name here too, unlike your own panel: the mask covers every pet, yours
@@ -1483,6 +1529,7 @@ local function drawConfigWindow()
         checkbox('Show My Pet', cfg, 'show_pet');
         imgui.SameLine();
         checkbox('Show Party Pets', cfg, 'show_party_pets');
+        checkbox('Share Pet Info', cfg, 'share_pet');
 
         -- Independent of Show Party Members on purpose: hiding the plates without drawing panels is
         -- a legitimate (if odd) combination, and tying them would silently un-hide names the moment
@@ -1678,6 +1725,12 @@ ashita.events.register('d3d_present', 'floaties_present', function ()
     -- Not logged in / zoning: main job reads 0.
     if (player == nil or player:GetMainJob() == 0) then
         return;
+    end
+
+    -- Ahead of the gates on purpose -- see publishPet. Trapped for the same reason drawPanels is:
+    -- a disk that will not take the write must not cost the frame its panels.
+    if (config.settings.share_pet) then
+        pcall(publishPet, mm, party);
     end
 
     -- Gated on your own status, not each member's, so the whole set shows/hides together.

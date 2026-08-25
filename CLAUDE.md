@@ -79,6 +79,14 @@ Lua so `test.lua` can exercise it headless. Consequences to preserve:
   when the entity dies (`M.prune`) and the whole list is cleared on zone change
   (`M.clear`, wired to packets `0x00A`/`0x00B`), since a server id is only
   unique within one zone instance.
+- `petshare.lua` — pure, *including* its file IO: `io`/`os` are plain Lua, so only
+  the shared directory is injected (`Floaties.lua` builds it from
+  `GetInstallPath`). Carries the pet MP/TP one Floaties session publishes for the
+  others on the same PC, because the client only ever tells you about *your* pet's
+  pools. HP is deliberately not in the file — the entity table already has a live
+  percent for anybody's pet. Freshness is a timestamp in the line, not a file
+  mtime (Lua cannot read one) and not a teardown path: every way a publisher can
+  stop existing looks the same from here, which is that the writes stop.
 - `lib/targets.lua` — Ashita's own target library, **vendored unmodified**. Do
   not edit it; it is diffable against upstream/Sidekick's `lib/core/targets.lua`.
   It hard-`error`s at load when its byte signatures miss, so it is `require`d

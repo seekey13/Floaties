@@ -967,3 +967,35 @@ assert(enemylist.resolve_index(fakeServerIds({}), SLOW_ID) == 0,
     'an id that matches nothing yields 0');
 
 print('enemylist.lua resolve_index ok');
+
+----------------------------------------------------------------------------------------------------
+-- petshare.lua -- the pet MP/TP swapped between Floaties sessions on one PC
+----------------------------------------------------------------------------------------------------
+
+local petshare = require('lib.petshare');
+
+-- Round trip: what publish writes is what get reads back, minus the stamp.
+local NOW = 1000000;
+local sid, mp, tp = petshare.parse(petshare.line(0x1000123, 47, 1750, NOW), NOW);
+assert(sid == 0x1000123, 'server id round trips, got ' .. tostring(sid));
+assert(mp == 47 and tp == 1750, 'mp/tp round trip, got ' .. tostring(mp) .. '/' .. tostring(tp));
+
+-- A line written a moment ago is fine; one older than the window is not. Without this, a file left
+-- behind by a crashed session would show a full MP bar over a pet that no longer exists.
+assert(petshare.parse(petshare.line(1, 50, 0, NOW), NOW + petshare.MAX_AGE) ~= nil,
+    'a line exactly at the age limit is still trusted');
+assert(petshare.parse(petshare.line(1, 50, 0, NOW), NOW + petshare.MAX_AGE + 1) == nil,
+    'a line past the age limit must be rejected');
+
+-- Clocks between two sessions on one PC agree, but a write landing in the same second we read it
+-- can still stamp fractionally ahead; a negative age is fresh, not a parse failure.
+assert(petshare.parse(petshare.line(1, 50, 0, NOW + 1), NOW) ~= nil,
+    'a stamp from the future is fresh, not stale');
+
+-- Garbage and torn writes yield nil rather than a plausible-looking number: the reader falls back
+-- to the plain HP bar for that frame.
+assert(petshare.parse('', NOW) == nil, 'an empty line must not parse');
+assert(petshare.parse('16777507 47 17', NOW) == nil, 'a truncated line must not parse');
+assert(petshare.parse('name 47 1750 1000000', NOW) == nil, 'a non-numeric id must not parse');
+
+print('petshare.lua ok');

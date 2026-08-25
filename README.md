@@ -56,6 +56,7 @@ live under **Party Panel** instead:
 |---|---|---|
 | **Show My Pet** | on | Your own avatar / automaton / wyvern / jug pet / luopan |
 | **Show Party Pets** | off | Every other party member's pet |
+| **Share Pet Info** | on | Swaps pet MP/TP with the other Floaties sessions on this PC |
 
 Two switches, not one, because the two cost very different amounts of screen:
 your own pet is one extra panel and is the one you actually manage, while a
@@ -67,8 +68,9 @@ Pets have no party slot, so they are reached through their owner's target index
 (`GetPetTargetIndex`) rather than by scanning; the same 0..5 walk the party
 panels use covers them.
 
-**Only your own pet shows more than HP.** The client publishes pet MP and TP
-through the player block, which has room for exactly one pet — yours. Everyone
+**Only your own pet shows more than HP** — unless the owner is another Floaties
+session on this PC, see **Shared pet info** below. The client publishes pet MP and
+TP through the player block, which has room for exactly one pet — yours. Everyone
 else's pet is just another entity, so it draws the single HP bar a target panel
 does, percent-labelled like any other entity read.
 
@@ -90,6 +92,37 @@ back.
 
 A pet at 0% is skipped, the same corpse rule the target and enemy-list panels
 follow.
+
+### Shared pet info
+
+Multiboxing on one PC, the second box's avatar drew one bar where its own session
+drew three — the MP and TP are on that session's screen, they just have no way
+across. With **Share Pet Info** on, every Floaties session writes its own pet's
+numbers to `config/addons/floaties/pet_<CharName>.txt` and reads the file
+belonging to each party member it draws a pet for, so both boxes show the full
+bar set. Nothing to set up beyond running the addon on both. (Sidekick shares a
+party roster through the same directory the same way.)
+
+The published line is `<pet server id> <mp percent> <raw tp> <unix seconds>`,
+rewritten twice a second while a pet is out:
+
+- **HP is not in it.** The entity table already carries a live HP percent for
+  anybody's pet, so sharing it would only add a way for the two to disagree.
+- **Lookup is by character name**, not by scanning the directory: the only pets
+  drawn hang off party slots 0..5, and those owners' names are already in hand. A
+  session whose character isn't in your party publishes a file nobody reads.
+- **The server id is checked against the pet actually being drawn.** A member who
+  swaps avatars leaves the old id in the file until the next write, and MP
+  belonging to the wrong pet is worse than no MP bar.
+- **Staleness retires the data, not a teardown path.** A line older than 5s is
+  ignored, which covers the publisher dismissing its pet, zoning, logging out,
+  unloading the addon or crashing — all of which just stop the writes.
+- **Publishing runs ahead of the visibility gates and ignores Show My Pet**, since
+  what it writes is for somebody else's screen. Which bars *draw* still follows
+  the owner's job, exactly as for your own pet: a shared jug pet gets HP/TP.
+- **One switch covers both halves**, publish and read: a session that won't
+  publish has no business reading, and the exchange is worthless unless both ends
+  are in it.
 
 ## Panel sizes
 
@@ -912,7 +945,8 @@ back to the entity's feet position for that frame.
 - `lib/mobinfo.lua` — mobdb zone-data loader, the reference rows, and the `/check` tier math, built as icon/text segments (no Ashita dependencies — it picks the icon names and the tier colors, `Floaties.lua` loads and draws them)
 - `lib/checkinfo.lua` — the `/check` capture list keyed by server id: what counts as a check response, and its zone/death cleanup (no Ashita dependencies — `Floaties.lua` unpacks the packet and resolves the entity)
 - `lib/enemylist.lua` — the enemy list: which mobs you've personally hit, keyed by server id, plus server-id-to-index resolution (no Ashita dependencies — `Floaties.lua` decodes the Action packet, decides who counts as "you", and resolves indices through an injected reader)
-- `lib/test.lua` — self-check for `lib/stats.lua`, `lib/config.lua`, `lib/nameplate.lua`, `lib/mobinfo.lua`, `lib/checkinfo.lua` and `lib/enemylist.lua`; run with `lua lib/test.lua` from the repo root
+- `lib/petshare.lua` — the pet MP/TP swapped between Floaties sessions on one PC: the line format, its staleness window, and the throttled read/write (no Ashita dependencies — `Floaties.lua` supplies the directory and the player-block reads)
+- `lib/test.lua` — self-check for `lib/stats.lua`, `lib/config.lua`, `lib/nameplate.lua`, `lib/mobinfo.lua`, `lib/checkinfo.lua`, `lib/enemylist.lua` and `lib/petshare.lua`; run with `lua lib/test.lua` from the repo root
 - `docs/` — research notes this was built from (gitignored)
 
 ## Notes
