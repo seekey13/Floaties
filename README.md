@@ -119,6 +119,19 @@ members `P1`..`P5`, leaving their panel as the only thing above their head. The
 plate otherwise repeats what the panel already says, in the space the panel
 wants.
 
+**The panel then prints the name itself**, one line above its frame — where the
+plate was. It is the same deal the mob reference lines get under a target panel:
+outside the frame, so it costs the panel no height and the panel is the same
+shape with a name as without; and sized off the reference row, which bottoms out
+at **Min Text Size** rather than shrinking away with the panel, because a name
+you can't read at range isn't standing in for a nameplate. A name wider than the
+panel overhangs both sides evenly instead of being dropped.
+
+There is no separate switch for it. The name is only there to replace a plate
+this addon took away, so it comes and goes with the plate — with it off, the
+plate says the name and the panel says the bars, which is the split the game
+already had.
+
 It works by setting bit `0x08` of each member's entity `Render.Flags2` — the
 client's own "name hidden" mask, the same one Ashita's `noname` addon sets on
 the local player. Nothing is drawn over or around the plate: the game is told

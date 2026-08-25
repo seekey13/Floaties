@@ -897,7 +897,9 @@ end
 -- for a panel that has none -- decided entirely by the caller (drawMember/drawTarget), not here.
 -- `info` is mobinfo.panel's result -- the HP label segments, the two icon groups flanking the bar,
 -- and any full-width rows under it. NO_INFO for every panel that is not a target.
-local function drawPanel(sx, sy, s, bars, size, scale, tag, info)
+-- `name` is a line to draw above the frame, or nil for none -- a party member whose own nameplate
+-- this addon switched off.
+local function drawPanel(sx, sy, s, bars, size, scale, tag, info, name)
     local cfg = config.settings;
     info      = info or NO_INFO;
 
@@ -999,6 +1001,19 @@ local function drawPanel(sx, sy, s, bars, size, scale, tag, info)
     local row       = config.info_row(cfg, scale);
     local info_size = math.floor(row);
 
+    -- The name goes back exactly where the plate this addon switched off used to be: one row above
+    -- the frame, outside it, so it costs the panel no height and the panel is the same shape with
+    -- a name as without -- the same deal the reference rows get under it.
+    --
+    -- Sized off info_row, not a bar: that is the one size here that bottoms out at text.min_size
+    -- instead of shrinking away with the panel, and a name you cannot read is not a nameplate. It
+    -- goes through drawInfoLine rather than drawText for the other half of that bargain -- a
+    -- 15-character name is wider than a party panel, and drawText would drop a string that
+    -- overflows its box, where a line simply overhangs both sides evenly.
+    if (name ~= nil) then
+        drawInfoLine(draw_list, left, top - gap - row, width, row, { { text = name } }, info_size, gap, cfg);
+    end
+
     -- The two icon groups flank the bar, one gap clear of each edge and centered on the panel's
     -- height: they are what you read *with* the bar, not under it, and beside it they cost the bar
     -- no width. Inside the frame they could not -- seven sense icons at the default size are wider
@@ -1041,8 +1056,9 @@ end
 * @param {number} offset - world height nudge from the nameplate anchor, positive = down.
 * @param {string|nil} tag - pre-formatted text for the tag box; nil for a panel with no tag.
 * @param {table|nil} info - mobinfo.panel's result; nil for a panel with no mob reference.
+* @param {string|nil} name - name line above the frame; nil for a panel that shows no name.
 --]]
-local function drawAt(mm, index, s, bars, size, offset, tag, info, view, proj, vp)
+local function drawAt(mm, index, s, bars, size, offset, tag, info, name, view, proj, vp)
     if (index == 0) then
         return false;
     end
@@ -1065,7 +1081,7 @@ local function drawAt(mm, index, s, bars, size, offset, tag, info, view, proj, v
     if (sz >= 0 and sz <= 1 and sx >= 0 and sx <= vp.Width and sy >= 0 and sy <= vp.Height) then
         -- Scale comes from the anchor point, so the panel keeps its top edge pinned under the
         -- nameplate and grows or shrinks downward from there.
-        drawPanel(sx, sy, s, bars, size, config.panel_scale(config.settings, depth), tag, info);
+        drawPanel(sx, sy, s, bars, size, config.panel_scale(config.settings, depth), tag, info, name);
         return true;
     end
     return false;
@@ -1094,12 +1110,21 @@ local function drawMember(mm, party, i, view, proj, vp)
         tag = ('P%d'):fmt(i);
     end
 
+    -- The name only appears in place of a plate this addon took away, so it is gated on the same
+    -- setting and the same slots the mask covers (1..5 -- slot 0's plate is `noname`'s to hide, so
+    -- your own name is still up there and printing it again would just double it). Off, the plate
+    -- says the name and the panel says the bars, which is the split the game already had.
+    local name = nil;
+    if (not mine and cfg.hide_party_names) then
+        name = party:GetMemberName(i);
+    end
+
     -- nil info: party members are not mobs, so there is nothing to look up for them.
     drawAt(mm, party:GetMemberTargetIndex(i), s,
            config.bars_for(party:GetMemberMainJob(i), party:GetMemberSubJob(i)),
            mine and cfg.sizes.self or cfg.sizes.party,
            mine and cfg.height_offset or cfg.party_height_offset,
-           tag, nil, view, proj, vp);
+           tag, nil, name, view, proj, vp);
 end
 
 -- HP is the only stat the client is told about an arbitrary entity, so any mob-reference panel is
@@ -1139,7 +1164,7 @@ local function drawMobPanel(mm, index, ent, view, proj, vp)
                                 check_list[ent.ServerId]);
 
     return drawAt(mm, index, s, TARGET_BARS, config.settings.sizes.target,
-                  config.settings.target_height_offset, info.tag, info,
+                  config.settings.target_height_offset, info.tag, info, nil,
                   view, proj, vp);
 end
 
