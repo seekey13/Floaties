@@ -122,12 +122,17 @@ wants.
 **The panel then prints the name itself**, one line above its frame — where the
 plate was. It is the same deal the mob reference lines get under a target panel:
 outside the frame, so it costs the panel no height and the panel is the same
-shape with a name as without; and sized off the reference row, which bottoms out
-at **Min Text Size** rather than shrinking away with the panel, because a name
-you can't read at range isn't standing in for a nameplate. A name wider than the
-panel overhangs both sides evenly instead of being dropped.
+shape with a name as without; and it shrinks with the panel but bottoms out at
+**Min Text Size**, because a name you can't read at range isn't standing in for a
+nameplate. A name wider than the panel overhangs both sides evenly instead of
+being dropped.
 
-There is no separate switch for it. The name is only there to replace a plate
+**Party Name Size** (`14`) sets its text height. It follows the same rule as
+**Info Text Size** but is a knob of its own: a stand-in nameplate and a target's
+reference rows are the same *shape* of line, and sizing one to taste shouldn't
+resize the other.
+
+There is no separate switch for the name itself. The name is only there to replace a plate
 this addon took away, so it comes and goes with the plate — with it off, the
 plate says the name and the panel says the bars, which is the split the game
 already had.

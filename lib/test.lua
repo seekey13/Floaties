@@ -227,6 +227,15 @@ assert(config.info_row(tiny, 0.35) == 8, 'and is its own floor');
 assert(config.info_row({ mob = { size = 40 }, text = { min_size = 12 } }, 0.35) == 14,
     'the row reads only mob.size and text.min_size, got ' .. tostring(config.info_row({ mob = { size = 40 }, text = { min_size = 12 } }, 0.35)));
 
+-- An explicit size (the party name line) takes mob.size's place entirely -- same floor rule, so
+-- the two lines shrink and bottom out alike without one resizing the other.
+assert(config.info_row(config.defaults, 1, 30) == 30, 'an explicit size overrides mob.size');
+assert(config.info_row(config.defaults, 0.1, 30) == MIN_INFO,
+    'an explicit size still holds at the floor, got ' .. tostring(config.info_row(config.defaults, 0.1, 30)));
+assert(config.info_row(config.defaults, 0.1, 8) == 8, 'and is still its own floor under it');
+assert(config.info_row(config.defaults, 1, nil) == config.info_row(config.defaults, 1),
+    'nil size is mob.size, so the reference rows are untouched');
+
 -- MP bar only shows when main or sub has an MP pool.
 assert(#config.bars_for(1, 2) == 2, 'WAR/MNK must drop the mp bar');
 assert(config.bars_for(1, 2)[2] == 'tp', 'remaining bars stay in draw order');

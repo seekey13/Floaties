@@ -991,6 +991,25 @@ local function drawPanel(sx, sy, s, bars, size, scale, tag, info, name)
         bar_top = bar_top + h + gap;
     end
 
+    -- The name goes back exactly where the plate this addon switched off used to be: one row above
+    -- the frame, outside it, so it costs the panel no height and the panel is the same shape with
+    -- a name as without -- the same deal the reference rows get under it.
+    --
+    -- Sized off info_row, not a bar: that is the one rule here that bottoms out at text.min_size
+    -- instead of shrinking away with the panel, and a name you cannot read is not a nameplate.
+    -- Its own size goes in (cfg.name_size), so setting the stand-in plate to taste does not drag
+    -- a target's reference rows along with it.
+    --
+    -- It goes through drawInfoLine rather than drawText for the other half of that bargain -- a
+    -- 15-character name is wider than a party panel, and drawText would drop a string that
+    -- overflows its box, where a line simply overhangs both sides evenly.
+    if (name ~= nil) then
+        local name_row  = config.info_row(cfg, scale, cfg.name_size);
+        local name_size = math.floor(name_row);
+        drawInfoLine(draw_list, left, top - gap - name_row, width, name_row,
+                     { { text = name } }, name_size, gap, cfg);
+    end
+
     -- Mob reference, all of it outside the frame.
     --
     -- The row never goes away: it bottoms out at a legible size instead of dropping the way a bar
@@ -1000,19 +1019,6 @@ local function drawPanel(sx, sy, s, bars, size, scale, tag, info, name)
     -- height check by a fraction.
     local row       = config.info_row(cfg, scale);
     local info_size = math.floor(row);
-
-    -- The name goes back exactly where the plate this addon switched off used to be: one row above
-    -- the frame, outside it, so it costs the panel no height and the panel is the same shape with
-    -- a name as without -- the same deal the reference rows get under it.
-    --
-    -- Sized off info_row, not a bar: that is the one size here that bottoms out at text.min_size
-    -- instead of shrinking away with the panel, and a name you cannot read is not a nameplate. It
-    -- goes through drawInfoLine rather than drawText for the other half of that bargain -- a
-    -- 15-character name is wider than a party panel, and drawText would drop a string that
-    -- overflows its box, where a line simply overhangs both sides evenly.
-    if (name ~= nil) then
-        drawInfoLine(draw_list, left, top - gap - row, width, row, { { text = name } }, info_size, gap, cfg);
-    end
 
     -- The two icon groups flank the bar, one gap clear of each edge and centered on the panel's
     -- height: they are what you read *with* the bar, not under it, and beside it they cost the bar
@@ -1393,6 +1399,7 @@ local function drawConfigWindow()
         -- a legitimate (if odd) combination, and tying them would silently un-hide names the moment
         -- panels were switched off.
         checkbox('Hide Party Nameplates', cfg, 'hide_party_names');
+        slider(imgui.SliderInt, 'Party Name Size', cfg, 'name_size', 8, 40);
         slider(imgui.SliderFloat, 'Party Height Offset', cfg, 'party_height_offset', -4, 4);
         slider(imgui.SliderInt, 'Party Width', cfg.sizes.party, 'width', 40, 300);
         for _, key in ipairs(config.bar_order) do

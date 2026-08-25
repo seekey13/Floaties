@@ -30,6 +30,13 @@ M.defaults = {
     -- entities rather than drawing something of our own, so it is opt-in. Your own plate is not
     -- touched -- that is `noname`'s job.
     hide_party_names   = false,
+
+    -- Text height in px for the name a hidden plate leaves behind (drawn above the panel, see
+    -- drawPanel). Its own setting rather than mob.size, which it borrowed at first: they are the
+    -- same *kind* of line -- outside the frame, holding at text.min_size instead of shrinking away
+    -- -- but one is a nameplate standing in for the client's and the other is reference data under
+    -- a target, and sizing the plate to taste should not resize a mob's resist row with it.
+    name_size          = 14,
     show_target        = true,  -- draw a panel over whatever you have targeted, ungated
     show_enemy_list    = true,  -- draw a panel over every mob you've personally hit/affected, ungated
     enemy_list_max     = 8,     -- cap on how many enemy-list panels draw in one frame
@@ -286,9 +293,15 @@ end
 * one row at a time from the panel's bottom edge.
 *
 * @param {number|nil} scale - distance scale; nil is 1:1.
+* @param {number|nil} size - the row's configured size; nil is mob.size. The party name line above
+*                            the panel is the same shape of line with a size of its own, and this
+*                            rule -- shrink with the panel, but never past being readable -- is the
+*                            reason either of them is outside the frame in the first place, so it
+*                            stays in one function rather than being restated per caller.
 --]]
-function M.info_row(cfg, scale)
-    return math.max(cfg.mob.size * (scale or 1), math.min(cfg.mob.size, cfg.text.min_size));
+function M.info_row(cfg, scale, size)
+    size = size or cfg.mob.size;
+    return math.max(size * (scale or 1), math.min(size, cfg.text.min_size));
 end
 
 -- Bars only -- the reference lines are drawn under the panel, not inside it, and cost it no height.
