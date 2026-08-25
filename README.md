@@ -193,7 +193,13 @@ gate on. It reserves space out of the bar the same way, through the same
 `M.slot_width` — the box just holds different text depending on which panel
 kind is drawing it.
 
-## Hiding party nameplates
+## Hiding nameplates
+
+Two settings, one mechanism: **Hide Party Nameplates** covers the party and its
+pets, **Hide Target Nameplates** covers the mobs a target or enemy-list panel is
+drawing over. Everything from **How it works** down applies to both.
+
+### Party members and pets
 
 **Hide Party Nameplates** (off) switches the client's own name off over party
 members `P1`..`P5` **and over every party member's pet, yours included**, leaving
@@ -219,13 +225,40 @@ this addon took away, so it comes and goes with the plate — with it off, the
 plate says the name and the panel says the bars, which is the split the game
 already had.
 
-It works by setting bit `0x08` of each member's entity `Render.Flags2` — the
+### Targets and the enemy list
+
+**Hide Target Nameplates** (on) switches the client's own name off over every mob
+a target panel or an enemy-list panel is currently drawing over — the mob you
+have selected, and every mob you have personally hit. That panel already prints
+the mob's name above its frame, with the check tier prefixed and the job suffixed
+(see **The name above the panel**), so the plate is the same name twice in the
+same space.
+
+**On by default, unlike the party one**, because the duplication it removes is
+one this addon created: a mob panel puts a name up there whether or not you asked
+for a second one. The party plate duplicates a panel you can read without it.
+
+**It follows the panels, not the target.** A plate is hidden because a panel
+actually drew a name over that mob this frame — so a mob off screen, one capped
+out by **Enemy List Max**, or one whose panel is switched off entirely keeps the
+only name it has left. There is no case where both names are gone. The cost is
+one frame of lag at each end: the plate survives the frame a panel first draws,
+and stays hidden for the frame after it stops.
+
+**Your own name is not touched here either**, for the same reason — targeting
+yourself draws a panel like anything else, but that plate is `noname`'s.
+
+### How it works
+
+It works by setting bit `0x08` of each entity's `Render.Flags2` — the
 client's own "name hidden" mask, the same one Ashita's `noname` addon sets on
 the local player. Nothing is drawn over or around the plate: the game is told
 not to draw it.
 
-**Your own name is not touched.** That is `noname`'s job, and two addons writing
-one flag on one entity would just fight over it. **Your pet's is**, though — your
+**Your own name is never touched, by either setting.** That is `noname`'s job,
+and two addons writing one flag on one entity would just fight over it — clearing
+the bit back off your entity when you untarget yourself would undo *its* hiding.
+**Your pet's is**, though — your
 pet is not you, nothing else is hiding its plate, and it is standing in exactly
 the space your own panel wants. So the sweep runs over slots `0`..`5` and skips
 only the *member* half of slot 0.
@@ -243,10 +276,11 @@ Floaties draws:
   render flags wholesale on spawn and on zone.
 - **Names come back the moment you switch it (or the addon) off**, because the
   bit is cleared explicitly rather than left for the client's next rebuild to
-  drop. A member leaving the party gets theirs back the same frame.
-- **Unloading restores every plate still hidden.** Leaving the bit set would
-  strand party members nameless with nothing running to explain it and no way
-  back short of zoning.
+  drop. A member leaving the party gets theirs back the same frame, as does a mob
+  whose panel stopped drawing.
+- **Unloading restores every plate still hidden**, from either setting. Leaving
+  the bit set would strand entities nameless with nothing running to explain it
+  and no way back short of zoning.
 
 ### Why it also patches one byte of the client
 
@@ -265,8 +299,10 @@ rebuild on spawn or zone.
 
 Because it is a write into the client's code rather than into an entity:
 
-- **It is applied only while the setting is on**, and restored the moment it
-  goes off or the addon unloads. Off means the client is untouched.
+- **It is applied only while one of the two settings is on**, and restored the
+  moment both go off or the addon unloads. Off means the client is untouched. One
+  patch serves both — it stops the client clearing the bit, and neither setting
+  cares which one asked for that.
 - **It defers to `noname`.** If that byte already reads `0xF8`, Floaties takes
   the benefit and claims no ownership, so unloading Floaties cannot rip
   `noname`'s patch out from under it.

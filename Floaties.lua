@@ -242,17 +242,20 @@ local check_list = {};
 local claimed_list = {};
 
 ----------------------------------------------------------------------------------------------------
--- Party nameplate hiding. The client's own name over a party member's head duplicates what that
--- member's panel already says, and sits in exactly the space the panel wants -- so this switches
--- the plate off per entity, leaving the panel as the only thing over their head.
+-- Nameplate hiding. The client's own name over a head duplicates what that head's panel already
+-- says, and sits in exactly the space the panel wants -- so this switches the plate off per
+-- entity, leaving the panel as the only thing over them. Two independent sources feed it: party
+-- members/pets (hide_party_names) and whichever mobs a target/enemy-list panel actually drew
+-- (hide_target_names, fed by named_mobs).
 --
 -- Bit 0x08 of an entity's Render.Flags2 is the client's own "name hidden" mask -- the same one
 -- Ashita's `noname` addon sets on the local player (addons/noname/noname.lua). It is per entity,
 -- so it reaches any index, and it is what the game itself toggles, so nothing here is drawing or
 -- suppressing a plate on its own.
 --
--- Slots 1..5 only: masking slot 0 is `noname`'s job, and doing it here too would mean two addons
--- fighting over one flag on one entity.
+-- Your own entity is never masked from here, by either source: that plate is `noname`'s to own,
+-- and clearing the bit back off it when you untarget yourself would undo *its* hiding. Two addons
+-- fighting over one flag on one entity is the failure, not the plate.
 ----------------------------------------------------------------------------------------------------
 
 local NAME_MASK = 0x08;
@@ -324,6 +327,17 @@ end
 -- one no longer in it.
 local masked = {};
 
+-- Target indices a mob panel drew a name over last frame, filled by drawMobPanel and drained by
+-- updateNameMask. A record of what *drew* rather than a re-derivation of what is targeted or
+-- claimed: the panel already answers every question the mask needs answered -- gates, Show
+-- switches, enemy_list_max, off-screen, a target that failed to resolve -- and re-deciding all of
+-- that here is a second copy of that logic to keep in step with the first.
+--
+-- The cost is one frame of lag each way: a plate you just targeted survives the frame its panel
+-- first drew, and stays hidden for the frame after the panel stops. At 30+ fps that is under the
+-- flash the FFXiMain patch exists to remove, and both ends self-correct.
+local named_mobs = {};
+
 --[[
 * Sets or clears the name mask on one entity.
 *
@@ -358,7 +372,13 @@ end
 * gives names back on the spot instead of only once panels are drawing again.
 --]]
 local function updateNameMask(mm, party)
-    local want = config.settings.enabled and config.settings.hide_party_names;
+    local cfg   = config.settings;
+    local party_names = cfg.enabled and cfg.hide_party_names;
+    local mob_names   = cfg.enabled and cfg.hide_target_names;
+
+    -- One patch serves both sources -- it stops the client clearing the bit, and neither source
+    -- cares which one asked for that.
+    local want = party_names or mob_names;
     local now  = {};
 
     -- On change only: patching is not idempotent bookkeeping, it is a write into the client's code.
@@ -367,7 +387,12 @@ local function updateNameMask(mm, party)
         patchNameClear(want);
     end
 
-    if (want) then
+    -- Drained whether or not the setting is on, so switching it off mid-fight cannot leave a stale
+    -- frame's worth of indices to mask on the next one.
+    local drew = named_mobs;
+    named_mobs = {};
+
+    if (party_names) then
         local em = mm:GetEntity();
 
         for i = 0, 5 do
@@ -389,6 +414,17 @@ local function updateNameMask(mm, party)
                 if (pet ~= 0) then
                     now[pet] = true;
                 end
+            end
+        end
+    end
+
+    if (mob_names) then
+        -- Your own index is skipped here for the same reason slot 0's member is above: targeting
+        -- yourself draws a panel like anything else, but that plate belongs to `noname`.
+        local me = party:GetMemberTargetIndex(0);
+        for index in pairs(drew) do
+            if (index ~= me) then
+                now[index] = true;
             end
         end
     end
@@ -1249,9 +1285,19 @@ local function drawMobPanel(mm, index, ent, view, proj, vp)
         name = table.concat(parts);
     end
 
-    return drawAt(mm, index, s, TARGET_BARS, config.settings.sizes.target,
-                  config.settings.target_height_offset, info.tag, info, name,
-                  view, proj, vp);
+    local drawn = drawAt(mm, index, s, TARGET_BARS, config.settings.sizes.target,
+                         config.settings.target_height_offset, info.tag, info, name,
+                         view, proj, vp);
+
+    -- Only a panel that actually reached the screen puts a name up there, so only that one earns
+    -- the client's plate being switched off (see named_mobs). Recorded unconditionally rather than
+    -- behind hide_target_names -- updateNameMask drains this either way, and one table write is
+    -- cheaper than reading the setting twice per frame per mob.
+    if (drawn and name ~= nil) then
+        named_mobs[index] = true;
+    end
+
+    return drawn;
 end
 
 --[[
@@ -1499,6 +1545,7 @@ local function drawConfigWindow()
         -- a legitimate (if odd) combination, and tying them would silently un-hide names the moment
         -- panels were switched off.
         checkbox('Hide Party Nameplates', cfg, 'hide_party_names');
+        checkbox('Hide Target Nameplates', cfg, 'hide_target_names');
         slider(imgui.SliderInt, 'Name Size', cfg, 'name_size', 8, 40);
         slider(imgui.SliderFloat, 'Party Height Offset', cfg, 'party_height_offset', -4, 4);
         slider(imgui.SliderInt, 'Party Width', cfg.sizes.party, 'width', 40, 300);

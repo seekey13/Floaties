@@ -47,6 +47,16 @@ M.defaults = {
     -- touched -- that is `noname`'s job.
     hide_party_names   = false,
 
+    -- Same, for every mob a target or enemy-list panel is actually drawing over: that panel already
+    -- prints the mob's name above its frame (with the check tier and job on it), so the client's
+    -- plate is the same name twice in the same space. On by default, unlike the party one, because
+    -- the duplication it removes is one this addon created -- a mob panel puts a name up there
+    -- whether you asked for a second one or not.
+    --
+    -- Keyed on panels that *drew*, not on what is targeted, so a mob whose panel is off screen,
+    -- capped out by enemy_list_max, or switched off entirely keeps the only name it has left.
+    hide_target_names  = true,
+
     -- Text height in px for the name a hidden plate leaves behind (drawn above the panel, see
     -- drawPanel). Its own setting rather than mob.size, which it borrowed at first: they are the
     -- same *kind* of line -- outside the frame, holding at text.min_size instead of shrinking away
