@@ -214,11 +214,11 @@ shape with a name as without; and it shrinks with the panel but bottoms out at
 nameplate. A name wider than the panel overhangs both sides evenly instead of
 being dropped.
 
-**Name Size** (`14`) sets its text height — for a target's name line too, which
-draws on the same row by the same rule (see **The name above the panel**). It
-follows the same rule as **Info Text Size** but is a knob of its own: a name line
-and a target's reference rows are the same *shape* of line, and sizing one to
-taste shouldn't resize the other.
+**Party Name Size** (`14`) sets its text height. It follows the same rule as
+**Info Text Size** but is a knob of its own: a name line and a target's reference
+rows are the same *shape* of line, and sizing one to taste shouldn't resize the
+other. Targets have their own **Target Name Size** for the same reason (see **The
+name above the panel**).
 
 There is no separate switch for the name itself. The name is only there to replace a plate
 this addon took away, so it comes and goes with the plate — with it off, the
@@ -645,9 +645,34 @@ known, so a player you have targeted or a mob mobdb has never heard of still get
 a name line — just without the check prefix or job suffix, which do need an
 entry.
 
-**It shrinks with the panel but bottoms out at Min Text Size**, and takes its
-height from **Name Size** — the same rule and the same knob a party member's
-stand-in nameplate uses, because it is the same kind of line.
+**It shrinks with the panel but bottoms out at Min Text Size**, the same rule a
+party member's stand-in nameplate follows.
+
+**Target Name Size** (`14`) sets its text height, separately from **Party Name
+Size**. The two are the same *shape* of line but not the same length — a target's
+carries the check tier and the job pairing on top of the name — and it is the one
+you read from a distance you are not standing at. They ship equal, so the split
+costs nothing until you use it.
+
+#### Aggressive mobs get a different color
+
+**An aggressive mob's name line draws in Aggro Name Color** (`#FF8C8C`) instead
+of **Text Color** — the HP bar's own red, because the line is saying the thing
+the bar under it is already colored for: this one walks over to you.
+
+**The whole line takes the tint**, check tier and job suffix included. Those two
+are drawn in the name's color on purpose so the three read as one string (see
+**The check tier**); coloring a third of it would split that string back in two,
+which is the exact thing the tier's own color was moved onto the bar to avoid.
+
+**It needs mobdb.** `Aggro` is a mobdb flag, so a mob mobdb has never heard of —
+and a player — keeps the plain color. Same "no entry, no data" rule the detection
+icons follow.
+
+**It is not gated by Show Detection**, or by any of the other three. Those switch
+the reference *lines* on and off; this is a tint on a line that draws whatever
+they are set to. There is no separate toggle either — set **Aggro Name Color** to
+match **Text Color** and it stops saying anything.
 
 ### The check tier
 
@@ -670,10 +695,10 @@ than about the mob.
 It leads the label — before the name — because it is read first: whether to
 engage at all is answered before anything else on the panel matters.
 
-**The prefix draws in the label's own color, same as the name and job around
-it** (**Text Color**, with the shared outline) — it used to be tinted with its
-tier, which made the label read as a colored word glued to a white one at every
-size. The tier's color is not lost: it fills the whole HP bar underneath, where
+**The prefix draws in the name line's own color, same as the name and job around
+it** (**Text Color**, or **Aggro Name Color** when the whole line is tinted) — it
+used to be tinted with its tier, which made the line read as a colored word glued
+to a white one at every size. The tier's color is not lost: it fills the whole HP bar underneath, where
 it says the same thing at a glance without breaking the line of text into two.
 
 **The bands are interpolated between the two published endpoints**, not looked

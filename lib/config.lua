@@ -63,6 +63,13 @@ M.defaults = {
     -- -- but one is a nameplate standing in for the client's and the other is reference data under
     -- a target, and sizing the plate to taste should not resize a mob's resist row with it.
     name_size          = 14,
+
+    -- The same, for the name line over a target/enemy-list panel. Its own knob rather than sharing
+    -- name_size: a stand-in plate and a target's name line are the same *shape* of line, but the
+    -- target one is longer by however much the check tier and job pairing add, and it is the one
+    -- you read at a distance you are not standing at. Defaults equal, so the split costs nothing
+    -- until you use it.
+    target_name_size   = 14,
     show_target        = true,  -- draw a panel over whatever you have targeted, ungated
     show_enemy_list    = true,  -- draw a panel over every mob you've personally hit/affected, ungated
     enemy_list_max     = 8,     -- cap on how many enemy-list panels draw in one frame
@@ -131,6 +138,16 @@ M.defaults = {
         -- of dropping out below it (M.info_row) -- the panel widens to hold whatever the lines come
         -- out as rather than the text shrinking to fit.
         size   = 14,
+
+        -- The name line over an aggressive mob draws in this instead of text.color -- the whole
+        -- line, tier and job included, so it still reads as one string rather than a tinted word
+        -- glued to a white one (the same call the check prefix makes, see mobinfo.panel).
+        --
+        -- #FF8C8C, the HP bar's own red: the line is saying "this one walks over to you", which is
+        -- the same warning the bar under it is already colored for. Not gated by `detect` -- that
+        -- switch owns the icon groups, and this is a tint on a line that draws either way. Set it
+        -- to text.color's white to switch it off; there is no separate toggle for one color.
+        aggro_color = { r = 1, g = 140/255, b = 140/255 },
     },
 
     bars = {

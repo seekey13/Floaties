@@ -908,8 +908,10 @@ end
 -- `info` is mobinfo.panel's result -- the HP label segments, the two icon groups flanking the bar,
 -- and any full-width rows under it. NO_INFO for every panel that is not a target.
 -- `name` is a line to draw above the frame, or nil for none -- a party member whose own nameplate
--- this addon switched off, or a target's check tier/name/job line.
-local function drawPanel(sx, sy, s, bars, size, scale, tag, info, name)
+-- this addon switched off, or a target's check tier/name/job line. Segments, not a string, so a
+-- target's can carry mobinfo's aggro tint without a parameter of its own. `name_size` is its text
+-- height; nil takes cfg.name_size, the stand-in plate's.
+local function drawPanel(sx, sy, s, bars, size, scale, tag, info, name, name_size)
     local cfg = config.settings;
     info      = info or NO_INFO;
 
@@ -1001,10 +1003,9 @@ local function drawPanel(sx, sy, s, bars, size, scale, tag, info, name)
     -- 15-character name is wider than a party panel, and drawText would drop a string that
     -- overflows its box, where a line simply overhangs both sides evenly.
     if (name ~= nil) then
-        local name_row  = config.info_row(cfg, scale, cfg.name_size);
-        local name_size = math.floor(name_row);
+        local name_row = config.info_row(cfg, scale, name_size or cfg.name_size);
         drawInfoLine(draw_list, left, top - gap - name_row, width, name_row,
-                     { { text = name } }, name_size, gap, cfg);
+                     name, math.floor(name_row), gap, cfg);
     end
 
     -- Mob reference, all of it outside the frame.
@@ -1059,9 +1060,10 @@ end
 * @param {number} offset - world height nudge from the nameplate anchor, positive = down.
 * @param {string|nil} tag - pre-formatted text for the tag box; nil for a panel with no tag.
 * @param {table|nil} info - mobinfo.panel's result; nil for a panel with no mob reference.
-* @param {string|nil} name - name line above the frame; nil for a panel that shows no name.
+* @param {table|nil} name - name line above the frame, as drawInfoLine segments; nil for none.
+* @param {number|nil} name_size - that line's text height; nil for cfg.name_size.
 --]]
-local function drawAt(mm, index, s, bars, size, offset, tag, info, name, view, proj, vp)
+local function drawAt(mm, index, s, bars, size, offset, tag, info, name, name_size, view, proj, vp)
     if (index == 0) then
         return false;
     end
@@ -1084,7 +1086,8 @@ local function drawAt(mm, index, s, bars, size, offset, tag, info, name, view, p
     if (sz >= 0 and sz <= 1 and sx >= 0 and sx <= vp.Width and sy >= 0 and sy <= vp.Height) then
         -- Scale comes from the anchor point, so the panel keeps its top edge pinned under the
         -- nameplate and grows or shrinks downward from there.
-        drawPanel(sx, sy, s, bars, size, config.panel_scale(config.settings, depth), tag, info, name);
+        drawPanel(sx, sy, s, bars, size, config.panel_scale(config.settings, depth), tag, info,
+                  name, name_size);
         return true;
     end
     return false;
@@ -1127,7 +1130,7 @@ local function drawMember(mm, party, i, view, proj, vp)
            config.bars_for(party:GetMemberMainJob(i), party:GetMemberSubJob(i)),
            mine and cfg.sizes.self or cfg.sizes.party,
            mine and cfg.height_offset or cfg.party_height_offset,
-           tag, nil, name, view, proj, vp);
+           tag, nil, name and { { text = name } } or nil, nil, view, proj, vp);
 end
 
 -- HP is the only stat the client is told about an arbitrary entity, so any mob-reference panel is
@@ -1231,7 +1234,7 @@ local function drawPet(mm, party, i, view, proj, vp)
     local name = cfg.hide_party_names and pet.Name or nil;
 
     drawAt(mm, index, s, bars, cfg.sizes.party, cfg.party_height_offset,
-           nil, nil, name, view, proj, vp);
+           nil, nil, name and { { text = name } } or nil, nil, view, proj, vp);
 end
 
 --[[
@@ -1273,21 +1276,13 @@ local function drawMobPanel(mm, index, ent, view, proj, vp)
     -- full HP to make room at all. Above the frame drawInfoLine simply overhangs both sides evenly
     -- and holds at a legible size, so neither has to give way to the other any more.
     --
-    -- Flattened to one string rather than passed through as segments: nothing mobinfo puts in
-    -- `label` carries a color of its own (the tier's color paints the bar, not the text), so there
-    -- is no per-segment anything left to preserve here.
-    local name = nil;
-    if (info.label ~= nil and #info.label > 0) then
-        local parts = {};
-        for i, seg in ipairs(info.label) do
-            parts[i] = seg.text;
-        end
-        name = table.concat(parts);
-    end
+    -- Handed over as segments rather than flattened: mobinfo tints them all when the mob aggroes
+    -- (cfg.mob.aggro_color), and drawInfoLine already draws a per-segment color.
+    local name = (info.label ~= nil and #info.label > 0) and info.label or nil;
 
     local drawn = drawAt(mm, index, s, TARGET_BARS, config.settings.sizes.target,
                          config.settings.target_height_offset, info.tag, info, name,
-                         view, proj, vp);
+                         config.settings.target_name_size, view, proj, vp);
 
     -- Only a panel that actually reached the screen puts a name up there, so only that one earns
     -- the client's plate being switched off (see named_mobs). Recorded unconditionally rather than
@@ -1471,6 +1466,7 @@ local function drawConfigWindow()
             colorEdit('Text Outline Color', cfg.text.outline_color);
             slider(imgui.SliderInt, 'Min Text Size', cfg.text, 'min_size', 1, 20);
 
+            colorEdit3('Aggro Name Color', cfg.mob.aggro_color);
             colorEdit3('HP Color', cfg.bars.hp.color);
             colorEdit3('MP Color', cfg.bars.mp.color);
             colorEdit3('TP Color', cfg.bars.tp.color);
@@ -1504,13 +1500,15 @@ local function drawConfigWindow()
                 slider(imgui.SliderInt, ('Target %s Height'):fmt(key:upper()), cfg.sizes.target, key, 4, 40);
             end
         end
+        slider(imgui.SliderInt, 'Target Name Size', cfg, 'target_name_size', 8, 40);
 
         -- Target panel reference rows. The data line is the diagnostic: "loaded" with every box
         -- ticked and still nothing under the panel means this mob is not in mobdb's file, rather
         -- than mobdb not being installed at all.
         --
         -- Detection is listed first because it draws first: it owns the icon groups flanking the
-        -- bar, and Level & Job is the label inside it (see mobinfo.panel).
+        -- bar, and Level & Job feeds the tag box beside it and the name line above it (see
+        -- mobinfo.panel).
         checkbox('Show Detection', cfg.mob, 'detect');
         checkbox('Show Level & Job', cfg.mob, 'level');
         checkbox('Show Check (TW/EP/DC/EM/T/VT/IT)', cfg.mob, 'check');
@@ -1546,7 +1544,7 @@ local function drawConfigWindow()
         -- panels were switched off.
         checkbox('Hide Party Nameplates', cfg, 'hide_party_names');
         checkbox('Hide Target Nameplates', cfg, 'hide_target_names');
-        slider(imgui.SliderInt, 'Name Size', cfg, 'name_size', 8, 40);
+        slider(imgui.SliderInt, 'Party Name Size', cfg, 'name_size', 8, 40);
         slider(imgui.SliderFloat, 'Party Height Offset', cfg, 'party_height_offset', -4, 4);
         slider(imgui.SliderInt, 'Party Width', cfg.sizes.party, 'width', 40, 300);
         for _, key in ipairs(config.bar_order) do

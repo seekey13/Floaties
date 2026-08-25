@@ -671,7 +671,7 @@ assert(label_text(full.label) == '??? Tough Mist Lizard WAR',
 assert(full.tag == '14-17', 'the level tag box, got ' .. tostring(full.tag));
 assert(full.hp_color == mobinfo.CHECK.ITG.color, 'the tier colors the HP bar');
 for _, seg in ipairs(full.label) do
-    assert(seg.color == nil, 'no label segment carries a color -- the whole label draws in cfg.text.color');
+    assert(seg.color == nil, 'a passive mob leaves every segment uncolored -- the caller draws them in cfg.text.color');
 end
 assert(full.hp_color2 == nil, 'a notorious monster is one tier (ITG), not a straddle -- no gradient');
 assert(icons(full.left) == 'PassiveHQ Link', 'threat flanks left, got ' .. icons(full.left));
@@ -690,6 +690,34 @@ assert(icons(bomb.right) == 'Sight Magic', 'got ' .. icons(bomb.right));
 assert(#bomb.rows == 1, 'the resistance list is the row under the panel');
 assert(text(bomb.rows[1]) == 'Fire+25% Ice-50% Wind-50% Earth-50% Lightning-50% Water-50% Light-50% Dark-50%',
     'got ' .. tostring(text(bomb.rows[1])));
+
+-- Aggro tint. The whole line, not the name segment alone: the tier and job are drawn in the name's
+-- color on purpose, so tinting a third of it would split one string into two.
+local AGGRO_RED = { r = 1, g = 140/255, b = 140/255 };
+local TINTED    = { level = true, check = true, detect = true, resist = true, aggro_color = AGGRO_RED };
+
+local tinted = mobinfo.panel(BOMB, TINTED, jobname, 12, 'Bomb');
+assert(#tinted.label > 1, 'this case is only meaningful with a tier prefix to tint alongside the name');
+for _, seg in ipairs(tinted.label) do
+    assert(seg.color == AGGRO_RED, 'every segment of an aggressive mob name line takes the tint');
+end
+
+-- Passive, same toggles: the tint is a mobdb fact, not a setting that paints unconditionally.
+for _, seg in ipairs(mobinfo.panel(LINKER, TINTED, jobname, 20, 'Tough Mist Lizard').label) do
+    assert(seg.color == nil, 'a passive mob is left uncolored even with a tint configured');
+end
+
+-- No mobdb entry means no Aggro flag to read, so a player or an unrecognized mob keeps the default.
+for _, seg in ipairs(mobinfo.panel(nil, TINTED, jobname, 20, 'PlayerName').label) do
+    assert(seg.color == nil, 'no mobdb entry means no aggro tint -- there is nothing that knows');
+end
+
+-- Independent of the four toggles: `detect` owns the icon groups, this is a tint on a line that
+-- draws whatever they are set to.
+local tintedOff = mobinfo.panel(BOMB, { level = false, check = false, detect = false, resist = false,
+                                        aggro_color = AGGRO_RED }, jobname, 12, 'Bomb');
+assert(#tintedOff.label == 1 and tintedOff.label[1].color == AGGRO_RED,
+    'the tint does not borrow a toggle -- a name-only line still takes it');
 
 local nolevel = mobinfo.panel(BOMB, ALL_LINES, jobname, nil, 'Bomb');
 assert(label_text(nolevel.label) == 'Bomb', 'no player level leaves the check segment out, got ' .. tostring(label_text(nolevel.label)));

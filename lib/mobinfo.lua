@@ -355,8 +355,9 @@ end
 *     <Aggro> <Link>  [==========  71%  ==========]  <Sight> <Sound> <Scent>
 *                      <Fire>+25% <Ice>-50% <Dark>-50%
 *
-*   label - segments for the name line above the frame: the check tier, the name, and the job, in that
-*           order (the caller flattens them to one string -- no segment here carries a color). The
+*   label - segments for the name line above the frame: the check tier, the name, and the job, in
+*           that order. Every segment carries `mob.aggro_color` when mobdb says the mob aggroes, and
+*           no color otherwise (the caller's default). The
 *           name always shows -- it is the entity's own display name, not mobdb data --
 *           while the check tier and job each require their own toggle, and the job needs a mobdb
 *           entry (there is nothing else it could come from). Built whenever `mob ~= nil`, since the
@@ -421,10 +422,11 @@ function M.panel(res, mob, jobname, level, name, chk)
             -- The +/++ suffix only ever comes from a captured check (chk.plus) -- mobdb's
             -- estimate (M.check_text) has no condition data to draw one from at all.
             local plus = (tier ~= nil and chk.plus or 0);
-            -- No `color`: the prefix draws in cfg.text.color, the same as the name and job it sits
-            -- with, so the label reads as one string instead of a tinted word glued to a white one.
-            -- The tier's color is not lost -- it paints the whole HP bar underneath (hp_color), which
-            -- says the same thing louder than three letters ever did.
+            -- No `color` of its own: the prefix takes whatever the name and job it sits with take
+            -- (the caller's default, or the aggro tint stamped over all three below), so the line
+            -- reads as one string instead of a tinted word glued to a white one. The tier's color
+            -- is not lost -- it paints the whole HP bar underneath (hp_color), which says the same
+            -- thing louder than three letters ever did.
             label[#label + 1] = { text = text.text .. string.rep('+', plus) .. ' ' };
             hp_color, hp_color2 = text.color, text.color2;
         end
@@ -440,6 +442,21 @@ function M.panel(res, mob, jobname, level, name, chk)
             job = job .. '/' .. (jobname(res.SubJob) or '?');
         end
         label[#label + 1] = { text = ' ' .. job };
+    end
+
+    -- Aggro tint, stamped last so it catches every segment the three branches above added. The
+    -- whole line rather than the name segment alone: the tier prefix and job suffix are drawn in
+    -- the name's color precisely so the three read as one string, and coloring a third of that
+    -- string would undo exactly that.
+    --
+    -- Needs mobdb -- res.Aggro is the only thing that knows -- so a mob mobdb has never heard of,
+    -- and a PC, keep the caller's plain color. Same "no entry, no data" rule the icons follow, not
+    -- a special case for this. Not gated on any of the four toggles either: `detect` owns the icon
+    -- groups, and this is a tint on a line that draws whatever those are set to.
+    if (res ~= nil and res.Aggro and mob.aggro_color ~= nil) then
+        for _, seg in ipairs(label) do
+            seg.color = mob.aggro_color;
+        end
     end
 
     local tag = nil;
