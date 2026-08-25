@@ -356,7 +356,7 @@ end
 * Called before every early return in d3d_present, so switching the addon off (or the setting off)
 * gives names back on the spot instead of only once panels are drawing again.
 --]]
-local function updateNameMask(party)
+local function updateNameMask(mm, party)
     local want = config.settings.enabled and config.settings.hide_party_names;
     local now  = {};
 
@@ -367,11 +367,26 @@ local function updateNameMask(party)
     end
 
     if (want) then
-        for i = 1, 5 do
+        local em = mm:GetEntity();
+
+        for i = 0, 5 do
             if (party:GetMemberIsActive(i) == 1) then
                 local index = party:GetMemberTargetIndex(i);
-                if (index ~= 0) then
+
+                -- Slot 0 starts at 1 for the member's own plate: your name is `noname`'s to hide,
+                -- not ours. Your *pet* is not you, though -- nothing else is hiding its plate, and
+                -- "hide the party's nameplates" plainly includes the thing standing next to you --
+                -- so the loop runs from 0 and only the member half of slot 0 is skipped.
+                if (i ~= 0 and index ~= 0) then
                     now[index] = true;
+                end
+
+                -- Pets are masked whether or not their panel is drawing, for the same reason the
+                -- members' are: this setting is independent of the Show switches (see below), and
+                -- tying it to them would un-hide a plate the moment panels were switched off.
+                local pet = index ~= 0 and em:GetPetTargetIndex(index) or 0;
+                if (pet ~= 0) then
+                    now[pet] = true;
                 end
             end
         end
@@ -1148,9 +1163,10 @@ local TARGET_BARS = { 'hp' };
 * So the bar set is decided here per owner rather than by the panel kind -- which is why pets share
 * the party size table but not config.bars_for.
 *
-* No tag and no name line, unlike a party member's panel: the client's own plate is still up over a
-* pet (updateNameMask covers party slots 1..5 only), so a name here would print twice, and a "P3"
-* box over slot 3's pet would read as slot 3 itself.
+* No tag, unlike a party member's panel: a "P3" box over slot 3's pet would read as slot 3 itself.
+* The name line follows the same rule the members' does -- it appears only in place of a plate this
+* addon took away, so it is gated on Hide Party Nameplates, which now covers pets (see
+* updateNameMask). Off, the plate says the name and the panel says the bars.
 *
 * @param {number} i - the *owner's* party slot, 0 .. 5.
 --]]
@@ -1183,8 +1199,12 @@ local function drawPet(mm, party, i, view, proj, vp)
         bars = TARGET_BARS;
     end
 
+    -- Your own pet gets its name here too, unlike your own panel: the mask covers every pet, yours
+    -- included, so leaving this off slot 0 would take a name away and put nothing back.
+    local name = cfg.hide_party_names and pet.Name or nil;
+
     drawAt(mm, index, s, bars, cfg.sizes.party, cfg.party_height_offset,
-           nil, nil, nil, view, proj, vp);
+           nil, nil, name, view, proj, vp);
 end
 
 --[[
@@ -1647,7 +1667,7 @@ ashita.events.register('d3d_present', 'floaties_present', function ()
 
     -- Same placement, same reason: this owns un-hiding as well as hiding, so it cannot sit behind
     -- a return that a disabled addon takes. It reads the master switch itself.
-    updateNameMask(party);
+    updateNameMask(mm, party);
 
     drawConfigWindow();
 

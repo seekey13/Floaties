@@ -78,11 +78,18 @@ make an avatar's bar disappear the moment it spent its last MP and reappear on
 the next tick, and a wyvern would still need excluding by hand. A charmed pet
 draws no MP bar.
 
-Pet panels carry **no slot tag and no name line**. The client's own nameplate is
-still up over a pet — the plate hiding below covers party slots 1..5 only — so a
-name line would print the name twice, and a `P3` box over slot 3's pet would read
-as slot 3's own panel. A pet at 0% is skipped, the same corpse rule the target
-and enemy-list panels follow.
+Pet panels carry **no slot tag**: a `P3` box over slot 3's pet would read as slot
+3's own panel rather than as its pet.
+
+They do print a **name line**, on the same terms a party member's panel does — it
+appears only in place of a plate this addon took away, so it comes and goes with
+**Hide Party Nameplates**, which covers pets (see below). Your own pet prints its
+name there too, unlike your own panel: the mask takes your pet's plate but not
+yours, so leaving the line off slot 0's pet would remove a name and put nothing
+back.
+
+A pet at 0% is skipped, the same corpse rule the target and enemy-list panels
+follow.
 
 ## Panel sizes
 
@@ -156,9 +163,9 @@ kind is drawing it.
 ## Hiding party nameplates
 
 **Hide Party Nameplates** (off) switches the client's own name off over party
-members `P1`..`P5`, leaving their panel as the only thing above their head. The
-plate otherwise repeats what the panel already says, in the space the panel
-wants.
+members `P1`..`P5` **and over every party member's pet, yours included**, leaving
+their panel as the only thing above their head. The plate otherwise repeats what
+the panel already says, in the space the panel wants.
 
 **The panel then prints the name itself**, one line above its frame — where the
 plate was. It is the same deal the mob reference lines get under a target panel:
@@ -184,11 +191,16 @@ the local player. Nothing is drawn over or around the plate: the game is told
 not to draw it.
 
 **Your own name is not touched.** That is `noname`'s job, and two addons writing
-one flag on one entity would just fight over it.
+one flag on one entity would just fight over it. **Your pet's is**, though — your
+pet is not you, nothing else is hiding its plate, and it is standing in exactly
+the space your own panel wants. So the sweep runs over slots `0`..`5` and skips
+only the *member* half of slot 0.
 
-It is **independent of Show Party Members**, not nested under it: hiding plates
-without drawing panels is a legitimate combination, and tying them together
-would un-hide names the moment panels were switched off.
+It is **independent of Show Party Members**, **Show My Pet** and **Show Party
+Pets**, not nested under them: hiding plates without drawing panels is a
+legitimate combination, and tying them together would un-hide names the moment
+panels were switched off. The flip side is that a pet whose panel is switched off
+loses its plate and gets no name line back — the panel is what prints the name.
 
 Consequences of it being a live edit to the client rather than something
 Floaties draws:
