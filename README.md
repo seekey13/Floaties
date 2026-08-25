@@ -208,10 +208,11 @@ shape with a name as without; and it shrinks with the panel but bottoms out at
 nameplate. A name wider than the panel overhangs both sides evenly instead of
 being dropped.
 
-**Party Name Size** (`14`) sets its text height. It follows the same rule as
-**Info Text Size** but is a knob of its own: a stand-in nameplate and a target's
-reference rows are the same *shape* of line, and sizing one to taste shouldn't
-resize the other.
+**Name Size** (`14`) sets its text height — for a target's name line too, which
+draws on the same row by the same rule (see **The name above the panel**). It
+follows the same rule as **Info Text Size** but is a knob of its own: a name line
+and a target's reference rows are the same *shape* of line, and sizing one to
+taste shouldn't resize the other.
 
 There is no separate switch for the name itself. The name is only there to replace a plate
 this addon took away, so it comes and goes with the plate — with it off, the
@@ -318,10 +319,11 @@ ones. **Show Target** in the config window turns it off; it has its own
 
 **One bar, HP only.** Party panels can show MP and TP because the party packets
 carry them. For an arbitrary entity the client is told a single number — an HP
-percent — and nothing else, so there is no MP or TP to draw. The bar's label is
-the target's name, prefixed with its `/check` tier and suffixed with its job
-when mobdb has an entry (see **Target reference lines**), and the HP percent is
-appended once the mob takes damage — a full bar already says "100%" without it.
+percent — and nothing else, so there is no MP or TP to draw. **The bar's label is
+that percent**, the same as every other bar on every other panel; the target's
+name — prefixed with its `/check` tier and suffixed with its job when mobdb has
+an entry — draws one row *above* the frame, where a nameplate goes (see **The
+name above the panel**).
 The panel shrinks to fit the one bar and stays that shape: every piece of mob
 reference is drawn *around* it, never inside, so none of it changes the panel's
 geometry.
@@ -550,8 +552,9 @@ frame — reading left to right as one sentence: what it does to you, what it is
 what it sees you with.
 
 ```
+                 EP-DC Tough Mist Lizard WAR/MNK
             14-17
-<Passive> <Link> [═ EP-DC Tough Mist Lizard WAR/MNK ═] <Sight> <Sound> <Scent>
+<Passive> <Link> [═════════  71%  ═════════] <Sight> <Sound> <Scent>
                    <Fire>+25% <Ice>-50% <Dark>-50%
 ```
 
@@ -560,8 +563,8 @@ Four toggles in `/floaties config` feed it:
 | Setting | Contributes | Drawn as |
 |---|---|---|
 | **Show Detection** | the icon groups flanking the bar | left of it: aggro/passive, then Link. Right of it: TrueSight, Sight, Sound, Scent, Magic, JA, Blood |
-| **Show Level & Job** | the tag box, and a suffix on the bar's label | `14-17` in the box; ` WAR/MNK` appended to the label |
-| **Show Check** | a prefix on the bar's own label, and the bar's own fill color | the `/check` tier jammed into one string: `EP-DC `, drawn in the label's own color like the name beside it; the bar fills in the tier's color, or a left-to-right low-to-high gradient when the range straddles two tiers |
+| **Show Level & Job** | the tag box, and a suffix on the name line | `14-17` in the box; ` WAR/MNK` appended to the name |
+| **Show Check** | a prefix on the name line, and the bar's own fill color | the `/check` tier jammed into one string: `EP-DC `, drawn in the name's own color like the name beside it; the bar fills in the tier's color, or a left-to-right low-to-high gradient when the range straddles two tiers |
 | **Show Weakness/Resist** | a row under the panel | an icon and a percentage each: `<Fire>+25% <Ice>-50%` |
 
 The target's **name always draws**, whatever mobdb knows about it or doesn't —
@@ -585,34 +588,34 @@ damage types the mob happens to have.
 All four ship on. They draw on the target panel only — party members are not
 mobs, and a PC you have targeted has no entry either.
 
-### The label on the bar
+### The name above the panel
 
-**The label is the target's name, with the check tier prefixed and the job
-suffixed when mobdb has an entry, and the HP percent appended once the mob
-takes damage.** A full bar already says "100%" without it; the fill stops
-resolving 71% from 64% the moment there is damage on it, which is when the
-percent starts saying something the fill does not — so it is left off at full
-health and appended from the first hit onward.
+**The name is the target's, with the check tier prefixed and the job suffixed
+when mobdb has an entry, and it draws one row above the frame** — the same row a
+party member's stand-in nameplate uses, outside the frame, so it costs the panel
+no height and the panel is the same shape with it as without. **The bar keeps the
+plain HP percent.**
+
+That line used to live *inside* the HP bar, and the bar paid for it twice.
+`EP-DC Tough Mist Lizard WAR/MNK` is as long as the tier, the name, and the job
+pairing make it, so it only ever fit by shrinking toward mush against a bar sized
+for a two-digit number — and the percent had to be suppressed at full health to
+make room for it at all. Above the frame there is nothing to overflow: a long
+name simply overhangs both sides evenly, holds at a legible size, and the percent
+is back on the bar unconditionally.
 
 **The name is not mobdb data.** It is the entity's own display name, always
-known, so a player you have targeted or a mob mobdb has never heard of still
-gets a label — just without the check prefix or job suffix, which do need an
+known, so a player you have targeted or a mob mobdb has never heard of still gets
+a name line — just without the check prefix or job suffix, which do need an
 entry.
 
-**The label shrinks to fit rather than being dropped.** A number always fitted
-the bar; the full label (`EP-DC Tough Mist Lizard WAR/MNK`) is as long as the
-check tier, the name, and the mob's job pairing make it, and a label that
-vanished would leave the bar saying nothing at all. The size solves directly
-out of the combined width of every segment — no iteration — starting from the
-bar-height size every label uses.
-
-A bar too *short* still drops its text rather than shrinking it to mush. That is
-the other failure — no glyph is legible at any width — and **Min Text Size**
-already owns it.
+**It shrinks with the panel but bottoms out at Min Text Size**, and takes its
+height from **Name Size** — the same rule and the same knob a party member's
+stand-in nameplate uses, because it is the same kind of line.
 
 ### The check tier
 
-**Show Check** prefixes the bar's label with the `/check` tier, and fills the
+**Show Check** prefixes the name line with the `/check` tier, and fills the
 bar itself in that tier's color — your main job level against the mob's level
 from mobdb, so it is the one piece of the panel that is about *you* rather
 than about the mob.
@@ -740,9 +743,9 @@ a panel, where a number lining up under the wrong icon is the likelier reading.
 The rows sit one **Bar Gap** under the panel's bottom edge, each centered on the
 same anchor the panel is. **None of the reference costs the panel any height or
 width** — a target panel is exactly the same shape whether the mob has everything
-to say or nothing. (The check tier no longer has a placement of its own — it
-lives inside the bar label now, so it costs nothing beyond what the label
-already costs.)
+to say or nothing. (The check tier has no placement of its own — it is a prefix
+on the name line above the frame, which is outside too, so it costs nothing
+beyond what that line already costs.)
 
 That is the point of it all being outside. A resistance list has no natural
 width: a mob weak and resistant to eight damage types is a long line at any
@@ -867,7 +870,7 @@ the UI branch that reads this list needs it.
 ## Enemy list
 
 Every mob you (or your pet, avatar, or automaton) have personally damaged or affected gets
-the exact same panel the current target does -- HP bar, name, check tier, level tag, detection
+the exact same panel the current target does -- HP bar, name line, check tier, level tag, detection
 icons, resist row -- floating over it, independent of what is currently targeted. **Show Enemy
 List** in `/floaties config` turns it off; **Enemy List Max** caps how many draw in one frame.
 

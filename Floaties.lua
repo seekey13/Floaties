@@ -864,48 +864,6 @@ local function drawInfoLine(draw_list, left, top, width, row, segments, size, ga
     end
 end
 
---[[
-* Segmented sibling of drawLabel: the HP bar's own label, when it is the check-tier/name/job
-* segments mobinfo.panel builds rather than a single barText string. Same shrink-to-fit sizing as
-* drawLabel (derived from the bar's drawn height, shrunk again if the combined text overflows the
-* bar), but walks a list of segments left to right the way drawInfoLine lays out an icon group,
-* each drawn via drawText with its own optional color override -- none of them carries one today,
-* so the whole label draws in cfg.text.color and reads as one string.
-*
-* Solved, not iterated, same as drawLabel: textWidth is linear in size except for bold's fixed
-* extra pixel per segment, so two samples of lineWidth (at size 0, where only the fixed pixels
-* survive, and at the base font size) separate that fixed offset from the part that scales with
-* size, without walking the segments by hand.
---]]
-local function drawBarSegments(draw_list, left, top, width, height, segments, cfg)
-    local size = config.label_size(cfg, height);
-    if (size == nil) then
-        return;
-    end
-
-    local base   = imgui.GetFontSize();
-    local fixed  = lineWidth(segments, 0, 0, cfg);
-    local scaled = lineWidth(segments, base, 0, cfg) - fixed;
-
-    if (scaled > 0) then
-        size = math.min(size, math.floor((width - fixed) * base / scaled));
-    end
-
-    if (size < 1) then
-        return;
-    end
-
-    local x = math.floor(left + (width - lineWidth(segments, size, 0, cfg)) / 2);
-
-    for _, seg in ipairs(segments) do
-        if (seg.text ~= nil) then
-            local w = textWidth(seg.text, size, cfg);
-            drawText(draw_list, x, top, w, height, seg.text, size, cfg, seg.color);
-            x = x + w;
-        end
-    end
-end
-
 -- `size` is the panel kind's own cfg.sizes entry; everything else about the panel is shared.
 -- `scale` multiplies every pixel dimension, padding and rounding included -- a shrunk panel with a
 -- full-size border swallows its own bars.
@@ -914,7 +872,7 @@ end
 -- `info` is mobinfo.panel's result -- the HP label segments, the two icon groups flanking the bar,
 -- and any full-width rows under it. NO_INFO for every panel that is not a target.
 -- `name` is a line to draw above the frame, or nil for none -- a party member whose own nameplate
--- this addon switched off.
+-- this addon switched off, or a target's check tier/name/job line.
 local function drawPanel(sx, sy, s, bars, size, scale, tag, info, name)
     local cfg = config.settings;
     info      = info or NO_INFO;
@@ -983,37 +941,24 @@ local function drawPanel(sx, sy, s, bars, size, scale, tag, info, name)
             drawBar(draw_list, bar_left, bar_top, bw, h, s[key], 'full', color, color2, cfg, bar_rounding);
         end
 
-        -- Label stays centered across the whole row, so TP prints over the middle bar.
-        --
-        -- The target panel's HP bar carries the check tier, name, and job (mobinfo.panel's
-        -- `label`) instead of a plain percent, with the percent appended once the mob takes
-        -- damage: "100%" over a full bar is the bar saying what it just said, while once there is
-        -- damage on it the fill alone no longer resolves 71% from 64%.
+        -- Label stays centered across the whole row, so TP prints over the middle bar. Every bar
+        -- on every panel kind prints its own value and nothing else -- a target's check tier, name
+        -- and job are a nameplate, and draw above the frame as one (see drawMobPanel).
         if (bar_cfg.label) then
-            if (key == 'hp' and info.label ~= nil) then
-                local segments = info.label;
-                if (s.hp < 1) then
-                    local copy = {};
-                    for i, seg in ipairs(segments) do copy[i] = seg; end
-                    copy[#copy + 1] = { text = ' ' .. barText(s, 'hp') };
-                    segments = copy;
-                end
-                drawBarSegments(draw_list, bar_left, bar_top, bw, h, segments, cfg);
-            else
-                drawLabel(draw_list, bar_left, bar_top, bw, h, barText(s, key), cfg);
-            end
+            drawLabel(draw_list, bar_left, bar_top, bw, h, barText(s, key), cfg);
         end
 
         bar_top = bar_top + h + gap;
     end
 
-    -- The name goes back exactly where the plate this addon switched off used to be: one row above
-    -- the frame, outside it, so it costs the panel no height and the panel is the same shape with
-    -- a name as without -- the same deal the reference rows get under it.
+    -- The name goes exactly where the plate this addon switched off used to be: one row above the
+    -- frame, outside it, so it costs the panel no height and the panel is the same shape with a
+    -- name as without -- the same deal the reference rows get under it. Same row for a target's
+    -- tier/name/job line, which is the same thing by another route: a nameplate.
     --
     -- Sized off info_row, not a bar: that is the one rule here that bottoms out at text.min_size
     -- instead of shrinking away with the panel, and a name you cannot read is not a nameplate.
-    -- Its own size goes in (cfg.name_size), so setting the stand-in plate to taste does not drag
+    -- Its own size goes in (cfg.name_size), so sizing the stand-in plates to taste does not drag
     -- a target's reference rows along with it.
     --
     -- It goes through drawInfoLine rather than drawText for the other half of that bargain -- a
@@ -1285,8 +1230,27 @@ local function drawMobPanel(mm, index, ent, view, proj, vp)
     local info = mobinfo.panel(res, config.settings.mob, jobName, mm:GetPlayer():GetMainJobLevel(), ent.Name,
                                 check_list[ent.ServerId]);
 
+    -- The tier/name/job line goes *above* the frame, where a party member's stand-in nameplate
+    -- goes, leaving the HP bar the plain percent every other bar on every other panel prints.
+    -- Inside the bar that line was the panel's own width limit -- "EP-DC Tough Mist Lizard WAR/MNK"
+    -- only ever fit by drawLabel shrinking it toward mush, and the percent had to be suppressed at
+    -- full HP to make room at all. Above the frame drawInfoLine simply overhangs both sides evenly
+    -- and holds at a legible size, so neither has to give way to the other any more.
+    --
+    -- Flattened to one string rather than passed through as segments: nothing mobinfo puts in
+    -- `label` carries a color of its own (the tier's color paints the bar, not the text), so there
+    -- is no per-segment anything left to preserve here.
+    local name = nil;
+    if (info.label ~= nil and #info.label > 0) then
+        local parts = {};
+        for i, seg in ipairs(info.label) do
+            parts[i] = seg.text;
+        end
+        name = table.concat(parts);
+    end
+
     return drawAt(mm, index, s, TARGET_BARS, config.settings.sizes.target,
-                  config.settings.target_height_offset, info.tag, info, nil,
+                  config.settings.target_height_offset, info.tag, info, name,
                   view, proj, vp);
 end
 
@@ -1488,7 +1452,7 @@ local function drawConfigWindow()
         imgui.Text('Target Panel');
         checkbox('Show Target', cfg, 'show_target');
         slider(imgui.SliderFloat, 'Target Height Offset', cfg, 'target_height_offset', -4, 4);
-        slider(imgui.SliderInt, 'Target Width', cfg.sizes.target, 'width', 40, 300);
+        slider(imgui.SliderInt, 'Target Width', cfg.sizes.target, 'width', 40, 500);
         for _, key in ipairs(config.bar_order) do
             if (cfg.sizes.target[key] ~= nil) then
                 slider(imgui.SliderInt, ('Target %s Height'):fmt(key:upper()), cfg.sizes.target, key, 4, 40);
@@ -1535,7 +1499,7 @@ local function drawConfigWindow()
         -- a legitimate (if odd) combination, and tying them would silently un-hide names the moment
         -- panels were switched off.
         checkbox('Hide Party Nameplates', cfg, 'hide_party_names');
-        slider(imgui.SliderInt, 'Party Name Size', cfg, 'name_size', 8, 40);
+        slider(imgui.SliderInt, 'Name Size', cfg, 'name_size', 8, 40);
         slider(imgui.SliderFloat, 'Party Height Offset', cfg, 'party_height_offset', -4, 4);
         slider(imgui.SliderInt, 'Party Width', cfg.sizes.party, 'width', 40, 300);
         for _, key in ipairs(config.bar_order) do

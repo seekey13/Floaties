@@ -350,12 +350,14 @@ end
 * Everything the target panel draws from mobdb, split by where it goes rather than by which toggle
 * produced it -- the caller places each part and needs no idea which flag it came from:
 *
+*                            EP-DC Tough Mist Lizard WAR/MNK
 *                    14-17
-*     <Aggro> <Link>  [== EP-DC Tough Mist Lizard WAR/MNK ==]  <Sight> <Sound> <Scent>
+*     <Aggro> <Link>  [==========  71%  ==========]  <Sight> <Sound> <Scent>
 *                      <Fire>+25% <Ice>-50% <Dark>-50%
 *
-*   label - segments for the HP bar's own label: the check tier, the name, and the job, in that
-*           order. The name always shows -- it is the entity's own display name, not mobdb data --
+*   label - segments for the name line above the frame: the check tier, the name, and the job, in that
+*           order (the caller flattens them to one string -- no segment here carries a color). The
+*           name always shows -- it is the entity's own display name, not mobdb data --
 *           while the check tier and job each require their own toggle, and the job needs a mobdb
 *           entry (there is nothing else it could come from). Built whenever `mob ~= nil`, since the
 *           name alone is worth drawing for a target mobdb has never heard of (an unrecognized mob,
@@ -367,7 +369,7 @@ end
 *   hp_color - the check tier's color (M.CHECK[...].color), for the HP bar's own fill -- the only
 *           place the tier's color is drawn. The prefix on `label` carries no color of its own and
 *           draws in cfg.text.color like the name it sits next to, so the bar says the tier in color
-*           and the label says it in letters. `nil` under the exact conditions the check prefix itself
+*           and the name line says it in letters. `nil` under the exact conditions the check prefix itself
 *           is left off `label` (Show Check off, or neither a captured check nor a mobdb entry with
 *           a player level to check against), since there is then nothing to color the bar with
 *           either.
