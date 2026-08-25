@@ -1138,6 +1138,56 @@ end
 local TARGET_BARS = { 'hp' };
 
 --[[
+* Draws a party-sized panel over one party member's pet, when they have one out.
+*
+* Pets hold no party slot of their own -- they are reachable only through their owner's target
+* index -- so this walks the same 0..5 the party panels do instead of getting a scan of its own.
+*
+* Only *your* pet publishes more than an HP percent: MP and TP come off the player block, which has
+* room for exactly one pet, yours. Everyone else's gets what any arbitrary entity gets, one HP bar.
+* So the bar set is decided here per owner rather than by the panel kind -- which is why pets share
+* the party size table but not config.bars_for.
+*
+* No tag and no name line, unlike a party member's panel: the client's own plate is still up over a
+* pet (updateNameMask covers party slots 1..5 only), so a name here would print twice, and a "P3"
+* box over slot 3's pet would read as slot 3 itself.
+*
+* @param {number} i - the *owner's* party slot, 0 .. 5.
+--]]
+local function drawPet(mm, party, i, view, proj, vp)
+    if (party:GetMemberIsActive(i) == 0) then
+        return;
+    end
+
+    -- The entity manager's accessor rather than the owner entity's PetTargetIndex field: it takes
+    -- any owner index, so one call covers slot 0 and slots 1..5 alike.
+    local index = mm:GetEntity():GetPetTargetIndex(party:GetMemberTargetIndex(i));
+    local pet   = index ~= 0 and GetEntity(index) or nil;
+
+    -- 0% is the corpse rule the target and enemy-list panels already follow: a dismissed or dead
+    -- pet lingers in the entity table for a while, and an empty bar over it reads as a live pet
+    -- that is about to die rather than one that already has.
+    if (pet == nil or pet.HPPercent == 0) then
+        return;
+    end
+
+    local cfg = config.settings;
+    local s, bars;
+
+    if (i == 0) then
+        local player = mm:GetPlayer();
+        s    = stats.read_pet(pet, player:GetPetMPPercent(), player:GetPetTP());
+        bars = config.pet_bars(party:GetMemberMainJob(0));
+    else
+        s    = stats.read_entity(pet);
+        bars = TARGET_BARS;
+    end
+
+    drawAt(mm, index, s, bars, cfg.sizes.party, cfg.party_height_offset,
+           nil, nil, nil, view, proj, vp);
+end
+
+--[[
 * Draws a target-style panel over one already-resolved entity: mob reference lookup, /check
 * capture lookup, and the world-anchored draw. Shared by drawTarget (the current target) and
 * drawClaimed (every mob you've personally hit, see lib/enemylist.lua) -- the two differ only in
@@ -1240,6 +1290,19 @@ local function drawPanels(mm, party, view, proj, vp, gated)
         -- Slot 0 is self; 1..5 are the rest of the party.
         for i = 0, (config.settings.show_party and 5 or 0) do
             drawMember(mm, party, i, view, proj, vp);
+        end
+
+        -- Pets walk those same slots on switches of their own: yours does not hang off Show Party
+        -- Members (it is your pet, not the party's), and everyone else's is a separate switch
+        -- because a party of summoners is six more panels -- see config.lua.
+        if (config.settings.show_pet) then
+            drawPet(mm, party, 0, view, proj, vp);
+        end
+
+        if (config.settings.show_party_pets) then
+            for i = 1, 5 do
+                drawPet(mm, party, i, view, proj, vp);
+            end
         end
     end
 
@@ -1394,6 +1457,12 @@ local function drawConfigWindow()
         imgui.Separator();
         imgui.Text('Party Panel');
         checkbox('Show Party Members', cfg, 'show_party');
+
+        -- Pets live under Party Panel because that is whose width, bar heights and height offset
+        -- they draw with -- there is no Pet Panel section to put them in, on purpose.
+        checkbox('Show My Pet', cfg, 'show_pet');
+        imgui.SameLine();
+        checkbox('Show Party Pets', cfg, 'show_party_pets');
 
         -- Independent of Show Party Members on purpose: hiding the plates without drawing panels is
         -- a legitimate (if odd) combination, and tying them would silently un-hide names the moment

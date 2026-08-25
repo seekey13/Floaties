@@ -110,6 +110,26 @@ assert(stats.read_entity(fakeEnt(0x10, 137)).hp == 1.0, 'entity hp over 100 must
 assert(stats.label(mob, 'hp') == 50, 'entity label falls back to percent, got ' .. tostring(stats.label(mob, 'hp')));
 assert(isPct(mob, 'hp'), 'an entity label is always a percent -- there is no raw hp to read');
 
+-- Pet reads: an entity's HP percent, plus the MP/TP the player block publishes for your own pet
+-- only. The caller does that reading (it is Ashita-side), so nil for either is the shape another
+-- member's pet would arrive in and must not throw.
+assert(stats.read_pet(nil, 50, 1000) == nil, 'nil entity must yield nil');
+
+local pet = stats.read_pet(fakeEnt(0x10, 50), 40, 1500);
+assert(pet.hp == 0.5, 'pet hp comes from the entity, got ' .. tostring(pet.hp));
+assert(pet.mp == 0.4, 'pet mp is a percent, got ' .. tostring(pet.mp));
+assert(pet.tp == 0.5, 'pet tp runs 0..3000, got ' .. tostring(pet.tp));
+assert(pet.tp_raw == 1500, 'pet tp_raw is kept raw for the tp segments');
+
+-- Same labelling contract as an entity panel: pools published as percents print as percents.
+assert(pet.mp_raw == 0 and isPct(pet, 'mp'), 'a pet mp label is a percent -- there is no raw mp');
+
+local bare = stats.read_pet(fakeEnt(0x10, 100));
+assert(bare.mp == 0 and bare.tp == 0, 'a pet with nothing published reads empty, not nil');
+
+assert(stats.read_pet(fakeEnt(0x10, 100), 137, 5000).mp == 1.0, 'pet mp over 100 must clamp');
+assert(stats.read_pet(fakeEnt(0x10, 100), 0, 5000).tp == 1.0, 'pet tp over 3000 must clamp');
+
 -- Targetability. Party slots 0..5 are rejected because drawMember already draws them.
 local targetParty = {
     GetMemberIsActive = function (_, i) return i <= 2 and 1 or 0; end,
@@ -242,6 +262,19 @@ assert(config.bars_for(1, 2)[2] == 'tp', 'remaining bars stay in draw order');
 assert(#config.bars_for(1, 3) == 3, 'WAR/WHM keeps the mp bar (sub has MP)');
 assert(#config.bars_for(22, 1) == 3, 'RUN/WAR keeps the mp bar (main has MP)');
 assert(#config.bars_for(1, 0) == 2, 'no subjob must not error');
+
+-- A pet's MP bar follows the *owner's* job, not a live MP reading: an avatar spending its last MP
+-- must not drop a bar mid-fight, and a wyvern must never draw one it can never fill.
+assert(#config.pet_bars(15) == 3, 'a SMN avatar has an mp pool');
+assert(#config.pet_bars(18) == 3, 'a PUP automaton has an mp pool');
+assert(#config.pet_bars(9) == 2, 'a BST jug pet has no mp pool');
+assert(config.pet_bars(9)[2] == 'tp', 'remaining pet bars stay in draw order');
+assert(#config.pet_bars(0) == 2, 'an unknown job must not error');
+
+-- Not config.mp_jobs: SMN and PUP are the jobs whose *pet* has MP, which is a different list from
+-- the jobs that have MP themselves -- PUP has none, and every mage in mp_jobs summons nothing.
+assert(config.mp_jobs[18] == nil, 'PUP itself has no mp pool');
+assert(config.pet_mp_jobs[3] == nil, 'WHM summons nothing to give an mp bar to');
 
 -- Hiding a bar shrinks the panel by that bar's height plus one gap.
 assert(config.panel_height(config.defaults, SELF, { 'hp', 'tp' }) == 39,

@@ -25,6 +25,16 @@ M.defaults = {
     show_while_engaged = true,  -- show when entity status is Engaged
     show_while_idle    = true,  -- show when entity status is Idle
     show_party         = true,  -- draw panels over party members too, not just self
+
+    -- Pets (avatar / automaton / wyvern / jug pet / luopan / charmed mob) get a party-sized panel
+    -- of their own. Split in two because the two halves cost different amounts of screen: your own
+    -- pet is one more panel and is the one you actually manage, while a full party of summoners is
+    -- six -- so yours ships on and everyone else's ships off. They share the party panel's size and
+    -- height offset outright rather than carrying their own: a pet is a party-member-shaped thing,
+    -- and a third set of sliders to keep in step with the party's is a setting nobody would want to
+    -- have to match up.
+    show_pet           = true,   -- your own pet
+    show_party_pets    = false,  -- every other party member's pet
     -- Switch the client's own nameplate off over party members 1..5, leaving their panel as the
     -- only thing above their head (see updateNameMask). Off by default: it writes to the client's
     -- entities rather than drawing something of our own, so it is opt-in. Your own plate is not
@@ -158,6 +168,30 @@ M.mp_jobs = {
 --]]
 function M.bars_for(main_job, sub_job)
     if (M.mp_jobs[main_job] or M.mp_jobs[sub_job]) then
+        return M.bar_order;
+    end
+    return { 'hp', 'tp' };
+end
+
+-- Owner main-job ids whose pet carries an MP pool of its own: SMN (avatar) and PUP (automaton).
+-- A wyvern, a jug pet and a luopan read 0 MP forever, so keying off the *owner's* job keeps a
+-- permanently empty bar off those panels. Deliberately not a test of the live percent, which would
+-- make an avatar's bar vanish the frame it spends its last MP and come back on the next tick.
+-- ponytail: a charmed PC or mob (Charm, Bewitchment) is not in here and draws no MP bar; add its
+-- owner's job id if that ever matters.
+M.pet_mp_jobs = { [15] = true, [18] = true };
+
+--[[
+* Bars to draw for your own pet, from the job that summoned it.
+*
+* Only ever asked about *your* pet: another member's pet publishes nothing but an HP percent, so its
+* caller draws the one bar without consulting this.
+*
+* @param {number} main_job - the owner's main job id.
+* @return {table} subset of M.bar_order, same order.
+--]]
+function M.pet_bars(main_job)
+    if (M.pet_mp_jobs[main_job]) then
         return M.bar_order;
     end
     return { 'hp', 'tp' };

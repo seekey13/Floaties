@@ -44,11 +44,52 @@ their labels fall back to the percent it does send. TP is raw for everyone.
 Party members' MP bar follows their own job, and is dropped until their job is
 known.
 
+## Pet panels
+
+Pets get a panel of their own, drawn with the **party** panel's width, bar
+heights and height offset. A pet is a party-member-shaped thing, and giving it a
+third set of size sliders would mean keeping two sets in step by hand for no
+gain — so there is no Pet Panel block in the config window, and its two switches
+live under **Party Panel** instead:
+
+| Setting | Default | What it draws |
+|---|---|---|
+| **Show My Pet** | on | Your own avatar / automaton / wyvern / jug pet / luopan |
+| **Show Party Pets** | off | Every other party member's pet |
+
+Two switches, not one, because the two cost very different amounts of screen:
+your own pet is one extra panel and is the one you actually manage, while a
+party of summoners is six. **Show My Pet** is also independent of **Show Party
+Members** — it is your pet, not the party's, so switching the party's panels off
+does not take it with them.
+
+Pets have no party slot, so they are reached through their owner's target index
+(`GetPetTargetIndex`) rather than by scanning; the same 0..5 walk the party
+panels use covers them.
+
+**Only your own pet shows more than HP.** The client publishes pet MP and TP
+through the player block, which has room for exactly one pet — yours. Everyone
+else's pet is just another entity, so it draws the single HP bar a target panel
+does, percent-labelled like any other entity read.
+
+Your pet's MP bar follows the **owner's job**, not a live MP reading: SMN and PUP
+draw HP/MP/TP, every other pet job draws HP/TP. Testing the percent instead would
+make an avatar's bar disappear the moment it spent its last MP and reappear on
+the next tick, and a wyvern would still need excluding by hand. A charmed pet
+draws no MP bar.
+
+Pet panels carry **no slot tag and no name line**. The client's own nameplate is
+still up over a pet — the plate hiding below covers party slots 1..5 only — so a
+name line would print the name twice, and a `P3` box over slot 3's pet would read
+as slot 3's own panel. A pet at 0% is skipped, the same corpse rule the target
+and enemy-list panels follow.
+
 ## Panel sizes
 
 Size is the one setting that is **not** shared between the three panel kinds.
 Self, party and target each own a width and a height per bar, under `sizes` in
-the settings file and in their own block in `/floaties config`:
+the settings file and in their own block in `/floaties config`. Pets are not a
+fourth kind — they draw with the party's (see **Pet panels**):
 
 | Panel | Settings | Defaults |
 |---|---|---|
@@ -275,7 +316,7 @@ config window reports them on two lines (see **Reading the gate state**).
 
 ## Visibility gates
 
-Three visibility gates, covering the **self and party panels**. Each one only
+Three visibility gates, covering the **self, party and pet panels**. Each one only
 ever **enables**: those panels show when at least one *enabled* gate's condition
 is true, and are hidden otherwise. Several on is a union, so being engaged is
 enough on its own even when the battle-target check disagrees.
@@ -854,7 +895,7 @@ back to the entity's feet position for that frame.
 - `Floaties.lua` — projection, ImGui rendering, gate state, config window, commands
 - `lib/nameplate.lua` — actor → skeleton → bone walk for the nameplate anchor bone (memory reader injected, so it tests headless)
 - `lib/targets.lua` — Ashita's target library, vendored unmodified (only `get_bt` is used)
-- `lib/stats.lua` — HP/MP/TP normalization, TP segment math, and the target's entity read + targetability test (no Ashita dependencies)
+- `lib/stats.lua` — HP/MP/TP normalization, TP segment math, and the target/pet entity reads + targetability test (no Ashita dependencies)
 - `lib/config.lua` — settings defaults, load/save, derived layout math (no Ashita dependencies except load/save)
 - `lib/mobinfo.lua` — mobdb zone-data loader, the reference rows, and the `/check` tier math, built as icon/text segments (no Ashita dependencies — it picks the icon names and the tier colors, `Floaties.lua` loads and draws them)
 - `lib/checkinfo.lua` — the `/check` capture list keyed by server id: what counts as a check response, and its zone/death cleanup (no Ashita dependencies — `Floaties.lua` unpacks the packet and resolves the entity)
