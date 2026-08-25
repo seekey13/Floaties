@@ -797,7 +797,7 @@ your own status caught up.
 | `/floaties config` | Same as the bare command, kept as an alias |
 | `/floaties bt` | Print the current gate state (in combat / engaged / idle, raw status, resolved `<bt>` and target, or why either was rejected) |
 
-`0.0` puts the panel's top edge level with the top of the model, i.e. directly under the
+`0.0` puts the panel's top edge level with the nameplate anchor bone, i.e. directly under the
 nameplate; nudge from there. Self, party and target have separate offsets (`Self Height
 Offset` / `Party Height Offset` / `Target Height Offset` in `/floaties config`); the command
 only touches your own. They default to `0.228` / `0.125` / `0.125` — everything hangs a
@@ -805,10 +805,22 @@ little below the plate, your own taller panel slightly further.
 
 ## Nameplate anchor
 
-The panel hangs from the same point the game hangs a nameplate from: the top of the rendered
-model, read from the actor's skeleton (highest bone, i.e. smallest Z — the height axis points
-down). That makes the offset from the plate hold across races, mounts, sitting, and mid-jump,
-all of which a fixed world offset from the ground gets wrong.
+The panel hangs from the same point the game hangs a nameplate from: **bone 2** of the actor's
+skeleton, the bone index the client's own nameplate helper is called with. That makes the offset
+from the plate hold across races, mounts, sitting, and mid-jump, all of which a fixed world
+offset from the ground gets wrong.
+
+All three axes come from the actor object — the panel tracks the *model*, not the feet. Two
+things fall out of that. A model that leans or lunges carries its panel with its head instead of
+leaving it planted over the ground it is standing on; and the panel stops shearing sideways
+during movement, which it did while the height came from the actor and the horizontal position
+came from the entity struct (the actor holds the rendered position, and the entity struct can lag
+it by a frame).
+
+Earlier builds scanned the whole skeleton for its highest bone and used that. It was wrong twice
+over: the topmost bone is whatever the model happens to hold up — a greatsword on the back, a
+raised wing, a hat — so anything not shaped like a Hume floated its panel too high, and that bone
+*moves through the animation*, so the panel drifted every time the model swung something.
 
 It is *not* a hook into the game's own draw code. FFXI computes the nameplate's screen position
 inside `FFXiMain.dll` each frame and keeps it nowhere readable, so pixel-exact co-location needs
@@ -822,7 +834,7 @@ back to the entity's feet position for that frame.
 ## Files
 
 - `Floaties.lua` — projection, ImGui rendering, gate state, config window, commands
-- `lib/nameplate.lua` — actor → skeleton → bone walk for the model-top anchor (memory reader injected, so it tests headless)
+- `lib/nameplate.lua` — actor → skeleton → bone walk for the nameplate anchor bone (memory reader injected, so it tests headless)
 - `lib/targets.lua` — Ashita's target library, vendored unmodified (only `get_bt` is used)
 - `lib/stats.lua` — HP/MP/TP normalization, TP segment math, and the target's entity read + targetability test (no Ashita dependencies)
 - `lib/config.lua` — settings defaults, load/save, derived layout math (no Ashita dependencies except load/save)

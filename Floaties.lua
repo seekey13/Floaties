@@ -1048,14 +1048,16 @@ local function drawAt(mm, index, s, bars, size, offset, tag, info, view, proj, v
     end
 
     local ent = mm:GetEntity();
-    local px  = ent:GetLocalPositionX(index);
-    local py  = ent:GetLocalPositionY(index);
 
-    -- Anchor at the top of the model -- where the game hangs the nameplate -- so the offset from
-    -- the plate holds on a mount, a Galka, or mid-jump. Falls back to feet when the skeleton is
-    -- unreadable for a frame.
-    local top = nameplate.top(ashita.memory, ent:GetActorPointer(index));
-    local pz  = (top or ent:GetLocalPositionZ(index)) + offset;
+    -- Anchor on the bone the game hangs the nameplate from, so the offset from the plate holds on
+    -- a mount, a Galka, or mid-jump -- and so the panel tracks the *model* horizontally rather
+    -- than the feet. All three axes come from the anchor together or none do: falling back to the
+    -- entity struct for one axis and the actor for the others mixes two positions that disagree
+    -- while an entity moves. Falls back to feet when the skeleton is unreadable for a frame.
+    local ax, ay, az = nameplate.anchor(ashita.memory, ent:GetActorPointer(index));
+    local px = ax or ent:GetLocalPositionX(index);
+    local py = ay or ent:GetLocalPositionY(index);
+    local pz = (az or ent:GetLocalPositionZ(index)) + offset;
 
     -- Position struct is stored X, Z, Y - the game's Z is the D3D up-axis.
     local sx, sy, sz, depth = worldToScreen(px, pz, py, view, proj, vp.Width, vp.Height);

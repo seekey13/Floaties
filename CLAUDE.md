@@ -113,11 +113,16 @@ Z, and a positive height offset moves a panel *down*). `worldToScreen` returns
 view depth (`p.w`) as a fourth value because that is exactly what distance
 scaling needs, for free.
 
-Panels hang from `nameplate.top()` — the highest bone in the actor's skeleton —
-not from the entity's feet, so the gap under the nameplate holds across races,
-mounts, sitting and jumping. Any unreadable pointer in the chain returns `nil`
-and the caller falls back to feet position for that frame; never let that walk
-throw.
+Panels hang from `nameplate.anchor()` — bone 2 of the actor's skeleton, the bone
+index the client's own nameplate helper takes — not from the entity's feet, so
+the gap under the nameplate holds across races, mounts, sitting and jumping. It
+returns all three axes together, and the caller uses all three or none: taking
+height from the actor and X/Y from the entity struct mixes two positions that
+disagree while an entity moves. (Do not go back to scanning for the highest
+bone: the topmost bone is whatever the model holds up — a weapon, a wing — and
+it moves through the animation.) Any unreadable pointer in the chain returns
+`nil` and the caller falls back to feet position for that frame; never let that
+walk throw.
 
 ### Layout and settings
 
