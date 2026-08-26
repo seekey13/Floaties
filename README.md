@@ -10,12 +10,14 @@ raw current value as text:
 
 | Bar | Source | Label | Default color | Label on by default |
 |---|---|---|---|---|
-| HP | `party:GetMemberHPPercent(i)` | current HP | light red | yes |
+| HP | `party:GetMemberHPPercent(i)` | current HP | light red | no |
 | MP | `party:GetMemberMPPercent(i)` | current MP | light yellow | no |
 | TP | `party:GetMemberTP(i)`, drawn as 3 separate bars (1000 TP each) | current TP (0-3000) | light blue | no |
 
-Only HP prints its number by default — it is the one being read — while the
-shorter MP and TP bars stay clean. **Show MP / TP Text** turns theirs back on.
+No bar prints its number by default: at the heights the panels ship at a digit
+is most of the bar it sits in, and the fill is already the read. **Show HP / MP /
+TP Text** turns each back on — HP first, if you want one, since its number is the
+one being read.
 
 The TP row is three individual bars side by side rather than one bar with
 dividers, spaced by the same `gap` used between rows. The label is centered
@@ -44,20 +46,104 @@ their labels fall back to the percent it does send. TP is raw for everyone.
 Party members' MP bar follows their own job, and is dropped until their job is
 known.
 
+## Pet panels
+
+Pets get a panel of their own, drawn with the **party** panel's width, bar
+heights and height offset. A pet is a party-member-shaped thing, and giving it a
+third set of size sliders would mean keeping two sets in step by hand for no
+gain — so there is no Pet Panel block in the config window, and its two switches
+live under **Party Panel** instead:
+
+| Setting | Default | What it draws |
+|---|---|---|
+| **Show My Pet** | on | Your own avatar / automaton / wyvern / jug pet / luopan |
+| **Show Party Pets** | on | Every other party member's pet |
+| **Share Pet Info** | on | Swaps pet MP/TP with the other Floaties sessions on this PC |
+
+Two switches, not one, because the two cost very different amounts of screen:
+your own pet is one extra panel and is the one you actually manage, while a
+party of summoners is six. **Show My Pet** is also independent of **Show Party
+Members** — it is your pet, not the party's, so switching the party's panels off
+does not take it with them.
+
+Pets have no party slot, so they are reached through their owner's target index
+(`GetPetTargetIndex`) rather than by scanning; the same 0..5 walk the party
+panels use covers them.
+
+**Only your own pet shows more than HP** — unless the owner is another Floaties
+session on this PC, see **Shared pet info** below. The client publishes pet MP and
+TP through the player block, which has room for exactly one pet — yours. Everyone
+else's pet is just another entity, so it draws the single HP bar a target panel
+does, percent-labelled like any other entity read.
+
+Your pet's MP bar follows the **owner's job**, not a live MP reading: SMN and PUP
+draw HP/MP/TP, every other pet job draws HP/TP. Testing the percent instead would
+make an avatar's bar disappear the moment it spent its last MP and reappear on
+the next tick, and a wyvern would still need excluding by hand. A charmed pet
+draws no MP bar.
+
+Pet panels carry **no slot tag**: a `P3` box over slot 3's pet would read as slot
+3's own panel rather than as its pet.
+
+They do print a **name line**, on the same terms a party member's panel does — it
+appears only in place of a plate this addon took away, so it comes and goes with
+**Hide Party Nameplates**, which covers pets (see below). Your own pet prints its
+name there too, unlike your own panel: the mask takes your pet's plate but not
+yours, so leaving the line off slot 0's pet would remove a name and put nothing
+back.
+
+A pet at 0% is skipped, the same corpse rule the target and enemy-list panels
+follow.
+
+### Shared pet info
+
+Multiboxing on one PC, the second box's avatar drew one bar where its own session
+drew three — the MP and TP are on that session's screen, they just have no way
+across. With **Share Pet Info** on, every Floaties session writes its own pet's
+numbers to `config/addons/floaties/pet_<CharName>.txt` and reads the file
+belonging to each party member it draws a pet for, so both boxes show the full
+bar set. Nothing to set up beyond running the addon on both. (Sidekick shares a
+party roster through the same directory the same way.)
+
+The published line is `<pet server id> <mp percent> <raw tp> <unix seconds>`,
+rewritten twice a second while a pet is out:
+
+- **HP is not in it.** The entity table already carries a live HP percent for
+  anybody's pet, so sharing it would only add a way for the two to disagree.
+- **Lookup is by character name**, not by scanning the directory: the only pets
+  drawn hang off party slots 0..5, and those owners' names are already in hand. A
+  session whose character isn't in your party publishes a file nobody reads.
+- **The server id is checked against the pet actually being drawn.** A member who
+  swaps avatars leaves the old id in the file until the next write, and MP
+  belonging to the wrong pet is worse than no MP bar.
+- **Staleness retires the data, not a teardown path.** A line older than 5s is
+  ignored, which covers the publisher dismissing its pet, zoning, logging out,
+  unloading the addon or crashing — all of which just stop the writes.
+- **Publishing runs ahead of the visibility gates and ignores Show My Pet**, since
+  what it writes is for somebody else's screen. Which bars *draw* still follows
+  the owner's job, exactly as for your own pet: a shared jug pet gets HP/TP.
+- **One switch covers both halves**, publish and read: a session that won't
+  publish has no business reading, and the exchange is worthless unless both ends
+  are in it.
+
 ## Panel sizes
 
 Size is the one setting that is **not** shared between the three panel kinds.
 Self, party and target each own a width and a height per bar, under `sizes` in
-the settings file and in their own block in `/floaties config`:
+the settings file and in their own block in `/floaties config`. Pets are not a
+fourth kind — they draw with the party's (see **Pet panels**):
 
 | Panel | Settings | Defaults |
 |---|---|---|
-| Self | Width, HP / MP / TP Height | 200 — 18 / 10 / 16 |
-| Party | Width, HP / MP / TP Height | 150 — 14 / 7 / 10 |
-| Target | Width, HP Height | 300 — 20 |
+| Self | Width, HP / MP / TP Height | 200 — 8 / 6 / 10 |
+| Party | Width, HP / MP / TP Height | 150 — 8 / 6 / 10 |
+| Target | Width, HP Height | 300 — 23 |
 
-The defaults size by how closely each is read: the target panel is the widest,
-then your own, then the five party panels that are on screen all at once.
+The defaults size by how closely each is read: the target panel is the widest
+and by far the tallest — it is the thing being read at a glance — then your own,
+then the five party panels that are on screen all at once. Self and party ship
+the same bar heights and differ only in width; the split is still per kind, so
+raising one does not raise the other.
 
 Target lists one height because it draws one bar — see below. Every other visual
 property (padding, rounding, bar colors, fill alphas, borders, text color) stays
@@ -76,7 +162,7 @@ shorter panel at whatever heights that kind is set to.
 
 ## Party slot indicator
 
-**Party Slot Indicator** (on) draws that member's party slot — `P1` through `P5`,
+**Party Slot Indicator** (off) draws that member's party slot — `P1` through `P5`,
 the same slots `<p1>`..`<p5>` address — in a box on the left of the panel, and
 shifts the bars right to make room.
 
@@ -87,7 +173,9 @@ bars keep the full width rather than sitting beside a blank space.
 The box takes its space **out of the bars, not out of the panel**: `width` stays
 what you set it to, so the bars shift right and shorten by the box plus one gap.
 Growing the frame instead would resize every panel the moment the box was ticked.
-At the default `21`px text and `1` gap that is 32px of the party panel's 150.
+At the default `21`px text and `0` gap that is 31px of the party panel's 150.
+It ships off: a party panel already sits over the member it belongs to, so `P3`
+repeats what the panel's own position says, at the bars' expense.
 
 It is separated from the bars by the same **Bar Gap** the bars are separated from
 each other by, and sits inside the same panel padding, so the left edge lines up
@@ -112,24 +200,81 @@ gate on. It reserves space out of the bar the same way, through the same
 `M.slot_width` — the box just holds different text depending on which panel
 kind is drawing it.
 
-## Hiding party nameplates
+## Hiding nameplates
 
-**Hide Party Nameplates** (off) switches the client's own name off over party
-members `P1`..`P5`, leaving their panel as the only thing above their head. The
-plate otherwise repeats what the panel already says, in the space the panel
-wants.
+Two settings, one mechanism: **Hide Party Nameplates** covers the party and its
+pets, **Hide Target Nameplates** covers the mobs a target or enemy-list panel is
+drawing over. Everything from **How it works** down applies to both.
 
-It works by setting bit `0x08` of each member's entity `Render.Flags2` — the
+### Party members and pets
+
+**Hide Party Nameplates** (on) switches the client's own name off over party
+members `P1`..`P5` **and over every party member's pet, yours included**, leaving
+their panel as the only thing above their head. The plate otherwise repeats what
+the panel already says, in the space the panel wants.
+
+**The panel then prints the name itself**, one line above its frame — where the
+plate was. It is the same deal the mob reference lines get under a target panel:
+outside the frame, so it costs the panel no height and the panel is the same
+shape with a name as without; and it shrinks with the panel but bottoms out at
+**Min Text Size**, because a name you can't read at range isn't standing in for a
+nameplate. A name wider than the panel overhangs both sides evenly instead of
+being dropped.
+
+**Party Name Size** (`25`) sets its text height. It follows the same rule as
+**Info Text Size** but is a knob of its own: a name line and a target's reference
+rows are the same *shape* of line, and sizing one to taste shouldn't resize the
+other. Targets have their own **Target Name Size** for the same reason (see **The
+name above the panel**).
+
+There is no separate switch for the name itself. The name is only there to replace a plate
+this addon took away, so it comes and goes with the plate — with it off, the
+plate says the name and the panel says the bars, which is the split the game
+already had.
+
+### Targets and the enemy list
+
+**Hide Target Nameplates** (on) switches the client's own name off over every mob
+a target panel or an enemy-list panel is currently drawing over — the mob you
+have selected, and every mob you have personally hit. That panel already prints
+the mob's name above its frame, with the check tier prefixed and the job suffixed
+(see **The name above the panel**), so the plate is the same name twice in the
+same space.
+
+**On by default, like the party one**: both plates duplicate a name the panel
+under them already prints, and the mob's is the duplication this addon created —
+a mob panel puts a name up there whether or not you asked for a second one.
+
+**It follows the panels, not the target.** A plate is hidden because a panel
+actually drew a name over that mob this frame — so a mob off screen, one capped
+out by **Enemy List Max**, or one whose panel is switched off entirely keeps the
+only name it has left. There is no case where both names are gone. The cost is
+one frame of lag at each end: the plate survives the frame a panel first draws,
+and stays hidden for the frame after it stops.
+
+**Your own name is not touched here either**, for the same reason — targeting
+yourself draws a panel like anything else, but that plate is `noname`'s.
+
+### How it works
+
+It works by setting bit `0x08` of each entity's `Render.Flags2` — the
 client's own "name hidden" mask, the same one Ashita's `noname` addon sets on
 the local player. Nothing is drawn over or around the plate: the game is told
 not to draw it.
 
-**Your own name is not touched.** That is `noname`'s job, and two addons writing
-one flag on one entity would just fight over it.
+**Your own name is never touched, by either setting.** That is `noname`'s job,
+and two addons writing one flag on one entity would just fight over it — clearing
+the bit back off your entity when you untarget yourself would undo *its* hiding.
+**Your pet's is**, though — your
+pet is not you, nothing else is hiding its plate, and it is standing in exactly
+the space your own panel wants. So the sweep runs over slots `0`..`5` and skips
+only the *member* half of slot 0.
 
-It is **independent of Show Party Members**, not nested under it: hiding plates
-without drawing panels is a legitimate combination, and tying them together
-would un-hide names the moment panels were switched off.
+It is **independent of Show Party Members**, **Show My Pet** and **Show Party
+Pets**, not nested under them: hiding plates without drawing panels is a
+legitimate combination, and tying them together would un-hide names the moment
+panels were switched off. The flip side is that a pet whose panel is switched off
+loses its plate and gets no name line back — the panel is what prints the name.
 
 Consequences of it being a live edit to the client rather than something
 Floaties draws:
@@ -138,10 +283,11 @@ Floaties draws:
   render flags wholesale on spawn and on zone.
 - **Names come back the moment you switch it (or the addon) off**, because the
   bit is cleared explicitly rather than left for the client's next rebuild to
-  drop. A member leaving the party gets theirs back the same frame.
-- **Unloading restores every plate still hidden.** Leaving the bit set would
-  strand party members nameless with nothing running to explain it and no way
-  back short of zoning.
+  drop. A member leaving the party gets theirs back the same frame, as does a mob
+  whose panel stopped drawing.
+- **Unloading restores every plate still hidden**, from either setting. Leaving
+  the bit set would strand entities nameless with nothing running to explain it
+  and no way back short of zoning.
 
 ### Why it also patches one byte of the client
 
@@ -160,8 +306,10 @@ rebuild on spawn or zone.
 
 Because it is a write into the client's code rather than into an entity:
 
-- **It is applied only while the setting is on**, and restored the moment it
-  goes off or the addon unloads. Off means the client is untouched.
+- **It is applied only while one of the two settings is on**, and restored the
+  moment both go off or the addon unloads. Off means the client is untouched. One
+  patch serves both — it stops the client clearing the bit, and neither setting
+  cares which one asked for that.
 - **It defers to `noname`.** If that byte already reads `0xF8`, Floaties takes
   the benefit and claims no ownership, so unloading Floaties cannot rip
   `noname`'s patch out from under it.
@@ -214,10 +362,11 @@ ones. **Show Target** in the config window turns it off; it has its own
 
 **One bar, HP only.** Party panels can show MP and TP because the party packets
 carry them. For an arbitrary entity the client is told a single number — an HP
-percent — and nothing else, so there is no MP or TP to draw. The bar's label is
-the target's name, prefixed with its `/check` tier and suffixed with its job
-when mobdb has an entry (see **Target reference lines**), and the HP percent is
-appended once the mob takes damage — a full bar already says "100%" without it.
+percent — and nothing else, so there is no MP or TP to draw. **The bar's label is
+that percent**, the same as every other bar on every other panel; the target's
+name — prefixed with its `/check` tier and suffixed with its job when mobdb has
+an entry — draws one row *above* the frame, where a nameplate goes (see **The
+name above the panel**).
 The panel shrinks to fit the one bar and stays that shape: every piece of mob
 reference is drawn *around* it, never inside, so none of it changes the panel's
 geometry.
@@ -257,7 +406,7 @@ config window reports them on two lines (see **Reading the gate state**).
 
 ## Visibility gates
 
-Three visibility gates, covering the **self and party panels**. Each one only
+Three visibility gates, covering the **self, party and pet panels**. Each one only
 ever **enables**: those panels show when at least one *enabled* gate's condition
 is true, and are hidden otherwise. Several on is a union, so being engaged is
 enough on its own even when the battle-target check disagrees.
@@ -375,13 +524,13 @@ Every visual property is configurable via `/floaties config` and persists across
 sessions — per-panel widths and bar heights (see **Panel sizes**), and shared
 padding/rounding/colors/border/text color.
 
-The default panel is black at `100/255` alpha with a fully transparent **Panel
-Border Color**: the frame reads as its own shape against the world rather than an
-outlined box. Both borders draw unconditionally now — there is no visibility
-checkbox for either — so a transparent alpha is what hides the panel border,
-while the bar border stays visible at its own default (black at `150/255`). To
-get a panel outline back, raise **Panel Border Color**'s alpha rather than
-looking for a separate toggle; the same goes for **Panel Rounding** and **Bar
+The default panel is black at `125/255` alpha, edged by a black **Panel Border
+Color** at `100/255`: enough scrim to hold the bars off the world behind them,
+with a soft edge so the frame still reads as its own shape against a bright zone.
+The bar border shares that `100/255`. Both borders draw unconditionally — there
+is no visibility checkbox for either — so a transparent alpha is what hides one:
+drop **Panel Border Color** to `0` for the borderless look, and raise it again
+rather than looking for a separate toggle; the same goes for **Panel Rounding** and **Bar
 Rounding**, which turn their rounding off at `0` instead of a checkbox next to
 them.
 
@@ -400,7 +549,7 @@ see **Party slot indicator**.)
 
 A bar that cannot hold a legible digit drops its label instead of drawing mush.
 That happens when the size the bar would give works out under **Min Text Size**
-(`12`). It is decided per bar, not per panel: a short TP row can go quiet while
+(`1`). It is decided per bar, not per panel: a short TP row can go quiet while
 the HP row above it still prints. Raise **Min Text Size** to drop labels sooner,
 lower it to keep them further out.
 
@@ -410,12 +559,18 @@ glyph at all versus a long string in a bar that is tall enough for it — and on
 the first is worth going quiet over. See **The level on the bar**, which is what
 made the distinction matter.
 
-The floor defaults to `12` because ImGui rasterizes its font at 13px and scales
-down from there: a label that prints at 12 or above is drawn at about the size
-the atlas actually holds, while below it the digits lose enough pixels to read as
-texture rather than numbers and the 1px outline underneath ends up wider than the
-strokes it is outlining. At the shipped bar heights it also means the labels fade
-out with distance a step before the bars themselves stop being readable.
+**The floor ships at `1`, which is the floor switched off** — nothing this addon
+ships with prints a number inside a bar (see the label column above), so a floor
+tall enough to keep one crisp would only be dropping the slot tag and clipping the
+mob reference rows at range, which are the two other things it gates.
+
+Raise it back toward `12` if you switch a bar label on. That is the useful value
+because ImGui rasterizes its font at 13px and scales down from there: a label that
+prints at 12 or above is drawn at about the size the atlas actually holds, while
+below it the digits lose enough pixels to read as texture rather than numbers and
+the 1px outline underneath ends up wider than the strokes it is outlining. At the
+shipped bar heights, which are short, a label left on with the floor at `1` prints
+exactly that mush rather than going quiet.
 
 Label size and origin are both snapped to whole pixels, to stop the text
 shimmering while the camera moves: a glyph asked for at a fractional size or
@@ -432,9 +587,11 @@ over its bar's width and hide it.
 
 **Show HP / MP / TP Text** switch a bar's number off without touching its
 height, for the case where the bar itself is worth keeping and the digits on it
-are not. HP ships on, MP and TP off. They are independent of the size rules above
-— a bar hides its label if either the toggle is off or the bar is too short for
-it.
+are not. **All three ship off** — at the shipped bar heights a digit is most of
+the bar it sits in, and the fill is already the read. They are independent of the
+size rules above — a bar hides its label if either the toggle is off or the bar is
+too short for it — so switching one on at those heights wants **Min Text Size**
+raised with it (see **Label size**).
 
 Sizing the text uses `ImDrawList`'s second `AddText`, the one taking a font and
 a size.
@@ -446,8 +603,9 @@ frame — reading left to right as one sentence: what it does to you, what it is
 what it sees you with.
 
 ```
+                 EP-DC Tough Mist Lizard WAR/MNK
             14-17
-<Passive> <Link> [═ EP-DC Tough Mist Lizard WAR/MNK ═] <Sight> <Sound> <Scent>
+<Passive> <Link> [═════════  71%  ═════════] <Sight> <Sound> <Scent>
                    <Fire>+25% <Ice>-50% <Dark>-50%
 ```
 
@@ -456,8 +614,8 @@ Four toggles in `/floaties config` feed it:
 | Setting | Contributes | Drawn as |
 |---|---|---|
 | **Show Detection** | the icon groups flanking the bar | left of it: aggro/passive, then Link. Right of it: TrueSight, Sight, Sound, Scent, Magic, JA, Blood |
-| **Show Level & Job** | the tag box, and a suffix on the bar's label | `14-17` in the box; ` WAR/MNK` appended to the label |
-| **Show Check** | a prefix on the bar's own label, and the bar's own fill color | the `/check` tier jammed into one string: `EP-DC `, drawn in the label's own color like the name beside it; the bar fills in the tier's color, or a left-to-right low-to-high gradient when the range straddles two tiers |
+| **Show Level & Job** | the tag box, and a suffix on the name line | `14-17` in the box; ` WAR/MNK` appended to the name |
+| **Show Check** | a prefix on the name line, and the bar's own fill color | the `/check` tier jammed into one string: `EP-DC `, drawn in the name's own color like the name beside it; the bar fills in the tier's color, or a left-to-right low-to-high gradient when the range straddles two tiers |
 | **Show Weakness/Resist** | a row under the panel | an icon and a percentage each: `<Fire>+25% <Ice>-50%` |
 
 The target's **name always draws**, whatever mobdb knows about it or doesn't —
@@ -478,37 +636,68 @@ Resistances stay on their own row under the panel. That list has no fixed
 length, so flanking with it would shove the bar off-center by however many
 damage types the mob happens to have.
 
-All four ship on. They draw on the target panel only — party members are not
-mobs, and a PC you have targeted has no entry either.
+**Three of the four ship on; Show Level & Job ships off.** mobdb's level range
+is an estimate wide enough (`14-17`) to be worth less than the space its box takes
+out of the bars, and **Show Check** already puts the relative-difficulty read on
+the panel. Switch it on to see the exact level a captured `/check` reports — that
+one is not an estimate (see **The check tier**). All four draw on the target panel
+only — party members are not mobs, and a PC you have targeted has no entry either.
 
-### The label on the bar
+### The name above the panel
 
-**The label is the target's name, with the check tier prefixed and the job
-suffixed when mobdb has an entry, and the HP percent appended once the mob
-takes damage.** A full bar already says "100%" without it; the fill stops
-resolving 71% from 64% the moment there is damage on it, which is when the
-percent starts saying something the fill does not — so it is left off at full
-health and appended from the first hit onward.
+**The name is the target's, with the check tier prefixed and the job suffixed
+when mobdb has an entry, and it draws one row above the frame** — the same row a
+party member's stand-in nameplate uses, outside the frame, so it costs the panel
+no height and the panel is the same shape with it as without. **The bar keeps the
+plain HP percent.**
+
+That line used to live *inside* the HP bar, and the bar paid for it twice.
+`EP-DC Tough Mist Lizard WAR/MNK` is as long as the tier, the name, and the job
+pairing make it, so it only ever fit by shrinking toward mush against a bar sized
+for a two-digit number — and the percent had to be suppressed at full health to
+make room for it at all. Above the frame there is nothing to overflow: a long
+name simply overhangs both sides evenly, holds at a legible size, and the percent
+is back on the bar unconditionally.
 
 **The name is not mobdb data.** It is the entity's own display name, always
-known, so a player you have targeted or a mob mobdb has never heard of still
-gets a label — just without the check prefix or job suffix, which do need an
+known, so a player you have targeted or a mob mobdb has never heard of still gets
+a name line — just without the check prefix or job suffix, which do need an
 entry.
 
-**The label shrinks to fit rather than being dropped.** A number always fitted
-the bar; the full label (`EP-DC Tough Mist Lizard WAR/MNK`) is as long as the
-check tier, the name, and the mob's job pairing make it, and a label that
-vanished would leave the bar saying nothing at all. The size solves directly
-out of the combined width of every segment — no iteration — starting from the
-bar-height size every label uses.
+**It shrinks with the panel but bottoms out at Min Text Size**, the same rule a
+party member's stand-in nameplate follows.
 
-A bar too *short* still drops its text rather than shrinking it to mush. That is
-the other failure — no glyph is legible at any width — and **Min Text Size**
-already owns it.
+**Target Name Size** (`34`) sets its text height, separately from **Party Name
+Size** (`25`). The two are the same *shape* of line but not the same length — a
+target's carries the check tier and the job pairing on top of the name — and it is
+the one you read from a distance you are not standing at, which is why it ships
+larger rather than equal.
+
+#### Aggressive mobs get a different color
+
+**An aggressive mob's name line draws in Aggro Name Color** (`#FFBABA`) instead
+of **Text Color** — a paler take on the HP bar's own red, because the line is
+saying the thing the bar under it is already colored for: this one walks over to
+you. Paler than the bar itself, because a whole name line at the bar's saturation
+reads as an error message rather than a warning.
+
+**The whole line takes the tint**, check tier and job suffix included. Those two
+are drawn in the name's color on purpose so the three read as one string (see
+**The check tier**); coloring a third of it would split that string back in two,
+which is the exact thing the tier's own color was moved onto the bar to avoid.
+
+**It needs mobdb.** `Aggro` is a mobdb flag, so a mob mobdb has never heard of —
+and a player — keeps the plain color. Same "no entry, no data" rule the detection
+icons follow.
+
+**It is not gated by Show Detection**, or by any of the other three. Those switch
+the reference *lines* on and off; this is a tint on a line that draws whatever
+they are set to. There is no separate toggle either — set **Aggro Name Color** to
+match **Text Color** and it stops saying anything.
 
 ### The check tier
 
-**Show Check** prefixes the bar's label with the `/check` tier, and fills the
+**Show Check** prefixes the name line with the `/check` tier, and fills the
 bar itself in that tier's color — your main job level against the mob's level
 from mobdb, so it is the one piece of the panel that is about *you* rather
 than about the mob.
@@ -527,10 +716,10 @@ than about the mob.
 It leads the label — before the name — because it is read first: whether to
 engage at all is answered before anything else on the panel matters.
 
-**The prefix draws in the label's own color, same as the name and job around
-it** (**Text Color**, with the shared outline) — it used to be tinted with its
-tier, which made the label read as a colored word glued to a white one at every
-size. The tier's color is not lost: it fills the whole HP bar underneath, where
+**The prefix draws in the name line's own color, same as the name and job around
+it** (**Text Color**, or **Aggro Name Color** when the whole line is tinted) — it
+used to be tinted with its tier, which made the line read as a colored word glued
+to a white one at every size. The tier's color is not lost: it fills the whole HP bar underneath, where
 it says the same thing at a glance without breaking the line of text into two.
 
 **The bands are interpolated between the two published endpoints**, not looked
@@ -636,9 +825,9 @@ a panel, where a number lining up under the wrong icon is the likelier reading.
 The rows sit one **Bar Gap** under the panel's bottom edge, each centered on the
 same anchor the panel is. **None of the reference costs the panel any height or
 width** — a target panel is exactly the same shape whether the mob has everything
-to say or nothing. (The check tier no longer has a placement of its own — it
-lives inside the bar label now, so it costs nothing beyond what the label
-already costs.)
+to say or nothing. (The check tier has no placement of its own — it is a prefix
+on the name line above the frame, which is outside too, so it costs nothing
+beyond what that line already costs.)
 
 That is the point of it all being outside. A resistance list has no natural
 width: a mob weak and resistant to eight damage types is a long line at any
@@ -650,8 +839,9 @@ Nothing clips any of it, either — icons and text are drawn straight onto the
 world, not into a box, and the shared text outline is what keeps them readable
 over it.
 
-**Info Text Size** (`14`) is the row height — the text size and the icons' side
-alike. Unlike a bar label, **the rows do not drop out at distance — they hold at
+**Info Text Size** (`32`) is the row height — the text size and the icons' side
+alike. It ships large because these rows are read at the range you decide whether
+to pull from, not at the range you are standing at. Unlike a bar label, **the rows do not drop out at distance — they hold at
 Min Text Size and stop shrinking there.** A label that goes quiet still
 leaves a bar behind it that reads at any size, while these lines carry facts
 nothing else shows — a mob's level and what it aggros to is exactly what you want
@@ -763,7 +953,7 @@ the UI branch that reads this list needs it.
 ## Enemy list
 
 Every mob you (or your pet, avatar, or automaton) have personally damaged or affected gets
-the exact same panel the current target does -- HP bar, name, check tier, level tag, detection
+the exact same panel the current target does -- HP bar, name line, check tier, level tag, detection
 icons, resist row -- floating over it, independent of what is currently targeted. **Show Enemy
 List** in `/floaties config` turns it off; **Enemy List Max** caps how many draw in one frame.
 
@@ -793,22 +983,35 @@ your own status caught up.
 | Command | Effect |
 |---|---|
 | `/floaties` or `/float` | Toggle the settings window. The **Enabled** checkbox in its **Debug** section is the on/off switch, persisted. Whether the window itself is open is also persisted, so a `/lua reload` or relog leaves it exactly as you left it |
-| `/floaties height <n>` | Your own vertical nudge from the nameplate anchor. Positive is downward. Default `0.228` |
+| `/floaties height <n>` | Your own vertical nudge from the nameplate anchor. Positive is downward. Default `0.15` |
 | `/floaties config` | Same as the bare command, kept as an alias |
 | `/floaties bt` | Print the current gate state (in combat / engaged / idle, raw status, resolved `<bt>` and target, or why either was rejected) |
 
-`0.0` puts the panel's top edge level with the top of the model, i.e. directly under the
+`0.0` puts the panel's top edge level with the nameplate anchor bone, i.e. directly under the
 nameplate; nudge from there. Self, party and target have separate offsets (`Self Height
 Offset` / `Party Height Offset` / `Target Height Offset` in `/floaties config`); the command
-only touches your own. They default to `0.228` / `0.125` / `0.125` — everything hangs a
-little below the plate, your own taller panel slightly further.
+only touches your own. They default to `0.15` / `0.1` / `0.129` — everything hangs a
+little below the plate, your own slightly further, since your model is the one the
+camera is closest to and its plate has the most room under it.
 
 ## Nameplate anchor
 
-The panel hangs from the same point the game hangs a nameplate from: the top of the rendered
-model, read from the actor's skeleton (highest bone, i.e. smallest Z — the height axis points
-down). That makes the offset from the plate hold across races, mounts, sitting, and mid-jump,
-all of which a fixed world offset from the ground gets wrong.
+The panel hangs from the same point the game hangs a nameplate from: **bone 2** of the actor's
+skeleton, the bone index the client's own nameplate helper is called with. That makes the offset
+from the plate hold across races, mounts, sitting, and mid-jump, all of which a fixed world
+offset from the ground gets wrong.
+
+All three axes come from the actor object — the panel tracks the *model*, not the feet. Two
+things fall out of that. A model that leans or lunges carries its panel with its head instead of
+leaving it planted over the ground it is standing on; and the panel stops shearing sideways
+during movement, which it did while the height came from the actor and the horizontal position
+came from the entity struct (the actor holds the rendered position, and the entity struct can lag
+it by a frame).
+
+Earlier builds scanned the whole skeleton for its highest bone and used that. It was wrong twice
+over: the topmost bone is whatever the model happens to hold up — a greatsword on the back, a
+raised wing, a hat — so anything not shaped like a Hume floated its panel too high, and that bone
+*moves through the animation*, so the panel drifted every time the model swung something.
 
 It is *not* a hook into the game's own draw code. FFXI computes the nameplate's screen position
 inside `FFXiMain.dll` each frame and keeps it nowhere readable, so pixel-exact co-location needs
@@ -822,14 +1025,15 @@ back to the entity's feet position for that frame.
 ## Files
 
 - `Floaties.lua` — projection, ImGui rendering, gate state, config window, commands
-- `lib/nameplate.lua` — actor → skeleton → bone walk for the model-top anchor (memory reader injected, so it tests headless)
+- `lib/nameplate.lua` — actor → skeleton → bone walk for the nameplate anchor bone (memory reader injected, so it tests headless)
 - `lib/targets.lua` — Ashita's target library, vendored unmodified (only `get_bt` is used)
-- `lib/stats.lua` — HP/MP/TP normalization, TP segment math, and the target's entity read + targetability test (no Ashita dependencies)
+- `lib/stats.lua` — HP/MP/TP normalization, TP segment math, and the target/pet entity reads + targetability test (no Ashita dependencies)
 - `lib/config.lua` — settings defaults, load/save, derived layout math (no Ashita dependencies except load/save)
 - `lib/mobinfo.lua` — mobdb zone-data loader, the reference rows, and the `/check` tier math, built as icon/text segments (no Ashita dependencies — it picks the icon names and the tier colors, `Floaties.lua` loads and draws them)
 - `lib/checkinfo.lua` — the `/check` capture list keyed by server id: what counts as a check response, and its zone/death cleanup (no Ashita dependencies — `Floaties.lua` unpacks the packet and resolves the entity)
 - `lib/enemylist.lua` — the enemy list: which mobs you've personally hit, keyed by server id, plus server-id-to-index resolution (no Ashita dependencies — `Floaties.lua` decodes the Action packet, decides who counts as "you", and resolves indices through an injected reader)
-- `lib/test.lua` — self-check for `lib/stats.lua`, `lib/config.lua`, `lib/nameplate.lua`, `lib/mobinfo.lua`, `lib/checkinfo.lua` and `lib/enemylist.lua`; run with `lua lib/test.lua` from the repo root
+- `lib/petshare.lua` — the pet MP/TP swapped between Floaties sessions on one PC: the line format, its staleness window, and the throttled read/write (no Ashita dependencies — `Floaties.lua` supplies the directory and the player-block reads)
+- `lib/test.lua` — self-check for `lib/stats.lua`, `lib/config.lua`, `lib/nameplate.lua`, `lib/mobinfo.lua`, `lib/checkinfo.lua`, `lib/enemylist.lua` and `lib/petshare.lua`; run with `lua lib/test.lua` from the repo root
 - `docs/` — research notes this was built from (gitignored)
 
 ## Notes

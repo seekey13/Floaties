@@ -19,6 +19,7 @@ local nameplate = require('lib.nameplate');
 local mobinfo   = require('lib.mobinfo');
 local checkinfo = require('lib.checkinfo');
 local enemylist = require('lib.enemylist');
+local petshare  = require('lib.petshare');
 
 local C   = ffi.C;
 local dev = d3d.get_device();
@@ -241,17 +242,20 @@ local check_list = {};
 local claimed_list = {};
 
 ----------------------------------------------------------------------------------------------------
--- Party nameplate hiding. The client's own name over a party member's head duplicates what that
--- member's panel already says, and sits in exactly the space the panel wants -- so this switches
--- the plate off per entity, leaving the panel as the only thing over their head.
+-- Nameplate hiding. The client's own name over a head duplicates what that head's panel already
+-- says, and sits in exactly the space the panel wants -- so this switches the plate off per
+-- entity, leaving the panel as the only thing over them. Two independent sources feed it: party
+-- members/pets (hide_party_names) and whichever mobs a target/enemy-list panel actually drew
+-- (hide_target_names, fed by named_mobs).
 --
 -- Bit 0x08 of an entity's Render.Flags2 is the client's own "name hidden" mask -- the same one
 -- Ashita's `noname` addon sets on the local player (addons/noname/noname.lua). It is per entity,
 -- so it reaches any index, and it is what the game itself toggles, so nothing here is drawing or
 -- suppressing a plate on its own.
 --
--- Slots 1..5 only: masking slot 0 is `noname`'s job, and doing it here too would mean two addons
--- fighting over one flag on one entity.
+-- Your own entity is never masked from here, by either source: that plate is `noname`'s to own,
+-- and clearing the bit back off it when you untarget yourself would undo *its* hiding. Two addons
+-- fighting over one flag on one entity is the failure, not the plate.
 ----------------------------------------------------------------------------------------------------
 
 local NAME_MASK = 0x08;
@@ -323,6 +327,17 @@ end
 -- one no longer in it.
 local masked = {};
 
+-- Target indices a mob panel drew a name over last frame, filled by drawMobPanel and drained by
+-- updateNameMask. A record of what *drew* rather than a re-derivation of what is targeted or
+-- claimed: the panel already answers every question the mask needs answered -- gates, Show
+-- switches, enemy_list_max, off-screen, a target that failed to resolve -- and re-deciding all of
+-- that here is a second copy of that logic to keep in step with the first.
+--
+-- The cost is one frame of lag each way: a plate you just targeted survives the frame its panel
+-- first drew, and stays hidden for the frame after the panel stops. At 30+ fps that is under the
+-- flash the FFXiMain patch exists to remove, and both ends self-correct.
+local named_mobs = {};
+
 --[[
 * Sets or clears the name mask on one entity.
 *
@@ -356,8 +371,14 @@ end
 * Called before every early return in d3d_present, so switching the addon off (or the setting off)
 * gives names back on the spot instead of only once panels are drawing again.
 --]]
-local function updateNameMask(party)
-    local want = config.settings.enabled and config.settings.hide_party_names;
+local function updateNameMask(mm, party)
+    local cfg   = config.settings;
+    local party_names = cfg.enabled and cfg.hide_party_names;
+    local mob_names   = cfg.enabled and cfg.hide_target_names;
+
+    -- One patch serves both sources -- it stops the client clearing the bit, and neither source
+    -- cares which one asked for that.
+    local want = party_names or mob_names;
     local now  = {};
 
     -- On change only: patching is not idempotent bookkeeping, it is a write into the client's code.
@@ -366,13 +387,44 @@ local function updateNameMask(party)
         patchNameClear(want);
     end
 
-    if (want) then
-        for i = 1, 5 do
+    -- Drained whether or not the setting is on, so switching it off mid-fight cannot leave a stale
+    -- frame's worth of indices to mask on the next one.
+    local drew = named_mobs;
+    named_mobs = {};
+
+    if (party_names) then
+        local em = mm:GetEntity();
+
+        for i = 0, 5 do
             if (party:GetMemberIsActive(i) == 1) then
                 local index = party:GetMemberTargetIndex(i);
-                if (index ~= 0) then
+
+                -- Slot 0 starts at 1 for the member's own plate: your name is `noname`'s to hide,
+                -- not ours. Your *pet* is not you, though -- nothing else is hiding its plate, and
+                -- "hide the party's nameplates" plainly includes the thing standing next to you --
+                -- so the loop runs from 0 and only the member half of slot 0 is skipped.
+                if (i ~= 0 and index ~= 0) then
                     now[index] = true;
                 end
+
+                -- Pets are masked whether or not their panel is drawing, for the same reason the
+                -- members' are: this setting is independent of the Show switches (see below), and
+                -- tying it to them would un-hide a plate the moment panels were switched off.
+                local pet = index ~= 0 and em:GetPetTargetIndex(index) or 0;
+                if (pet ~= 0) then
+                    now[pet] = true;
+                end
+            end
+        end
+    end
+
+    if (mob_names) then
+        -- Your own index is skipped here for the same reason slot 0's member is above: targeting
+        -- yourself draws a panel like anything else, but that plate belongs to `noname`.
+        local me = party:GetMemberTargetIndex(0);
+        for index in pairs(drew) do
+            if (index ~= me) then
+                now[index] = true;
             end
         end
     end
@@ -848,48 +900,6 @@ local function drawInfoLine(draw_list, left, top, width, row, segments, size, ga
     end
 end
 
---[[
-* Segmented sibling of drawLabel: the HP bar's own label, when it is the check-tier/name/job
-* segments mobinfo.panel builds rather than a single barText string. Same shrink-to-fit sizing as
-* drawLabel (derived from the bar's drawn height, shrunk again if the combined text overflows the
-* bar), but walks a list of segments left to right the way drawInfoLine lays out an icon group,
-* each drawn via drawText with its own optional color override -- none of them carries one today,
-* so the whole label draws in cfg.text.color and reads as one string.
-*
-* Solved, not iterated, same as drawLabel: textWidth is linear in size except for bold's fixed
-* extra pixel per segment, so two samples of lineWidth (at size 0, where only the fixed pixels
-* survive, and at the base font size) separate that fixed offset from the part that scales with
-* size, without walking the segments by hand.
---]]
-local function drawBarSegments(draw_list, left, top, width, height, segments, cfg)
-    local size = config.label_size(cfg, height);
-    if (size == nil) then
-        return;
-    end
-
-    local base   = imgui.GetFontSize();
-    local fixed  = lineWidth(segments, 0, 0, cfg);
-    local scaled = lineWidth(segments, base, 0, cfg) - fixed;
-
-    if (scaled > 0) then
-        size = math.min(size, math.floor((width - fixed) * base / scaled));
-    end
-
-    if (size < 1) then
-        return;
-    end
-
-    local x = math.floor(left + (width - lineWidth(segments, size, 0, cfg)) / 2);
-
-    for _, seg in ipairs(segments) do
-        if (seg.text ~= nil) then
-            local w = textWidth(seg.text, size, cfg);
-            drawText(draw_list, x, top, w, height, seg.text, size, cfg, seg.color);
-            x = x + w;
-        end
-    end
-end
-
 -- `size` is the panel kind's own cfg.sizes entry; everything else about the panel is shared.
 -- `scale` multiplies every pixel dimension, padding and rounding included -- a shrunk panel with a
 -- full-size border swallows its own bars.
@@ -897,7 +907,11 @@ end
 -- for a panel that has none -- decided entirely by the caller (drawMember/drawTarget), not here.
 -- `info` is mobinfo.panel's result -- the HP label segments, the two icon groups flanking the bar,
 -- and any full-width rows under it. NO_INFO for every panel that is not a target.
-local function drawPanel(sx, sy, s, bars, size, scale, tag, info)
+-- `name` is a line to draw above the frame, or nil for none -- a party member whose own nameplate
+-- this addon switched off, or a target's check tier/name/job line. Segments, not a string, so a
+-- target's can carry mobinfo's aggro tint without a parameter of its own. `name_size` is its text
+-- height; nil takes cfg.name_size, the stand-in plate's.
+local function drawPanel(sx, sy, s, bars, size, scale, tag, info, name, name_size)
     local cfg = config.settings;
     info      = info or NO_INFO;
 
@@ -965,28 +979,33 @@ local function drawPanel(sx, sy, s, bars, size, scale, tag, info)
             drawBar(draw_list, bar_left, bar_top, bw, h, s[key], 'full', color, color2, cfg, bar_rounding);
         end
 
-        -- Label stays centered across the whole row, so TP prints over the middle bar.
-        --
-        -- The target panel's HP bar carries the check tier, name, and job (mobinfo.panel's
-        -- `label`) instead of a plain percent, with the percent appended once the mob takes
-        -- damage: "100%" over a full bar is the bar saying what it just said, while once there is
-        -- damage on it the fill alone no longer resolves 71% from 64%.
+        -- Label stays centered across the whole row, so TP prints over the middle bar. Every bar
+        -- on every panel kind prints its own value and nothing else -- a target's check tier, name
+        -- and job are a nameplate, and draw above the frame as one (see drawMobPanel).
         if (bar_cfg.label) then
-            if (key == 'hp' and info.label ~= nil) then
-                local segments = info.label;
-                if (s.hp < 1) then
-                    local copy = {};
-                    for i, seg in ipairs(segments) do copy[i] = seg; end
-                    copy[#copy + 1] = { text = ' ' .. barText(s, 'hp') };
-                    segments = copy;
-                end
-                drawBarSegments(draw_list, bar_left, bar_top, bw, h, segments, cfg);
-            else
-                drawLabel(draw_list, bar_left, bar_top, bw, h, barText(s, key), cfg);
-            end
+            drawLabel(draw_list, bar_left, bar_top, bw, h, barText(s, key), cfg);
         end
 
         bar_top = bar_top + h + gap;
+    end
+
+    -- The name goes exactly where the plate this addon switched off used to be: one row above the
+    -- frame, outside it, so it costs the panel no height and the panel is the same shape with a
+    -- name as without -- the same deal the reference rows get under it. Same row for a target's
+    -- tier/name/job line, which is the same thing by another route: a nameplate.
+    --
+    -- Sized off info_row, not a bar: that is the one rule here that bottoms out at text.min_size
+    -- instead of shrinking away with the panel, and a name you cannot read is not a nameplate.
+    -- Its own size goes in (cfg.name_size), so sizing the stand-in plates to taste does not drag
+    -- a target's reference rows along with it.
+    --
+    -- It goes through drawInfoLine rather than drawText for the other half of that bargain -- a
+    -- 15-character name is wider than a party panel, and drawText would drop a string that
+    -- overflows its box, where a line simply overhangs both sides evenly.
+    if (name ~= nil) then
+        local name_row = config.info_row(cfg, scale, name_size or cfg.name_size);
+        drawInfoLine(draw_list, left, top - gap - name_row, width, name_row,
+                     name, math.floor(name_row), gap, cfg);
     end
 
     -- Mob reference, all of it outside the frame.
@@ -1041,21 +1060,25 @@ end
 * @param {number} offset - world height nudge from the nameplate anchor, positive = down.
 * @param {string|nil} tag - pre-formatted text for the tag box; nil for a panel with no tag.
 * @param {table|nil} info - mobinfo.panel's result; nil for a panel with no mob reference.
+* @param {table|nil} name - name line above the frame, as drawInfoLine segments; nil for none.
+* @param {number|nil} name_size - that line's text height; nil for cfg.name_size.
 --]]
-local function drawAt(mm, index, s, bars, size, offset, tag, info, view, proj, vp)
+local function drawAt(mm, index, s, bars, size, offset, tag, info, name, name_size, view, proj, vp)
     if (index == 0) then
         return false;
     end
 
     local ent = mm:GetEntity();
-    local px  = ent:GetLocalPositionX(index);
-    local py  = ent:GetLocalPositionY(index);
 
-    -- Anchor at the top of the model -- where the game hangs the nameplate -- so the offset from
-    -- the plate holds on a mount, a Galka, or mid-jump. Falls back to feet when the skeleton is
-    -- unreadable for a frame.
-    local top = nameplate.top(ashita.memory, ent:GetActorPointer(index));
-    local pz  = (top or ent:GetLocalPositionZ(index)) + offset;
+    -- Anchor on the bone the game hangs the nameplate from, so the offset from the plate holds on
+    -- a mount, a Galka, or mid-jump -- and so the panel tracks the *model* horizontally rather
+    -- than the feet. All three axes come from the anchor together or none do: falling back to the
+    -- entity struct for one axis and the actor for the others mixes two positions that disagree
+    -- while an entity moves. Falls back to feet when the skeleton is unreadable for a frame.
+    local ax, ay, az = nameplate.anchor(ashita.memory, ent:GetActorPointer(index));
+    local px = ax or ent:GetLocalPositionX(index);
+    local py = ay or ent:GetLocalPositionY(index);
+    local pz = (az or ent:GetLocalPositionZ(index)) + offset;
 
     -- Position struct is stored X, Z, Y - the game's Z is the D3D up-axis.
     local sx, sy, sz, depth = worldToScreen(px, pz, py, view, proj, vp.Width, vp.Height);
@@ -1063,7 +1086,8 @@ local function drawAt(mm, index, s, bars, size, offset, tag, info, view, proj, v
     if (sz >= 0 and sz <= 1 and sx >= 0 and sx <= vp.Width and sy >= 0 and sy <= vp.Height) then
         -- Scale comes from the anchor point, so the panel keeps its top edge pinned under the
         -- nameplate and grows or shrinks downward from there.
-        drawPanel(sx, sy, s, bars, size, config.panel_scale(config.settings, depth), tag, info);
+        drawPanel(sx, sy, s, bars, size, config.panel_scale(config.settings, depth), tag, info,
+                  name, name_size);
         return true;
     end
     return false;
@@ -1092,17 +1116,144 @@ local function drawMember(mm, party, i, view, proj, vp)
         tag = ('P%d'):fmt(i);
     end
 
+    -- The name only appears in place of a plate this addon took away, so it is gated on the same
+    -- setting and the same slots the mask covers (1..5 -- slot 0's plate is `noname`'s to hide, so
+    -- your own name is still up there and printing it again would just double it). Off, the plate
+    -- says the name and the panel says the bars, which is the split the game already had.
+    local name = nil;
+    if (not mine and cfg.hide_party_names) then
+        name = party:GetMemberName(i);
+    end
+
     -- nil info: party members are not mobs, so there is nothing to look up for them.
     drawAt(mm, party:GetMemberTargetIndex(i), s,
            config.bars_for(party:GetMemberMainJob(i), party:GetMemberSubJob(i)),
            mine and cfg.sizes.self or cfg.sizes.party,
            mine and cfg.height_offset or cfg.party_height_offset,
-           tag, nil, view, proj, vp);
+           tag, nil, name and { { text = name } } or nil, nil, view, proj, vp);
 end
 
 -- HP is the only stat the client is told about an arbitrary entity, so any mob-reference panel is
 -- always this one bar. Hoisted out of the frame loop rather than built per call.
 local TARGET_BARS = { 'hp' };
+
+-- Where the Floaties sessions on this PC swap pet numbers. Ashita's settings library has already
+-- created this directory by the time anything draws, so there is nothing to mkdir. Resolved once at
+-- load rather than per call: the install path is fixed for the process, and the two callers below
+-- are both on the frame path (up to six times a frame between them).
+local SHARE_DIR = ('%sconfig/addons/floaties/'):fmt(AshitaCore:GetInstallPath());
+
+--[[
+* Resolves one party slot's pet, or nil when that slot has no live one.
+*
+* Pets hold no party slot of their own -- they are reachable only through their owner's target
+* index. This goes through the entity manager's accessor rather than the owner entity's
+* PetTargetIndex field: it takes any owner index, so one call covers slot 0 and slots 1..5 alike.
+*
+* The inactive-slot check comes first because GetMemberTargetIndex returns 0 for an empty slot, and
+* GetPetTargetIndex(0) then reads entity 0's pet field rather than answering "no pet" -- which a
+* zone or a brief desync is enough to hit.
+*
+* @param {number} i - the *owner's* party slot, 0 .. 5.
+* @return {number|nil} the pet's target index, and the pet entity -- or nil for neither.
+--]]
+local function livePet(mm, party, i)
+    if (party:GetMemberIsActive(i) == 0) then
+        return nil;
+    end
+
+    local index = mm:GetEntity():GetPetTargetIndex(party:GetMemberTargetIndex(i));
+    local pet   = index ~= 0 and GetEntity(index) or nil;
+
+    -- 0% is the corpse rule the target and enemy-list panels already follow: a dismissed or dead
+    -- pet lingers in the entity table for a while. An empty bar over it reads as a live pet that is
+    -- about to die rather than one that already has, and publishing it would put a full MP bar over
+    -- a body on somebody else's box.
+    if (pet == nil or pet.HPPercent == 0) then
+        return nil;
+    end
+
+    return index, pet;
+end
+
+--[[
+* Publishes our own pet's MP/TP for the other Floaties sessions on this PC (see lib/petshare.lua).
+*
+* Called from d3d_present rather than from drawPet, and ahead of the visibility gates, because what
+* we publish is for somebody else's screen: switching off Show My Pet, or standing somewhere the
+* gates hide panels, must not take the extra bars off the *other* box.
+*
+* Nothing is written while no pet is out -- petshare's staleness window is what retires the last
+* line, so neither side needs a teardown path for a dismissed pet, a zone, a logout or a crash.
+--]]
+local function publishPet(mm, party)
+    local _, pet = livePet(mm, party, 0);
+    if (pet == nil) then
+        return;
+    end
+
+    local player = mm:GetPlayer();
+    petshare.publish(SHARE_DIR, party:GetMemberName(0), pet.ServerId,
+                     player:GetPetMPPercent(), player:GetPetTP());
+end
+
+--[[
+* Draws a party-sized panel over one party member's pet, when they have one out.
+*
+* Pets hold no party slot of their own -- they are reachable only through their owner's target
+* index -- so this walks the same 0..5 the party panels do instead of getting a scan of its own.
+*
+* Only *your* pet publishes more than an HP percent: MP and TP come off the player block, which has
+* room for exactly one pet, yours. Everyone else's gets what any arbitrary entity gets, one HP bar.
+* So the bar set is decided here per owner rather than by the panel kind -- which is why pets share
+* the party size table but not config.bars_for.
+*
+* No tag, unlike a party member's panel: a "P3" box over slot 3's pet would read as slot 3 itself.
+* The name line follows the same rule the members' does -- it appears only in place of a plate this
+* addon took away, so it is gated on Hide Party Nameplates, which now covers pets (see
+* updateNameMask). Off, the plate says the name and the panel says the bars.
+*
+* @param {number} i - the *owner's* party slot, 0 .. 5.
+--]]
+local function drawPet(mm, party, i, view, proj, vp)
+    local index, pet = livePet(mm, party, i);
+    if (pet == nil) then
+        return;
+    end
+
+    local cfg = config.settings;
+    local s, bars;
+
+    if (i == 0) then
+        local player = mm:GetPlayer();
+        s    = stats.read_pet(pet, player:GetPetMPPercent(), player:GetPetTP());
+        bars = config.pet_bars(party:GetMemberMainJob(0));
+    else
+        -- Another member's pet is one HP percent as far as this client is concerned -- unless that
+        -- member is a Floaties session on this same PC, in which case it has published the MP and
+        -- TP its own player block gave it (see lib/petshare.lua). The id check is what keeps a
+        -- newly swapped avatar from wearing the previous one's numbers for a poll.
+        local sid, mp, tp;
+        if (cfg.share_pet) then
+            sid, mp, tp = petshare.get(SHARE_DIR, party:GetMemberName(i));
+        end
+
+        if (sid == pet.ServerId) then
+            s    = stats.read_pet(pet, mp, tp);
+            bars = config.pet_bars(party:GetMemberMainJob(i));
+        else
+            s    = stats.read_entity(pet);
+            bars = TARGET_BARS;
+        end
+    end
+
+    -- Your own pet gets its name here too, unlike your own panel: the mask covers every pet, yours
+    -- included, so leaving this off slot 0 would take a name away and put nothing back.
+    local name = cfg.hide_party_names and pet.Name or nil;
+
+    drawAt(mm, index, s, bars, cfg.sizes.party, cfg.party_height_offset,
+           nil, nil, name and { { text = name } } or nil, nil, view, proj, vp);
+end
 
 --[[
 * Draws a target-style panel over one already-resolved entity: mob reference lookup, /check
@@ -1136,9 +1287,30 @@ local function drawMobPanel(mm, index, ent, view, proj, vp)
     local info = mobinfo.panel(res, config.settings.mob, jobName, mm:GetPlayer():GetMainJobLevel(), ent.Name,
                                 check_list[ent.ServerId]);
 
-    return drawAt(mm, index, s, TARGET_BARS, config.settings.sizes.target,
-                  config.settings.target_height_offset, info.tag, info,
-                  view, proj, vp);
+    -- The tier/name/job line goes *above* the frame, where a party member's stand-in nameplate
+    -- goes, leaving the HP bar the plain percent every other bar on every other panel prints.
+    -- Inside the bar that line was the panel's own width limit -- "EP-DC Tough Mist Lizard WAR/MNK"
+    -- only ever fit by drawLabel shrinking it toward mush, and the percent had to be suppressed at
+    -- full HP to make room at all. Above the frame drawInfoLine simply overhangs both sides evenly
+    -- and holds at a legible size, so neither has to give way to the other any more.
+    --
+    -- Handed over as segments rather than flattened: mobinfo tints them all when the mob aggroes
+    -- (cfg.mob.aggro_color), and drawInfoLine already draws a per-segment color.
+    local name = (info.label ~= nil and #info.label > 0) and info.label or nil;
+
+    local drawn = drawAt(mm, index, s, TARGET_BARS, config.settings.sizes.target,
+                         config.settings.target_height_offset, info.tag, info, name,
+                         config.settings.target_name_size, view, proj, vp);
+
+    -- Only a panel that actually reached the screen puts a name up there, so only that one earns
+    -- the client's plate being switched off (see named_mobs). Recorded unconditionally rather than
+    -- behind hide_target_names -- updateNameMask drains this either way, and one table write is
+    -- cheaper than reading the setting twice per frame per mob.
+    if (drawn and name ~= nil) then
+        named_mobs[index] = true;
+    end
+
+    return drawn;
 end
 
 --[[
@@ -1207,6 +1379,19 @@ local function drawPanels(mm, party, view, proj, vp, gated)
         -- Slot 0 is self; 1..5 are the rest of the party.
         for i = 0, (config.settings.show_party and 5 or 0) do
             drawMember(mm, party, i, view, proj, vp);
+        end
+
+        -- Pets walk those same slots on switches of their own: yours does not hang off Show Party
+        -- Members (it is your pet, not the party's), and everyone else's is a separate switch
+        -- because a party of summoners is six more panels -- see config.lua.
+        if (config.settings.show_pet) then
+            drawPet(mm, party, 0, view, proj, vp);
+        end
+
+        if (config.settings.show_party_pets) then
+            for i = 1, 5 do
+                drawPet(mm, party, i, view, proj, vp);
+            end
         end
     end
 
@@ -1299,6 +1484,7 @@ local function drawConfigWindow()
             colorEdit('Text Outline Color', cfg.text.outline_color);
             slider(imgui.SliderInt, 'Min Text Size', cfg.text, 'min_size', 1, 20);
 
+            colorEdit3('Aggro Name Color', cfg.mob.aggro_color);
             colorEdit3('HP Color', cfg.bars.hp.color);
             colorEdit3('MP Color', cfg.bars.mp.color);
             colorEdit3('TP Color', cfg.bars.tp.color);
@@ -1326,19 +1512,21 @@ local function drawConfigWindow()
         imgui.Text('Target Panel');
         checkbox('Show Target', cfg, 'show_target');
         slider(imgui.SliderFloat, 'Target Height Offset', cfg, 'target_height_offset', -4, 4);
-        slider(imgui.SliderInt, 'Target Width', cfg.sizes.target, 'width', 40, 300);
+        slider(imgui.SliderInt, 'Target Width', cfg.sizes.target, 'width', 40, 500);
         for _, key in ipairs(config.bar_order) do
             if (cfg.sizes.target[key] ~= nil) then
                 slider(imgui.SliderInt, ('Target %s Height'):fmt(key:upper()), cfg.sizes.target, key, 4, 40);
             end
         end
+        slider(imgui.SliderInt, 'Target Name Size', cfg, 'target_name_size', 8, 40);
 
         -- Target panel reference rows. The data line is the diagnostic: "loaded" with every box
         -- ticked and still nothing under the panel means this mob is not in mobdb's file, rather
         -- than mobdb not being installed at all.
         --
         -- Detection is listed first because it draws first: it owns the icon groups flanking the
-        -- bar, and Level & Job is the label inside it (see mobinfo.panel).
+        -- bar, and Level & Job feeds the tag box beside it and the name line above it (see
+        -- mobinfo.panel).
         checkbox('Show Detection', cfg.mob, 'detect');
         checkbox('Show Level & Job', cfg.mob, 'level');
         checkbox('Show Check (TW/EP/DC/EM/T/VT/IT)', cfg.mob, 'check');
@@ -1362,10 +1550,19 @@ local function drawConfigWindow()
         imgui.Text('Party Panel');
         checkbox('Show Party Members', cfg, 'show_party');
 
+        -- Pets live under Party Panel because that is whose width, bar heights and height offset
+        -- they draw with -- there is no Pet Panel section to put them in, on purpose.
+        checkbox('Show My Pet', cfg, 'show_pet');
+        imgui.SameLine();
+        checkbox('Show Party Pets', cfg, 'show_party_pets');
+        checkbox('Share Pet Info', cfg, 'share_pet');
+
         -- Independent of Show Party Members on purpose: hiding the plates without drawing panels is
         -- a legitimate (if odd) combination, and tying them would silently un-hide names the moment
         -- panels were switched off.
         checkbox('Hide Party Nameplates', cfg, 'hide_party_names');
+        checkbox('Hide Target Nameplates', cfg, 'hide_target_names');
+        slider(imgui.SliderInt, 'Party Name Size', cfg, 'name_size', 8, 40);
         slider(imgui.SliderFloat, 'Party Height Offset', cfg, 'party_height_offset', -4, 4);
         slider(imgui.SliderInt, 'Party Width', cfg.sizes.party, 'width', 40, 300);
         for _, key in ipairs(config.bar_order) do
@@ -1544,7 +1741,7 @@ ashita.events.register('d3d_present', 'floaties_present', function ()
 
     -- Same placement, same reason: this owns un-hiding as well as hiding, so it cannot sit behind
     -- a return that a disabled addon takes. It reads the master switch itself.
-    updateNameMask(party);
+    updateNameMask(mm, party);
 
     drawConfigWindow();
 
@@ -1555,6 +1752,12 @@ ashita.events.register('d3d_present', 'floaties_present', function ()
     -- Not logged in / zoning: main job reads 0.
     if (player == nil or player:GetMainJob() == 0) then
         return;
+    end
+
+    -- Ahead of the gates on purpose -- see publishPet. Trapped for the same reason drawPanels is:
+    -- a disk that will not take the write must not cost the frame its panels.
+    if (config.settings.share_pet) then
+        pcall(publishPet, mm, party);
     end
 
     -- Gated on your own status, not each member's, so the whole set shows/hides together.

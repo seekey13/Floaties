@@ -79,6 +79,14 @@ Lua so `test.lua` can exercise it headless. Consequences to preserve:
   when the entity dies (`M.prune`) and the whole list is cleared on zone change
   (`M.clear`, wired to packets `0x00A`/`0x00B`), since a server id is only
   unique within one zone instance.
+- `petshare.lua` — pure, *including* its file IO: `io`/`os` are plain Lua, so only
+  the shared directory is injected (`Floaties.lua` builds it from
+  `GetInstallPath`). Carries the pet MP/TP one Floaties session publishes for the
+  others on the same PC, because the client only ever tells you about *your* pet's
+  pools. HP is deliberately not in the file — the entity table already has a live
+  percent for anybody's pet. Freshness is a timestamp in the line, not a file
+  mtime (Lua cannot read one) and not a teardown path: every way a publisher can
+  stop existing looks the same from here, which is that the writes stop.
 - `lib/targets.lua` — Ashita's own target library, **vendored unmodified**. Do
   not edit it; it is diffable against upstream/Sidekick's `lib/core/targets.lua`.
   It hard-`error`s at load when its byte signatures miss, so it is `require`d
@@ -113,11 +121,16 @@ Z, and a positive height offset moves a panel *down*). `worldToScreen` returns
 view depth (`p.w`) as a fourth value because that is exactly what distance
 scaling needs, for free.
 
-Panels hang from `nameplate.top()` — the highest bone in the actor's skeleton —
-not from the entity's feet, so the gap under the nameplate holds across races,
-mounts, sitting and jumping. Any unreadable pointer in the chain returns `nil`
-and the caller falls back to feet position for that frame; never let that walk
-throw.
+Panels hang from `nameplate.anchor()` — bone 2 of the actor's skeleton, the bone
+index the client's own nameplate helper takes — not from the entity's feet, so
+the gap under the nameplate holds across races, mounts, sitting and jumping. It
+returns all three axes together, and the caller uses all three or none: taking
+height from the actor and X/Y from the entity struct mixes two positions that
+disagree while an entity moves. (Do not go back to scanning for the highest
+bone: the topmost bone is whatever the model holds up — a weapon, a wing — and
+it moves through the animation.) Any unreadable pointer in the chain returns
+`nil` and the caller falls back to feet position for that frame; never let that
+walk throw.
 
 ### Layout and settings
 

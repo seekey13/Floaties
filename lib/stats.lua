@@ -68,6 +68,40 @@ function M.read_entity(ent)
 end
 
 --[[
+* Reads a pet into the same shape M.read returns.
+*
+* HP comes from the entity like any other (the client is told a percent and nothing else), but MP
+* and TP do not: they are only published for *your own* pet, through the player block rather than
+* the entity, so the caller reads them there and hands them in. Another member's pet gets
+* M.read_entity instead -- there is nowhere to read its MP or TP from.
+*
+* Both extras stay optional so this one reader covers "your pet, MP known" and "your pet, no MP
+* pool at all" without the caller branching: nil is normalized to an empty bar, and which bars are
+* actually drawn is config.pet_bars' decision, not this function's.
+*
+* @param {userdata|nil} ent - the pet's entity from GetEntity(index).
+* @param {number|nil} mp_percent - GetPetMPPercent(), 0..100.
+* @param {number|nil} tp_raw - GetPetTP(), 0..3000.
+* @return {table|nil} { hp, hp_raw, mp, mp_raw, tp, tp_raw } or nil when there is no entity.
+--]]
+function M.read_pet(ent, mp_percent, tp_raw)
+    local s = M.read_entity(ent);
+    if (s == nil) then
+        return nil;
+    end
+
+    tp_raw = M.clamp(tp_raw or 0, 0, 3000);
+
+    -- mp_raw/hp_raw 0 for the same reason M.read_entity sets it: a pet's pools are published as a
+    -- percent, so M.label falls back to printing that percent with a % sign.
+    s.mp     = M.clamp(mp_percent or 0, 0, 100) / 100;
+    s.mp_raw = 0;
+    s.tp     = tp_raw / 3000;
+    s.tp_raw = tp_raw;
+    return s;
+end
+
+--[[
 * Whether an entity should get a target panel drawn over it.
 *
 * Not Floaties's isEnemy: a trust or pet you targeted is fine to draw, so the party scan covers only

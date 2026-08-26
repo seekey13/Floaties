@@ -110,6 +110,26 @@ assert(stats.read_entity(fakeEnt(0x10, 137)).hp == 1.0, 'entity hp over 100 must
 assert(stats.label(mob, 'hp') == 50, 'entity label falls back to percent, got ' .. tostring(stats.label(mob, 'hp')));
 assert(isPct(mob, 'hp'), 'an entity label is always a percent -- there is no raw hp to read');
 
+-- Pet reads: an entity's HP percent, plus the MP/TP the player block publishes for your own pet
+-- only. The caller does that reading (it is Ashita-side), so nil for either is the shape another
+-- member's pet would arrive in and must not throw.
+assert(stats.read_pet(nil, 50, 1000) == nil, 'nil entity must yield nil');
+
+local pet = stats.read_pet(fakeEnt(0x10, 50), 40, 1500);
+assert(pet.hp == 0.5, 'pet hp comes from the entity, got ' .. tostring(pet.hp));
+assert(pet.mp == 0.4, 'pet mp is a percent, got ' .. tostring(pet.mp));
+assert(pet.tp == 0.5, 'pet tp runs 0..3000, got ' .. tostring(pet.tp));
+assert(pet.tp_raw == 1500, 'pet tp_raw is kept raw for the tp segments');
+
+-- Same labelling contract as an entity panel: pools published as percents print as percents.
+assert(pet.mp_raw == 0 and isPct(pet, 'mp'), 'a pet mp label is a percent -- there is no raw mp');
+
+local bare = stats.read_pet(fakeEnt(0x10, 100));
+assert(bare.mp == 0 and bare.tp == 0, 'a pet with nothing published reads empty, not nil');
+
+assert(stats.read_pet(fakeEnt(0x10, 100), 137, 5000).mp == 1.0, 'pet mp over 100 must clamp');
+assert(stats.read_pet(fakeEnt(0x10, 100), 0, 5000).tp == 1.0, 'pet tp over 3000 must clamp');
+
 -- Targetability. Party slots 0..5 are rejected because drawMember already draws them.
 local targetParty = {
     GetMemberIsActive = function (_, i) return i <= 2 and 1 or 0; end,
@@ -139,7 +159,7 @@ print('stats.lua ok');
 -- config.lua: derived layout math must match the defaults' expected geometry.
 local SELF = config.defaults.sizes.self;
 assert(config.bar_width(config.defaults, SELF) == 196, 'bar width = size.width - 2*offset, got ' .. tostring(config.bar_width(config.defaults, SELF)));
-assert(config.panel_height(config.defaults, SELF) == 50, 'panel height = sum(bar heights) + 2*gap + 2*offset, got ' .. tostring(config.panel_height(config.defaults, SELF)));
+assert(config.panel_height(config.defaults, SELF) == 28, 'panel height = 8+6+10 + 2*gap(0) + 2*offset(2), got ' .. tostring(config.panel_height(config.defaults, SELF)));
 
 local custom     = { panel = { offset = 10 }, gap = 5 };
 local customSize = { width = 200, hp = 20, mp = 30, tp = 40 };
@@ -150,12 +170,12 @@ assert(config.panel_height(custom, customSize) == 20 + 30 + 40 + 2 * 5 + 2 * 10,
 -- and gap. Nothing may reach back to a single global width or bar height.
 local sizes = {
     self   = { width = 100, hp = 16, mp = 16, tp = 16 },
-    party  = { width = 60,  hp = 8,  mp = 8,  tp = 8  },
+    party  = { width = 60,  hp = 9,  mp = 9,  tp = 9  },
     target = { width = 200, hp = 24 },
 };
 assert(config.bar_width(config.defaults, sizes.party) == 56, 'party width is its own, got ' .. tostring(config.bar_width(config.defaults, sizes.party)));
 assert(config.bar_width(config.defaults, sizes.target) == 196, 'target width is its own, got ' .. tostring(config.bar_width(config.defaults, sizes.target)));
-assert(config.panel_height(config.defaults, sizes.party) == 8 * 3 + 2 * 1 + 2 * 2, 'party heights are its own, got ' .. tostring(config.panel_height(config.defaults, sizes.party)));
+assert(config.panel_height(config.defaults, sizes.party) == 9 * 3 + 2 * config.defaults.gap + 2 * 2, 'party heights are its own, got ' .. tostring(config.panel_height(config.defaults, sizes.party)));
 assert(config.panel_height(config.defaults, sizes.target, { 'hp' }) == 24 + 2 * 2, 'target height is its own, got ' .. tostring(config.panel_height(config.defaults, sizes.target, { 'hp' })));
 
 -- Every kind in size_order must actually lay out, target included -- a missing entry is a nil
@@ -189,10 +209,11 @@ assert(config.bar_width(slotcfg, SELF, false) == config.bar_width(slotcfg, SELF)
 assert(config.bar_width(slotcfg, SELF, true) == 200 - 2 * 4 - 20, 'bars give up box + gap, got ' .. tostring(config.bar_width(slotcfg, SELF, true)));
 assert(config.bar_width(slotcfg, sizes.target, false) == 192, 'the target panel keeps its full bar width when it has no tag');
 
--- The defaults ship with the party indicator on, so they are the case that has to lay out: box
--- floor(1.5*21)=31 plus the 1px gap, out of the bars only.
-assert(config.slot_width(config.defaults, true) == 32, 'default reserved width, got ' .. tostring(config.slot_width(config.defaults, true)));
-assert(config.bar_width(config.defaults, SELF, true) == 196 - 32, 'a default party panel gives up box + gap, got ' .. tostring(config.bar_width(config.defaults, SELF, true)));
+-- The defaults ship the party indicator *off*, but a target's tag is gated by cfg.mob.level rather
+-- than slot.enabled, so the defaults still have to lay a box out: floor(1.5*21)=31 plus the gap
+-- (0 as shipped), out of the bars only.
+assert(config.slot_width(config.defaults, true) == 31, 'default reserved width, got ' .. tostring(config.slot_width(config.defaults, true)));
+assert(config.bar_width(config.defaults, SELF, true) == 196 - 31, 'a default party panel gives up box + gap, got ' .. tostring(config.bar_width(config.defaults, SELF, true)));
 assert(config.bar_width(config.defaults, config.defaults.sizes.target, false) == 296, 'the default target panel reserves nothing when it has no tag');
 assert(config.label_size(config.defaults, config.defaults.slot.size) ~= nil, 'the default slot text must clear Min Text Size, or the tag never prints');
 
@@ -204,17 +225,23 @@ assert(config.panel_height(slotcfg, SELF) == config.panel_height(notagcfg, SELF)
 -- Mob reference lines hang *below* the panel, so they cost it no height at all: a target panel is
 -- the same shape whether the mob has three lines or none, and panel_height counts bars only.
 local TARGET = config.defaults.sizes.target;
-assert(config.panel_height(config.defaults, TARGET, { 'hp' }) == 20 + 2 * 2,
+assert(config.panel_height(config.defaults, TARGET, { 'hp' }) == 23 + 2 * 2,
     'lines must not enter the panel height, got ' .. tostring(config.panel_height(config.defaults, TARGET, { 'hp' })));
 
 -- The row holds at Min Text Size instead of dropping out below it, the way a bar label does: a
 -- label leaves a bar behind it that still reads, while a blanked reference line reads as missing
 -- data at exactly the range the panel is smallest.
-local MIN_INFO = config.defaults.text.min_size;
-assert(config.info_row(config.defaults, 1) == 14, 'at 1:1 the row is the configured size');
-assert(config.info_row(config.defaults, nil) == 14, 'no scale is 1:1');
-assert(config.info_row(config.defaults, 1.5) == 21, 'scaling up is not clamped');
-assert(config.info_row(config.defaults, 0.35) == MIN_INFO, 'the smallest scale holds at the floor, got ' .. tostring(config.info_row(config.defaults, 0.35)));
+--
+-- The floor itself takes a fixture rather than the defaults: they ship text.min_size = 1, which is
+-- the floor switched off (nothing shipped prints a number inside a bar), so the shipped values
+-- cannot demonstrate a floor binding.
+local floored  = { mob = { size = 20 }, text = { min_size = 12 } };
+local MIN_INFO = floored.text.min_size;
+assert(config.info_row(config.defaults, 1) == 32, 'at 1:1 the row is the configured size');
+assert(config.info_row(config.defaults, nil) == 32, 'no scale is 1:1');
+assert(config.info_row(config.defaults, 1.5) == 48, 'scaling up is not clamped');
+assert(config.info_row(floored, 0.35) == MIN_INFO, 'the smallest scale holds at the floor, got ' .. tostring(config.info_row(floored, 0.35)));
+assert(config.info_row(config.defaults, 0.35) == 32 * 0.35, 'the shipped floor of 1 never binds -- the row just scales, got ' .. tostring(config.info_row(config.defaults, 0.35)));
 
 -- The floor is never *above* what was configured: an Info Text Size dragged below Min Text Size is
 -- honoured rather than bumped up to a size nobody asked for.
@@ -227,6 +254,15 @@ assert(config.info_row(tiny, 0.35) == 8, 'and is its own floor');
 assert(config.info_row({ mob = { size = 40 }, text = { min_size = 12 } }, 0.35) == 14,
     'the row reads only mob.size and text.min_size, got ' .. tostring(config.info_row({ mob = { size = 40 }, text = { min_size = 12 } }, 0.35)));
 
+-- An explicit size (the party name line) takes mob.size's place entirely -- same floor rule, so
+-- the two lines shrink and bottom out alike without one resizing the other.
+assert(config.info_row(config.defaults, 1, 30) == 30, 'an explicit size overrides mob.size');
+assert(config.info_row(floored, 0.1, 30) == MIN_INFO,
+    'an explicit size still holds at the floor, got ' .. tostring(config.info_row(floored, 0.1, 30)));
+assert(config.info_row(floored, 0.1, 8) == 8, 'and is still its own floor under it');
+assert(config.info_row(config.defaults, 1, nil) == config.info_row(config.defaults, 1),
+    'nil size is mob.size, so the reference rows are untouched');
+
 -- MP bar only shows when main or sub has an MP pool.
 assert(#config.bars_for(1, 2) == 2, 'WAR/MNK must drop the mp bar');
 assert(config.bars_for(1, 2)[2] == 'tp', 'remaining bars stay in draw order');
@@ -234,9 +270,22 @@ assert(#config.bars_for(1, 3) == 3, 'WAR/WHM keeps the mp bar (sub has MP)');
 assert(#config.bars_for(22, 1) == 3, 'RUN/WAR keeps the mp bar (main has MP)');
 assert(#config.bars_for(1, 0) == 2, 'no subjob must not error');
 
+-- A pet's MP bar follows the *owner's* job, not a live MP reading: an avatar spending its last MP
+-- must not drop a bar mid-fight, and a wyvern must never draw one it can never fill.
+assert(#config.pet_bars(15) == 3, 'a SMN avatar has an mp pool');
+assert(#config.pet_bars(18) == 3, 'a PUP automaton has an mp pool');
+assert(#config.pet_bars(9) == 2, 'a BST jug pet has no mp pool');
+assert(config.pet_bars(9)[2] == 'tp', 'remaining pet bars stay in draw order');
+assert(#config.pet_bars(0) == 2, 'an unknown job must not error');
+
+-- Not config.mp_jobs: SMN and PUP are the jobs whose *pet* has MP, which is a different list from
+-- the jobs that have MP themselves -- PUP has none, and every mage in mp_jobs summons nothing.
+assert(config.mp_jobs[18] == nil, 'PUP itself has no mp pool');
+assert(config.pet_mp_jobs[3] == nil, 'WHM summons nothing to give an mp bar to');
+
 -- Hiding a bar shrinks the panel by that bar's height plus one gap.
-assert(config.panel_height(config.defaults, SELF, { 'hp', 'tp' }) == 39,
-    'two-bar panel = 18+16 + 1*1 + 2*2, got ' .. tostring(config.panel_height(config.defaults, SELF, { 'hp', 'tp' })));
+assert(config.panel_height(config.defaults, SELF, { 'hp', 'tp' }) == 22,
+    'two-bar panel = 8+10 + 1*gap(0) + 2*2, got ' .. tostring(config.panel_height(config.defaults, SELF, { 'hp', 'tp' })));
 
 -- Label size comes from the bar, never from a setting of its own, so the text can never be taller
 -- than what it sits in -- at any bar height and at any distance scale.
@@ -247,11 +296,18 @@ end
 
 -- Below the floor there is no legible size left, so the bar drops its label rather than drawing
 -- mush -- whether it got there by being configured short or by scaling far away.
-local MIN = config.defaults.text.min_size;
-assert(config.label_size(config.defaults, MIN) == MIN, 'the shortest bar that fits the floor still prints it');
-assert(config.label_size(config.defaults, MIN - 1) == nil, 'one pixel under the floor drops the label');
-assert(config.label_size(config.defaults, 16 * 0.5) == nil, 'a 16px bar scaled to half drops its label');
-assert(config.label_size(config.defaults, 16 * 1.5) ~= nil, 'a 16px bar scaled up keeps it');
+local floorcfg = { text = { min_size = 12 } };
+local MIN      = floorcfg.text.min_size;
+assert(config.label_size(floorcfg, MIN) == MIN, 'the shortest bar that fits the floor still prints it');
+assert(config.label_size(floorcfg, MIN - 1) == nil, 'one pixel under the floor drops the label');
+assert(config.label_size(floorcfg, 16 * 0.5) == nil, 'a 16px bar scaled to half drops its label');
+assert(config.label_size(floorcfg, 16 * 1.5) ~= nil, 'a 16px bar scaled up keeps it');
+
+-- The shipped floor is 1, i.e. off: every bar label the defaults could draw is switched off at
+-- bars.*.label, so the floor is not the thing keeping mush off the panel -- turning a label back
+-- on is what would need this raised again.
+assert(config.label_size(config.defaults, 16 * 0.5) == 8, 'the shipped floor of 1 keeps a scaled-down label, got ' .. tostring(config.label_size(config.defaults, 16 * 0.5)));
+assert(config.label_size(config.defaults, 0.5) == nil, 'and still drops one that has no whole pixel left');
 
 -- Whole-pixel sizes: a size that drifts by fractions as the camera moves resamples the same glyph
 -- every frame, which is what shimmering text is.
@@ -347,9 +403,9 @@ print('config.lua ok');
 -- nameplate.lua: the actor -> skeleton -> bones pointer walk, against a fake address space.
 --
 -- Layout built below (all offsets straight out of nameplate.lua):
---   actor 0x1000: +0x67C feet height 10.0, +0x6B8 -> 0x2000
+--   actor 0x1000: +0x678 X 100.0, +0x67C feet height 10.0, +0x680 Y 200.0, +0x6B8 -> 0x2000
 --   0x2000 +0x0C -> 0x3000 -> 0x4000 (the skeleton)
---   0x4000 +0x32 bone count, bones start at 0x30 + 0x04 + 0x1E*count + 4
+--   0x4000 +0x32 bone count, bones start at 0x30 + 0x04 + 0x1E*count + 4, stride 0x1A, X/Z/Y at +0x0E
 local ACTOR = 0x1000;
 
 local function fakeMem(u32, u16, f32)
@@ -360,12 +416,14 @@ local function fakeMem(u32, u16, f32)
     };
 end
 
-local function skeleton(bone_z, count)
-    count = count or #bone_z;
+-- `bones` is a list of { x, z, y } offsets, one per bone, in bone order.
+local function skeleton(bones, count)
+    count = count or #bones;
     local gens = 0x4000 + 0x30 + 0x04 + 0x1E * count + 4;
-    local f32  = { [ACTOR + 0x67C] = 10.0 };
-    for i, z in ipairs(bone_z) do
-        f32[gens + (i - 1) * 0x1A + 0x12] = z;
+    local f32  = { [ACTOR + 0x678] = 100.0, [ACTOR + 0x67C] = 10.0, [ACTOR + 0x680] = 200.0 };
+    for i, b in ipairs(bones) do
+        local at = gens + (i - 1) * 0x1A + 0x0E;
+        f32[at], f32[at + 4], f32[at + 8] = b[1], b[2], b[3];
     end
     return fakeMem(
         { [ACTOR + 0x6B8] = 0x2000, [0x2000 + 0x0C] = 0x3000, [0x3000] = 0x4000 },
@@ -375,31 +433,40 @@ end
 
 local function near(a, b) return a ~= nil and math.abs(a - b) < 1e-6; end
 
--- Height is down-positive, so the *highest* bone is the smallest Z, and it is relative to the
--- actor origin: 10.0 feet + (-1.8) head = 8.2.
-assert(near(nameplate.top(skeleton({ -1.0, -1.8, -0.5 }), ACTOR), 8.2),
-    'top = feet + highest (least) bone z, got ' .. tostring(nameplate.top(skeleton({ -1.0, -1.8, -0.5 }), ACTOR)));
-assert(near(nameplate.top(skeleton({ -0.5, -1.0, -1.8 }), ACTOR), 8.2), 'bone order must not matter');
-assert(near(nameplate.top(skeleton({ 0.0 }), ACTOR), 10.0), 'a single bone at the origin is the feet height');
+-- Bone 2 (the third entry) is the anchor, and its offsets are relative to the actor origin on
+-- every axis. Height is down-positive, so a bone above the feet reads negative.
+local POSED = { { 9, 9, 9 }, { 9, 9, 9 }, { 0.25, -1.8, -0.5 }, { 9, 9, 9 } };
+local ax, ay, az = nameplate.anchor(skeleton(POSED), ACTOR);
+assert(near(ax, 100.25), 'x = actor x + bone 2 x, got ' .. tostring(ax));
+assert(near(ay, 199.5),  'y = actor y + bone 2 y, got ' .. tostring(ay));
+assert(near(az, 8.2),    'z = feet + bone 2 z, got ' .. tostring(az));
 
--- A half-written bone reads NaN; it must not poison the minimum.
+-- Bones the model happens to hold higher than the anchor must not move it: that scan is exactly
+-- what made the panel wander through an animation.
+local HIGHER = { { 9, -9, 9 }, { 9, -9, 9 }, { 0.25, -1.8, -0.5 }, { 9, -9, 9 } };
+local _, _, hz = nameplate.anchor(skeleton(HIGHER), ACTOR);
+assert(near(hz, 8.2), 'a higher bone elsewhere in the skeleton must not become the anchor');
+
+-- A half-written bone reads NaN on any axis; none may reach the projection.
 local nan = 0 / 0;
-assert(near(nameplate.top(skeleton({ nan, -1.8, nan }), ACTOR), 8.2), 'NaN bones must be skipped');
-assert(nameplate.top(skeleton({ nan }), ACTOR) == nil, 'all-NaN skeleton yields no anchor');
+assert(nameplate.anchor(skeleton({ {0,0,0}, {0,0,0}, { nan, -1.8, -0.5 } }), ACTOR) == nil, 'NaN x yields nil');
+assert(nameplate.anchor(skeleton({ {0,0,0}, {0,0,0}, { 0.25, nan, -0.5 } }), ACTOR) == nil, 'NaN z yields nil');
+assert(nameplate.anchor(skeleton({ {0,0,0}, {0,0,0}, { 0.25, -1.8, nan } }), ACTOR) == nil, 'NaN y yields nil');
 
 -- Every pointer in the chain can read 0 during a zone or model swap. None may throw.
-assert(nameplate.top(skeleton({ -1.0 }), nil) == nil, 'nil actor pointer yields nil');
-assert(nameplate.top(skeleton({ -1.0 }), 0) == nil, 'null actor pointer yields nil');
-assert(nameplate.top(fakeMem({}, {}, {}), ACTOR) == nil, 'null skeleton base yields nil');
-assert(nameplate.top(fakeMem({ [ACTOR + 0x6B8] = 0x2000 }, {}, {}), ACTOR) == nil, 'null skeleton offset yields nil');
-assert(nameplate.top(fakeMem({ [ACTOR + 0x6B8] = 0x2000, [0x2000 + 0x0C] = 0x3000 }, {}, {}), ACTOR) == nil,
+assert(nameplate.anchor(skeleton(POSED), nil) == nil, 'nil actor pointer yields nil');
+assert(nameplate.anchor(skeleton(POSED), 0) == nil, 'null actor pointer yields nil');
+assert(nameplate.anchor(fakeMem({}, {}, {}), ACTOR) == nil, 'null skeleton base yields nil');
+assert(nameplate.anchor(fakeMem({ [ACTOR + 0x6B8] = 0x2000 }, {}, {}), ACTOR) == nil, 'null skeleton offset yields nil');
+assert(nameplate.anchor(fakeMem({ [ACTOR + 0x6B8] = 0x2000, [0x2000 + 0x0C] = 0x3000 }, {}, {}), ACTOR) == nil,
     'null skeleton address yields nil');
 
--- Bone count guards: 0 is an empty model, a huge count means the walk landed on non-skeleton
--- memory and must not be read as thousands of floats.
-assert(nameplate.top(skeleton({}, 0), ACTOR) == nil, 'zero bones yields nil');
-assert(nameplate.top(skeleton({}, 257), ACTOR) == nil, 'an implausible bone count yields nil');
-assert(nameplate.top(skeleton({}, 256), ACTOR) ~= nil, '256 bones is still walked');
+-- Bone count guards: a model with no bone 2 has no anchor, and a huge count means the walk landed
+-- on non-skeleton memory and must not be turned into a bone address.
+assert(nameplate.anchor(skeleton({}, 0), ACTOR) == nil, 'zero bones yields nil');
+assert(nameplate.anchor(skeleton({}, 2), ACTOR) == nil, 'a model without bone 2 yields nil');
+assert(nameplate.anchor(skeleton({}, 257), ACTOR) == nil, 'an implausible bone count yields nil');
+assert(nameplate.anchor(skeleton({}, 256), ACTOR) ~= nil, '256 bones is still walked');
 
 print('nameplate.lua ok');
 
@@ -618,7 +685,7 @@ assert(label_text(full.label) == '??? Tough Mist Lizard WAR',
 assert(full.tag == '14-17', 'the level tag box, got ' .. tostring(full.tag));
 assert(full.hp_color == mobinfo.CHECK.ITG.color, 'the tier colors the HP bar');
 for _, seg in ipairs(full.label) do
-    assert(seg.color == nil, 'no label segment carries a color -- the whole label draws in cfg.text.color');
+    assert(seg.color == nil, 'a passive mob leaves every segment uncolored -- the caller draws them in cfg.text.color');
 end
 assert(full.hp_color2 == nil, 'a notorious monster is one tier (ITG), not a straddle -- no gradient');
 assert(icons(full.left) == 'PassiveHQ Link', 'threat flanks left, got ' .. icons(full.left));
@@ -637,6 +704,34 @@ assert(icons(bomb.right) == 'Sight Magic', 'got ' .. icons(bomb.right));
 assert(#bomb.rows == 1, 'the resistance list is the row under the panel');
 assert(text(bomb.rows[1]) == 'Fire+25% Ice-50% Wind-50% Earth-50% Lightning-50% Water-50% Light-50% Dark-50%',
     'got ' .. tostring(text(bomb.rows[1])));
+
+-- Aggro tint. The whole line, not the name segment alone: the tier and job are drawn in the name's
+-- color on purpose, so tinting a third of it would split one string into two.
+local AGGRO_RED = { r = 1, g = 140/255, b = 140/255 };
+local TINTED    = { level = true, check = true, detect = true, resist = true, aggro_color = AGGRO_RED };
+
+local tinted = mobinfo.panel(BOMB, TINTED, jobname, 12, 'Bomb');
+assert(#tinted.label > 1, 'this case is only meaningful with a tier prefix to tint alongside the name');
+for _, seg in ipairs(tinted.label) do
+    assert(seg.color == AGGRO_RED, 'every segment of an aggressive mob name line takes the tint');
+end
+
+-- Passive, same toggles: the tint is a mobdb fact, not a setting that paints unconditionally.
+for _, seg in ipairs(mobinfo.panel(LINKER, TINTED, jobname, 20, 'Tough Mist Lizard').label) do
+    assert(seg.color == nil, 'a passive mob is left uncolored even with a tint configured');
+end
+
+-- No mobdb entry means no Aggro flag to read, so a player or an unrecognized mob keeps the default.
+for _, seg in ipairs(mobinfo.panel(nil, TINTED, jobname, 20, 'PlayerName').label) do
+    assert(seg.color == nil, 'no mobdb entry means no aggro tint -- there is nothing that knows');
+end
+
+-- Independent of the four toggles: `detect` owns the icon groups, this is a tint on a line that
+-- draws whatever they are set to.
+local tintedOff = mobinfo.panel(BOMB, { level = false, check = false, detect = false, resist = false,
+                                        aggro_color = AGGRO_RED }, jobname, 12, 'Bomb');
+assert(#tintedOff.label == 1 and tintedOff.label[1].color == AGGRO_RED,
+    'the tint does not borrow a toggle -- a name-only line still takes it');
 
 local nolevel = mobinfo.panel(BOMB, ALL_LINES, jobname, nil, 'Bomb');
 assert(label_text(nolevel.label) == 'Bomb', 'no player level leaves the check segment out, got ' .. tostring(label_text(nolevel.label)));
@@ -693,8 +788,9 @@ assert(nolines.tag == nil and #nolines.left == 0 and #nolines.right == 0 and #no
 assert(nolines.hp_color == nil, 'every toggle off means no bar color either');
 
 local shipped = mobinfo.panel(BOMB, config.defaults.mob, jobname, 12, 'Bomb');
-assert(shipped.label ~= nil and #shipped.label > 0 and shipped.tag ~= nil and #shipped.left > 0 and #shipped.rows == 1,
-    'the defaults ship every toggle on');
+assert(shipped.label ~= nil and #shipped.label > 0 and #shipped.left > 0 and #shipped.rows == 1,
+    'the defaults ship check, detect and resist on');
+assert(shipped.tag == nil, 'and level off, so no tag box comes out of the target panel\'s bars');
 assert(shipped.hp_color == mobinfo.CHECK.EP.color, 'the defaults color the bar too');
 
 -- A captured check (checkinfo's entry, `chk`) overrides mobdb's estimate: exact tier and level
@@ -914,3 +1010,35 @@ assert(enemylist.resolve_index(fakeServerIds({}), SLOW_ID) == 0,
     'an id that matches nothing yields 0');
 
 print('enemylist.lua resolve_index ok');
+
+----------------------------------------------------------------------------------------------------
+-- petshare.lua -- the pet MP/TP swapped between Floaties sessions on one PC
+----------------------------------------------------------------------------------------------------
+
+local petshare = require('lib.petshare');
+
+-- Round trip: what publish writes is what get reads back, minus the stamp.
+local NOW = 1000000;
+local sid, mp, tp = petshare.parse(petshare.line(0x1000123, 47, 1750, NOW), NOW);
+assert(sid == 0x1000123, 'server id round trips, got ' .. tostring(sid));
+assert(mp == 47 and tp == 1750, 'mp/tp round trip, got ' .. tostring(mp) .. '/' .. tostring(tp));
+
+-- A line written a moment ago is fine; one older than the window is not. Without this, a file left
+-- behind by a crashed session would show a full MP bar over a pet that no longer exists.
+assert(petshare.parse(petshare.line(1, 50, 0, NOW), NOW + petshare.MAX_AGE) ~= nil,
+    'a line exactly at the age limit is still trusted');
+assert(petshare.parse(petshare.line(1, 50, 0, NOW), NOW + petshare.MAX_AGE + 1) == nil,
+    'a line past the age limit must be rejected');
+
+-- Clocks between two sessions on one PC agree, but a write landing in the same second we read it
+-- can still stamp fractionally ahead; a negative age is fresh, not a parse failure.
+assert(petshare.parse(petshare.line(1, 50, 0, NOW + 1), NOW) ~= nil,
+    'a stamp from the future is fresh, not stale');
+
+-- Garbage and torn writes yield nil rather than a plausible-looking number: the reader falls back
+-- to the plain HP bar for that frame.
+assert(petshare.parse('', NOW) == nil, 'an empty line must not parse');
+assert(petshare.parse('16777507 47 17', NOW) == nil, 'a truncated line must not parse');
+assert(petshare.parse('name 47 1750 1000000', NOW) == nil, 'a non-numeric id must not parse');
+
+print('petshare.lua ok');
