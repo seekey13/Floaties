@@ -1533,9 +1533,11 @@ local function drawConfigWindow()
             checkbox('Scale With Distance', cfg, 'distance_scale');
             if (cfg.distance_scale) then
                 slider(imgui.SliderFloat, 'Scale Reference Depth', cfg, 'scale_ref', 1, 30);
-                -- Floors at 1: a ceiling under 1 would mean a panel can never reach its own
-                -- configured size, which is the size slider lying rather than a preference.
+                -- Bounded at 1 from either side: a ceiling under 1 or a floor over 1 would both
+                -- mean a panel can never reach its own configured size, which is the size sliders
+                -- lying rather than a preference.
                 slider(imgui.SliderFloat, 'Max Scale', cfg, 'scale_max', 1, 3);
+                slider(imgui.SliderFloat, 'Min Scale', cfg, 'scale_min', 0.1, 1);
             end
         end
 

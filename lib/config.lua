@@ -91,9 +91,15 @@ M.defaults = {
     scale_ref       = 6.0,   -- view depth (yalms) at which a panel draws at 1:1
     -- Ceiling on the growth half of the curve. ref/depth runs away as depth goes to zero, and a
     -- target you are standing on top of projects at a very small depth -- without a cap that is a
-    -- panel filling the screen. The floor stays fixed (SCALE_MIN); the ceiling is taste, because
-    -- how big is too big depends on the configured panel size it multiplies.
+    -- panel filling the screen. Taste, because how big is too big depends on the configured panel
+    -- size it multiplies.
     scale_max       = 1.5,
+    -- Floor on the shrink half, and the same kind of taste in the other direction: how small is
+    -- too small also depends on the size it multiplies, and on how far out you actually want to
+    -- still read a panel. Shipped at the value that used to be hardcoded here, so the default
+    -- curve is unchanged. Never above 1 -- a floor over 1 would mean a panel can never draw at
+    -- its configured size, which is the size sliders lying rather than a preference.
+    scale_min       = 0.35,
 
     -- Colors are 0..1 floats; the config window edits them as 0..255, so the ones that came from
     -- it are written as that integer over 255 rather than a rounded decimal that would show up
@@ -320,10 +326,6 @@ function M.bar_width(cfg, size, has_tag)
     return size.width - 2 * cfg.panel.offset - M.slot_width(cfg, has_tag);
 end
 
--- Floor on the scale curve. Fixed, not a setting: a panel shrunk past this is an unreadable smudge
--- whatever your panel size is, so there is nothing to prefer. The ceiling is `cfg.scale_max`.
-local SCALE_MIN = 0.35;
-
 --[[
 * Uniform scale factor for a panel at a given view depth.
 *
@@ -342,8 +344,9 @@ function M.panel_scale(cfg, depth)
     if (not cfg.distance_scale or depth == nil or depth <= 0) then
         return 1;
     end
-    -- Ceiling last, so the setting always wins: it is the one of the two a user can point at.
-    return math.min(math.max(cfg.scale_ref / depth, SCALE_MIN), cfg.scale_max);
+    -- Ceiling last, so a floor dragged above the ceiling collapses to one size rather than
+    -- inverting into a panel that grows as it gets further away.
+    return math.min(math.max(cfg.scale_ref / depth, cfg.scale_min), cfg.scale_max);
 end
 
 --[[

@@ -329,7 +329,7 @@ the nameplate — so the two track each other for free rather than being tuned t
 match:
 
 ```
-scale = clamp(Scale Reference Depth / view depth, 0.35, Max Scale)
+scale = clamp(Scale Reference Depth / view depth, Min Scale, Max Scale)
 ```
 
 *View depth* is distance along the camera's forward axis, not the straight-line
@@ -349,8 +349,17 @@ and an uncapped curve is a panel filling the screen. Lower it if the target
 panel still grows past what looks right at your panel sizes; `1` pins every
 panel at its configured size or smaller.
 
-The `0.35` floor is not a setting. A panel shrunk past it is an unreadable
-smudge whatever your sizes are, so there is nothing to prefer.
+**Min Scale** (`0.35`) is the other end — the smallest a panel may draw, and so
+the range past which its text stops shrinking and just stays put. Raise it if
+party panels across a zone are too small to read at a glance; lower it if
+distant panels crowd the screen. `1` pins every panel at its configured size or
+larger. Both bounds are free sliders, so a floor dragged above the ceiling
+collapses the curve to one fixed size (the ceiling wins) rather than inverting
+it into panels that grow as they get further away.
+
+Nothing on a panel has its own distance behavior except the mob reference block
+and the name line above the plate, which hold at **Min Text Size** instead of
+shrinking with the rest (see **Mob reference**).
 
 Scale is taken at the anchor point, so the panel's top edge stays pinned under
 the nameplate and the panel grows or shrinks downward from there. Padding and

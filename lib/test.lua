@@ -373,7 +373,7 @@ local function nearly(a, b, why)
     assert(a ~= nil and math.abs(a - b) < 1e-9, why .. ', got ' .. tostring(a));
 end
 
-local scaling = { distance_scale = true, scale_ref = 6.0, scale_max = 1.5 };
+local scaling = { distance_scale = true, scale_ref = 6.0, scale_max = 1.5, scale_min = 0.35 };
 
 nearly(config.panel_scale(scaling, 6.0), 1.0, 'the reference depth draws 1:1');
 nearly(config.panel_scale(scaling, 12.0), 0.5, 'twice the reference is half size');
@@ -381,13 +381,26 @@ nearly(config.panel_scale(scaling, 5.0), 1.2, 'closer than the reference grows')
 nearly(config.panel_scale(scaling, 3.0), 1.5, 'growth stops at the ceiling');
 nearly(config.panel_scale(scaling, 60.0), 0.35, 'shrink stops at the floor');
 
--- The ceiling is the setting, so it has to move the curve: same depth, a lower scale_max, and the
--- panel that used to peg at 1.5 stops at 1.0 instead. The floor is not a setting and does not move.
-local capped = { distance_scale = true, scale_ref = 6.0, scale_max = 1.0 };
+-- Each bound is a setting, so each has to move the curve on its own: same depth, a lower
+-- scale_max, and the panel that used to peg at 1.5 stops at 1.0 instead, while the floor stays.
+local capped = { distance_scale = true, scale_ref = 6.0, scale_max = 1.0, scale_min = 0.35 };
 nearly(config.panel_scale(capped, 3.0), 1.0, 'a lower ceiling caps growth lower');
 nearly(config.panel_scale(capped, 6.0), 1.0, 'the reference still draws 1:1 under a 1.0 ceiling');
 nearly(config.panel_scale(capped, 12.0), 0.5, 'the ceiling leaves shrinking alone');
 nearly(config.panel_scale(capped, 60.0), 0.35, 'the floor is not the ceiling setting');
+
+local shallow = { distance_scale = true, scale_ref = 6.0, scale_max = 1.5, scale_min = 0.8 };
+nearly(config.panel_scale(shallow, 60.0), 0.8, 'a higher floor stops shrinking sooner');
+nearly(config.panel_scale(shallow, 6.0), 1.0, 'the reference still draws 1:1 over a 0.8 floor');
+nearly(config.panel_scale(shallow, 3.0), 1.5, 'the floor leaves growing alone');
+
+-- Both sliders are free, so they can cross. A floor dragged past the ceiling has to collapse to
+-- one size at every depth -- the ceiling applying last -- rather than inverting the curve into a
+-- panel that grows as it gets further away.
+local crossed = { distance_scale = true, scale_ref = 6.0, scale_max = 1.0, scale_min = 2.0 };
+for _, d in ipairs({ 1, 6, 60 }) do
+    nearly(config.panel_scale(crossed, d), 1.0, 'a floor over the ceiling pegs at the ceiling at depth ' .. d);
+end
 
 -- Behind the lens / degenerate projections must not produce a negative or infinite panel.
 nearly(config.panel_scale(scaling, 0), 1.0, 'zero depth yields no scaling');
@@ -408,6 +421,7 @@ nearly(config.panel_scale(config.defaults, config.defaults.scale_ref * 2), 0.5, 
 -- A missing ceiling would be an arithmetic error on nil, not a fallback, the first time a panel
 -- came close: the defaults are what an older settings file merges against.
 nearly(config.panel_scale(config.defaults, 0.01), config.defaults.scale_max, 'the defaults ship a ceiling');
+nearly(config.panel_scale(config.defaults, 1e6), config.defaults.scale_min, 'the defaults ship a floor');
 
 print('config.lua ok');
 
