@@ -857,12 +857,29 @@ local function segmentWidth(seg, size, cfg)
     return width + (seg.text ~= nil and textWidth(seg.text, size, cfg) or 0);
 end
 
+-- Space after a segment. A segment mobinfo marked as ending a group (a resistance run's
+-- percentage) gets a full font size of space on top of the gap, so the number stays visibly
+-- attached to the icons it covers instead of floating between two groups. Every other line has no
+-- groups in it and gets the plain gap throughout.
+--
+-- Measured off the font size rather than as a multiple of `gap`: gap defaults to 0 (the bars stack
+-- flush), and a multiplier on that separates nothing. This is the one place that wants a space
+-- whether or not the panel has any gaps in it, so it is measured off the only thing the row is
+-- sized by. A whole size, not half: the icons on either side are square at that size, so half of
+-- one still reads as part of the run at a glance.
+local function gapAfter(seg, gap, size)
+    return gap + (seg.group_end and size or 0);
+end
+
 local function lineWidth(segments, size, gap, cfg)
     local width = 0;
-    for _, seg in ipairs(segments) do
+    for i, seg in ipairs(segments) do
         width = width + segmentWidth(seg, size, cfg);
+        if (i < #segments) then
+            width = width + gapAfter(seg, gap, size);
+        end
     end
-    return width + math.max(#segments - 1, 0) * gap;
+    return width;
 end
 
 --[[
@@ -896,7 +913,7 @@ local function drawInfoLine(draw_list, left, top, width, row, segments, size, ga
             x = x + w;
         end
 
-        x = x + gap;
+        x = x + gapAfter(seg, gap, size);
     end
 end
 

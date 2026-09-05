@@ -825,7 +825,11 @@ flicker.
 A run of equally-potent types is grouped the way mobdb groups it: the icons run
 together and the percentage prints once, at the end of the run. A bomb resistant
 to seven elements at -50% is seven icons and one number, not seven numbers —
-shorter, and already the reading a mobdb user has.
+shorter, and already the reading a mobdb user has. Each group is separated from
+the next by a full **Info Text Size** — one icon's width, on top of whatever
+**Bar Gap** is set to — so a percentage stays visibly attached to the icons it
+covers rather than floating between two groups. (It cannot be a multiple of the
+gap: that ships at `0`, and a multiple of nothing is nothing.)
 
 ### Placement
 

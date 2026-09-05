@@ -569,8 +569,12 @@ assert(text(mobinfo.resist({ Modifiers={ Fire=1.125 } })) == 'Fire+12.5%', 'got 
 assert(text(mobinfo.resist({ Modifiers={ Fire=1.25 } })) == 'Fire+25%', 'a whole percent drops its decimal');
 assert(text(mobinfo.resist({ Modifiers={ Fire=0.875 } })) == 'Fire-12.5%', 'a resistance is signed negative');
 
--- Equal potencies group: the icons run together and only the last of them carries the number.
+-- Equal potencies group: the icons run together and only the last of them carries the number, and
+-- that one is flagged so the renderer widens the gap after it and the groups stay apart.
 assert(text(mobinfo.resist({ Modifiers={ Fire=0.5, Ice=0.5 } })) == 'Fire Ice-50%', 'ties share one percentage');
+local ends = {};
+for i, seg in ipairs(mobinfo.resist(BONES)) do ends[i] = seg.group_end and 'X' or '.'; end
+assert(table.concat(ends) == '..XX.X.X', 'a group ends where its percentage is, got ' .. table.concat(ends));
 
 -- Ties keep collection order (physical first, then the elements in game order) rather than falling
 -- out of `pairs`: this is rebuilt every frame, and a shuffling order would flicker the line.

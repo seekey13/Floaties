@@ -342,10 +342,17 @@ function M.resist(res)
 
     -- Drop the percentage from every segment but the last of its run, so the run reads as one
     -- group. A text-less segment is already the icon-only shape the detection groups use, so the
-    -- renderer needs nothing new for this.
-    for i = 1, #mods - 1 do
-        if (mods[i].potency == mods[i + 1].potency) then
+    -- renderer needs nothing new to draw one.
+    --
+    -- `group_end` is the one thing it does need: without a wider gap after the number, the groups
+    -- run into each other and the percentage reads as belonging to the icon on either side of it.
+    -- Marked here rather than inferred from "has an icon and a number" in the renderer, because the
+    -- name line's segments are text-only and would have to be excluded by a rule that guessed.
+    for i = 1, #mods do
+        if (i < #mods and mods[i].potency == mods[i + 1].potency) then
             mods[i].text = nil;
+        else
+            mods[i].group_end = true;
         end
     end
 
