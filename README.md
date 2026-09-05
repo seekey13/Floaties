@@ -329,7 +329,7 @@ the nameplate — so the two track each other for free rather than being tuned t
 match:
 
 ```
-scale = clamp(Scale Reference Depth / view depth, 0.35, 1.5)
+scale = clamp(Scale Reference Depth / view depth, 0.35, Max Scale)
 ```
 
 *View depth* is distance along the camera's forward axis, not the straight-line
@@ -337,13 +337,20 @@ distance to the entity. That is the quantity the projection already divides by,
 so it costs nothing to read and needs no camera position out of memory.
 
 **Scale Reference Depth** (`6.0`) is the depth at which a panel draws at its
-configured size, and the only knob — the `0.35`/`1.5` clamps are fixed, so a
-distant panel stays a readable smudge and a near one does not fill the screen.
+configured size. It defaults to `6.0` because that is roughly where the
+third-person camera sits: your own panel lands near 1:1 and everything else
+scales away from it. A much larger reference pegs self at the ceiling
+permanently, at which point the slider stops doing anything you can see.
 
-The reference defaults to `6.0` because that is roughly where the third-person
-camera sits: your own panel lands near 1:1 and everything else scales away from
-it. A much larger reference pegs self at the ceiling permanently, at which point
-the slider stops doing anything you can see.
+**Max Scale** (`1.5`) is that ceiling — the largest a panel may draw relative to
+its configured size. `ref / depth` runs away as depth approaches zero, and the
+target panel is the one that gets there: stand on top of what you are fighting
+and an uncapped curve is a panel filling the screen. Lower it if the target
+panel still grows past what looks right at your panel sizes; `1` pins every
+panel at its configured size or smaller.
+
+The `0.35` floor is not a setting. A panel shrunk past it is an unreadable
+smudge whatever your sizes are, so there is nothing to prefer.
 
 Scale is taken at the anchor point, so the panel's top edge stays pinned under
 the nameplate and the panel grows or shrinks downward from there. Padding and
@@ -606,7 +613,7 @@ what it sees you with.
                  EP-DC Tough Mist Lizard WAR/MNK
             14-17
 <Passive> <Link> [═════════  71%  ═════════] <Sight> <Sound> <Scent>
-                   <Fire>+25% <Ice>-50% <Dark>-50%
+                   <Fire>+25% <Ice> <Dark>-50%
 ```
 
 Four toggles in `/floaties config` feed it:
@@ -616,7 +623,7 @@ Four toggles in `/floaties config` feed it:
 | **Show Detection** | the icon groups flanking the bar | left of it: aggro/passive, then Link. Right of it: TrueSight, Sight, Sound, Scent, Magic, JA, Blood |
 | **Show Level & Job** | the tag box, and a suffix on the name line | `14-17` in the box; ` WAR/MNK` appended to the name |
 | **Show Check** | a prefix on the name line, and the bar's own fill color | the `/check` tier jammed into one string: `EP-DC `, drawn in the name's own color like the name beside it; the bar fills in the tier's color, or a left-to-right low-to-high gradient when the range straddles two tiers |
-| **Show Weakness/Resist** | a row under the panel | an icon and a percentage each: `<Fire>+25% <Ice>-50%` |
+| **Show Weakness/Resist** | a row under the panel | an icon each, one percentage per equal-potency run: `<Fire>+25% <Ice> <Dark>-50%` |
 
 The target's **name always draws**, whatever mobdb knows about it or doesn't —
 it is the entity's own display name, not mobdb data, so a player or an
@@ -815,10 +822,10 @@ elements in the game's own order) rather than whatever `pairs` hands back — th
 line is rebuilt every frame, and an order that shuffled between frames would
 flicker.
 
-Unlike mobdb, a run of equally-potent types keeps a percentage on every one
-rather than printing it once at the end of the run. mobdb lays its icons out on
-a window-wide row where that grouping reads; these are a free-standing row under
-a panel, where a number lining up under the wrong icon is the likelier reading.
+A run of equally-potent types is grouped the way mobdb groups it: the icons run
+together and the percentage prints once, at the end of the run. A bomb resistant
+to seven elements at -50% is seven icons and one number, not seven numbers —
+shorter, and already the reading a mobdb user has.
 
 ### Placement
 

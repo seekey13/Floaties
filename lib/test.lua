@@ -373,13 +373,21 @@ local function nearly(a, b, why)
     assert(a ~= nil and math.abs(a - b) < 1e-9, why .. ', got ' .. tostring(a));
 end
 
-local scaling = { distance_scale = true, scale_ref = 6.0 };
+local scaling = { distance_scale = true, scale_ref = 6.0, scale_max = 1.5 };
 
 nearly(config.panel_scale(scaling, 6.0), 1.0, 'the reference depth draws 1:1');
 nearly(config.panel_scale(scaling, 12.0), 0.5, 'twice the reference is half size');
 nearly(config.panel_scale(scaling, 5.0), 1.2, 'closer than the reference grows');
 nearly(config.panel_scale(scaling, 3.0), 1.5, 'growth stops at the ceiling');
 nearly(config.panel_scale(scaling, 60.0), 0.35, 'shrink stops at the floor');
+
+-- The ceiling is the setting, so it has to move the curve: same depth, a lower scale_max, and the
+-- panel that used to peg at 1.5 stops at 1.0 instead. The floor is not a setting and does not move.
+local capped = { distance_scale = true, scale_ref = 6.0, scale_max = 1.0 };
+nearly(config.panel_scale(capped, 3.0), 1.0, 'a lower ceiling caps growth lower');
+nearly(config.panel_scale(capped, 6.0), 1.0, 'the reference still draws 1:1 under a 1.0 ceiling');
+nearly(config.panel_scale(capped, 12.0), 0.5, 'the ceiling leaves shrinking alone');
+nearly(config.panel_scale(capped, 60.0), 0.35, 'the floor is not the ceiling setting');
 
 -- Behind the lens / degenerate projections must not produce a negative or infinite panel.
 nearly(config.panel_scale(scaling, 0), 1.0, 'zero depth yields no scaling');
@@ -397,6 +405,9 @@ end
 -- `distance_scale` would leave scale_ref doing nothing and look like a broken slider.
 nearly(config.panel_scale(config.defaults, config.defaults.scale_ref), 1.0, 'the defaults draw 1:1 at their own reference');
 nearly(config.panel_scale(config.defaults, config.defaults.scale_ref * 2), 0.5, 'the defaults shrink with depth');
+-- A missing ceiling would be an arithmetic error on nil, not a fallback, the first time a panel
+-- came close: the defaults are what an older settings file merges against.
+nearly(config.panel_scale(config.defaults, 0.01), config.defaults.scale_max, 'the defaults ship a ceiling');
 
 print('config.lua ok');
 
@@ -542,9 +553,9 @@ assert(icons(mobinfo.threat({ Aggro=true, Notorious=true })) == 'AggroHQ', 'an N
 assert(icons(mobinfo.threat({ Aggro=false, Notorious=true })) == 'PassiveHQ', 'a passive NM too');
 
 -- Weakness/resistance, sorted by potency descending so what to hit it with reads first.
-assert(text(mobinfo.resist(BOMB)) == 'Fire+25% Ice-50% Wind-50% Earth-50% Lightning-50% Water-50% Light-50% Dark-50%',
+assert(text(mobinfo.resist(BOMB)) == 'Fire+25% Ice Wind Earth Lightning Water Light Dark-50%',
     'got ' .. tostring(text(mobinfo.resist(BOMB))));
-assert(text(mobinfo.resist(BONES)) == 'Blunt+25% Fire+25% Light+25% H2H+12.5% Slash-12.5% Ice-12.5% Pierce-50% Dark-50%',
+assert(text(mobinfo.resist(BONES)) == 'Blunt Fire Light+25% H2H+12.5% Slash Ice-12.5% Pierce Dark-50%',
     'got ' .. tostring(text(mobinfo.resist(BONES))));
 
 -- The icon is the element's own name, so only the three renamed physical types can drift apart --
@@ -558,15 +569,13 @@ assert(text(mobinfo.resist({ Modifiers={ Fire=1.125 } })) == 'Fire+12.5%', 'got 
 assert(text(mobinfo.resist({ Modifiers={ Fire=1.25 } })) == 'Fire+25%', 'a whole percent drops its decimal');
 assert(text(mobinfo.resist({ Modifiers={ Fire=0.875 } })) == 'Fire-12.5%', 'a resistance is signed negative');
 
--- Every segment keeps its own percentage, unlike mobdb, which prints one for a run of equal
--- potencies: a panel is only as wide as its widest line, and a number under the wrong icon is the
--- likelier misreading there.
-assert(text(mobinfo.resist({ Modifiers={ Fire=0.5, Ice=0.5 } })) == 'Fire-50% Ice-50%', 'ties are not collapsed');
+-- Equal potencies group: the icons run together and only the last of them carries the number.
+assert(text(mobinfo.resist({ Modifiers={ Fire=0.5, Ice=0.5 } })) == 'Fire Ice-50%', 'ties share one percentage');
 
 -- Ties keep collection order (physical first, then the elements in game order) rather than falling
 -- out of `pairs`: this is rebuilt every frame, and a shuffling order would flicker the line.
 local tied = { Modifiers={ Dark=0.5, Fire=0.5, Slashing=0.5, Water=0.5 } };
-assert(text(mobinfo.resist(tied)) == 'Slash-50% Fire-50% Water-50% Dark-50%', 'got ' .. tostring(text(mobinfo.resist(tied))));
+assert(text(mobinfo.resist(tied)) == 'Slash Fire Water Dark-50%', 'got ' .. tostring(text(mobinfo.resist(tied))));
 
 assert(mobinfo.resist({ Modifiers={ Fire=1, Ice=1 } }) == nil, 'a mob that takes everything normally has no line');
 assert(mobinfo.resist({}) == nil, 'a row with no modifiers has no line');
@@ -702,7 +711,7 @@ assert(bomb.hp_color2 == mobinfo.CHECK.DC.color, 'and carries the high tier too,
 assert(icons(bomb.left) == 'AggroNQ', 'no link, so the left group is the aggro icon alone');
 assert(icons(bomb.right) == 'Sight Magic', 'got ' .. icons(bomb.right));
 assert(#bomb.rows == 1, 'the resistance list is the row under the panel');
-assert(text(bomb.rows[1]) == 'Fire+25% Ice-50% Wind-50% Earth-50% Lightning-50% Water-50% Light-50% Dark-50%',
+assert(text(bomb.rows[1]) == 'Fire+25% Ice Wind Earth Lightning Water Light Dark-50%',
     'got ' .. tostring(text(bomb.rows[1])));
 
 -- Aggro tint. The whole line, not the name segment alone: the tier and job are drawn in the name's

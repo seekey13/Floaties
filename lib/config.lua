@@ -89,6 +89,11 @@ M.defaults = {
     -- staying a fixed pixel size at every range.
     distance_scale  = true,
     scale_ref       = 6.0,   -- view depth (yalms) at which a panel draws at 1:1
+    -- Ceiling on the growth half of the curve. ref/depth runs away as depth goes to zero, and a
+    -- target you are standing on top of projects at a very small depth -- without a cap that is a
+    -- panel filling the screen. The floor stays fixed (SCALE_MIN); the ceiling is taste, because
+    -- how big is too big depends on the configured panel size it multiplies.
+    scale_max       = 1.5,
 
     -- Colors are 0..1 floats; the config window edits them as 0..255, so the ones that came from
     -- it are written as that integer over 255 rather than a rounded decimal that would show up
@@ -315,9 +320,9 @@ function M.bar_width(cfg, size, has_tag)
     return size.width - 2 * cfg.panel.offset - M.slot_width(cfg, has_tag);
 end
 
--- Clamps on the scale curve. Fixed, not settings: they stop a far panel vanishing and a near one
--- filling the screen, which is not a preference. scale_ref is the knob.
-local SCALE_MIN, SCALE_MAX = 0.35, 1.5;
+-- Floor on the scale curve. Fixed, not a setting: a panel shrunk past this is an unreadable smudge
+-- whatever your panel size is, so there is nothing to prefer. The ceiling is `cfg.scale_max`.
+local SCALE_MIN = 0.35;
 
 --[[
 * Uniform scale factor for a panel at a given view depth.
@@ -337,7 +342,8 @@ function M.panel_scale(cfg, depth)
     if (not cfg.distance_scale or depth == nil or depth <= 0) then
         return 1;
     end
-    return math.min(math.max(cfg.scale_ref / depth, SCALE_MIN), SCALE_MAX);
+    -- Ceiling last, so the setting always wins: it is the one of the two a user can point at.
+    return math.min(math.max(cfg.scale_ref / depth, SCALE_MIN), cfg.scale_max);
 end
 
 --[[

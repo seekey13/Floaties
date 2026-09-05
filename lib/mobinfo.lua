@@ -302,10 +302,9 @@ end
 * Ties keep collection order (see PHYSICAL/MAGICAL) rather than falling out of `pairs`: the table
 * is walked every frame, and an order that shuffled between frames would flicker the line.
 *
-* Unlike mobdb, equal potencies each keep their own percentage instead of one being printed for the
-* run: mobdb lays its icons out on a window-wide row where the grouping reads, and these sit on a
-* panel that is only as wide as its widest line, where a number lining up under the wrong icon is
-* the likelier reading.
+* Equal potencies are consolidated the way mobdb does it: the run's icons draw together and only
+* the last of them carries the percentage. A mob resistant to seven elements at -50% is one number,
+* not seven, which is both shorter and the reading a player already has from mobdb.
 *
 * @return {table|nil} segments.
 --]]
@@ -341,6 +340,15 @@ function M.resist(res)
         return a.rank < b.rank;
     end);
 
+    -- Drop the percentage from every segment but the last of its run, so the run reads as one
+    -- group. A text-less segment is already the icon-only shape the detection groups use, so the
+    -- renderer needs nothing new for this.
+    for i = 1, #mods - 1 do
+        if (mods[i].potency == mods[i + 1].potency) then
+            mods[i].text = nil;
+        end
+    end
+
     -- potency/rank ride along on the segments: they exist to sort by, and the renderer reads
     -- icon/alt/text and never goes looking for a fourth key.
     return mods;
@@ -353,7 +361,7 @@ end
 *                            EP-DC Tough Mist Lizard WAR/MNK
 *                    14-17
 *     <Aggro> <Link>  [==========  71%  ==========]  <Sight> <Sound> <Scent>
-*                      <Fire>+25% <Ice>-50% <Dark>-50%
+*                      <Fire>+25% <Ice> <Dark>-50%
 *
 *   label - segments for the name line above the frame: the check tier, the name, and the job, in
 *           that order. Every segment carries `mob.aggro_color` when mobdb says the mob aggroes, and
