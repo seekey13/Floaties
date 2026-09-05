@@ -620,10 +620,13 @@ Four toggles in `/floaties config` feed it:
 
 | Setting | Contributes | Drawn as |
 |---|---|---|
-| **Show Detection** | the icon groups flanking the bar | left of it: aggro/passive, then Link. Right of it: TrueSight, Sight, Sound, Scent, Magic, JA, Blood |
+| **Show Detection** | the icon groups flanking the bar (current target only) | left of it: aggro/passive, then Link. Right of it: TrueSight, Sight, Sound, Scent, Magic, JA, Blood |
 | **Show Level & Job** | the tag box, and a suffix on the name line | `14-17` in the box; ` WAR/MNK` appended to the name |
 | **Show Check** | a prefix on the name line, and the bar's own fill color | the `/check` tier jammed into one string: `EP-DC `, drawn in the name's own color like the name beside it; the bar fills in the tier's color, or a left-to-right low-to-high gradient when the range straddles two tiers |
-| **Show Weakness/Resist** | a row under the panel | an icon each, one percentage per equal-potency run: `<Fire>+25% <Ice> <Dark>-50%` |
+| **Show Weakness/Resist** | a row under the panel (current target only) | an icon each, one percentage per equal-potency run: `<Fire>+25% <Ice> <Dark>-50%` |
+
+Those two draw over the **current target only** -- an enemy-list panel keeps the name line, tier
+and tag and skips both (see **Enemy list**).
 
 The target's **name always draws**, whatever mobdb knows about it or doesn't —
 it is the entity's own display name, not mobdb data, so a player or an
@@ -964,9 +967,15 @@ the UI branch that reads this list needs it.
 ## Enemy list
 
 Every mob you (or your pet, avatar, or automaton) have personally damaged or affected gets
-the exact same panel the current target does -- HP bar, name line, check tier, level tag, detection
-icons, resist row -- floating over it, independent of what is currently targeted. **Show Enemy
-List** in `/floaties config` turns it off; **Enemy List Max** caps how many draw in one frame.
+the current target's panel -- HP bar, name line, check tier, level tag -- floating over it,
+independent of what is currently targeted. **Show Enemy List** in `/floaties config` turns it off;
+**Enemy List Max** caps how many draw in one frame.
+
+**Detection icons and the weakness row are the current target's alone**, whatever **Show
+Detection** and **Show Weakness/Resist** are set to. Those two answer "should I pull this one, and
+with what" -- a question about the mob under your cursor. Stamped over every claimed mob at once
+they are a wall of icons about fights already picked, on exactly the panels that are on screen in
+the largest numbers. Select the mob and its panel grows them back.
 
 **What counts as "yours."** Built off the Action packet (`0x0028`), the same one that carries
 melee swings, weaponskills, job abilities, and spells (including each Dia/Poison tick, which

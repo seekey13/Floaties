@@ -1272,17 +1272,30 @@ local function drawPet(mm, party, i, view, proj, vp)
            nil, nil, name and { { text = name } } or nil, nil, view, proj, vp);
 end
 
+-- The mob settings an enemy-list panel reads, as opposed to the current target's. Detection and
+-- weakness are the answer to "should I pull this one, and with what", which is a question about
+-- the mob under the cursor -- printed over every claimed mob at once it is a wall of icons about
+-- fights already picked. A metatable rather than a copy so every other mob setting (and any later
+-- one) still follows the live config with nothing to keep in sync, and so the whole thing costs no
+-- per-frame allocation; the two overrides are stored `false`, which rawget finds, so __index never
+-- sees them.
+local MOB_CFG_QUIET = setmetatable({ detect = false, resist = false }, {
+    __index = function (_, k) return config.settings.mob[k]; end,
+});
+
 --[[
 * Draws a target-style panel over one already-resolved entity: mob reference lookup, /check
 * capture lookup, and the world-anchored draw. Shared by drawTarget (the current target) and
 * drawClaimed (every mob you've personally hit, see lib/enemylist.lua) -- the two differ only in
-* which index/entity they hand in, and everything about how the panel looks is identical between
-* them by construction.
+* which index/entity they hand in and in `active`, so every other piece of how the panel looks is
+* identical between them by construction.
 *
 * @param {number} index - the entity's target index.
 * @param {userdata} ent - entity from GetEntity(index). Never nil -- callers check first.
+* @param {boolean} active - whether this is the current target, which is the only panel that gets
+*                           the detection and weakness icons (see MOB_CFG_QUIET).
 --]]
-local function drawMobPanel(mm, index, ent, view, proj, vp)
+local function drawMobPanel(mm, index, ent, view, proj, vp, active)
     local s = stats.read_entity(ent);
     if (s == nil) then
         return false;
@@ -1301,8 +1314,8 @@ local function drawMobPanel(mm, index, ent, view, proj, vp)
     -- level you fight at, which is what GetMainJobLevel reports (it already reads as the synced
     -- level while level sync is up). ent.Name is always known -- unlike everything else mobinfo
     -- draws, the label's name segment needs no mobdb entry.
-    local info = mobinfo.panel(res, config.settings.mob, jobName, mm:GetPlayer():GetMainJobLevel(), ent.Name,
-                                check_list[ent.ServerId]);
+    local info = mobinfo.panel(res, active and config.settings.mob or MOB_CFG_QUIET, jobName,
+                                mm:GetPlayer():GetMainJobLevel(), ent.Name, check_list[ent.ServerId]);
 
     -- The tier/name/job line goes *above* the frame, where a party member's stand-in nameplate
     -- goes, leaving the HP bar the plain percent every other bar on every other panel prints.
@@ -1339,7 +1352,7 @@ local function drawTarget(mm, view, proj, vp)
     if (ent == nil) then
         return;
     end
-    drawMobPanel(mm, target_index, ent, view, proj, vp);
+    drawMobPanel(mm, target_index, ent, view, proj, vp, true);
 end
 
 --[[
@@ -1373,7 +1386,7 @@ local function drawClaimed(mm, view, proj, vp)
             enemylist.prune(claimed_list, ent);
 
             if (ent ~= nil and bit.band(ent.SpawnFlags, 0x10) ~= 0 and stats.targetable(ent, party)) then
-                if (drawMobPanel(mm, idx, ent, view, proj, vp)) then
+                if (drawMobPanel(mm, idx, ent, view, proj, vp, false)) then
                     count = count + 1;
                     if (count >= config.settings.enemy_list_max) then
                         break;
